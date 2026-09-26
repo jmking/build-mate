@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct TaskDetailView: View {
@@ -110,8 +111,19 @@ struct TaskDetailView: View {
                     LabeledContent("Proof", value: task.proofRequirement.title)
                     if let path = task.worktreePath {
                         Divider()
-                        Text("Worktree").font(.headline)
-                        Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("Worktree").font(.headline).accessibilityAddTraits(.isHeader)
+                                Spacer()
+                                Button("Open in Terminal", systemImage: "terminal") { openWorktree(path, inTerminal: true) }
+                                    .help("Open a new Terminal at this worktree")
+                                    .accessibilityIdentifier("open-worktree-terminal")
+                                Button("Open in Finder", systemImage: "folder") { openWorktree(path, inTerminal: false) }
+                                    .help("Open this worktree in Finder")
+                                    .accessibilityIdentifier("open-worktree-finder")
+                            }.labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
+                            Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
                     }
                     if let proof {
                         Divider()
@@ -143,6 +155,23 @@ struct TaskDetailView: View {
         .toolbar {
             ToolbarItem {
                 Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal).help("Pause or resume task (⌘.)")
+            }
+        }
+    }
+    private func openWorktree(_ path: String, inTerminal: Bool) {
+        model.perform {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw CoreError.invalid("This worktree folder is no longer available.")
+            }
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            if inTerminal {
+                guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else {
+                    throw CoreError.invalid("Terminal could not be found on this Mac.")
+                }
+                _ = try await NSWorkspace.shared.open([url], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
+            } else if !NSWorkspace.shared.open(url) {
+                throw CoreError.invalid("The worktree folder could not be opened in Finder.")
             }
         }
     }

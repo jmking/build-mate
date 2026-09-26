@@ -95,6 +95,8 @@ Left: the session transcript (same components as the chat) with the task's **bri
 
 Right inspector: **Status** heading above the road-to-merge checklist (vertical, five steps, sub-items for Proof), then state-specific sections, then an optional footer with the primary action. Use “Status” for the checklist's accessibility label too.
 
+Whenever a worktree path is present, show small Terminal and Finder icon buttons beside the **Worktree** heading. Terminal opens a new shell at that folder; Finder opens the folder. Give each button an accessible label and tooltip. If the worktree has been removed, show an explanatory error rather than opening another location.
+
 ### 9a. Needs Clarification — `mac-07-task-needs-clarification`
 - Question cards (purple tint border): question text + answer chips; free-text via composer. Answering all blocking questions resumes the agent.
 - Inspector: Road to merge (Clarified = needs you, "2 questions · waiting 8 min"), Brief (text + attachments). Footer: **Let the agent decide** (agent proceeds with its stated defaults; confirmation popover lists them).
