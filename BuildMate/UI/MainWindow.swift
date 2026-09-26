@@ -123,7 +123,7 @@ struct MainWindow: View {
         case .project(let id, let page):
             switch page {
             case .tasks: TaskBoard(projectID: id).id(id)
-            case .backlog: TaskList(tasks: model.tasks(id).filter { $0.state == .backlog }, emptyTitle: "Backlog is empty", emptyDescription: "Tasks you add to Backlog wait until you move them to Queue.")
+            case .backlog: TaskList(tasks: model.tasks(id).filter { $0.state == .backlog }, emptyTitle: "Backlog is empty", emptyDescription: "Tasks you add to Backlog wait until you move them to Queue.", showsState: false)
             case .chat: ContentUnavailableView("Project chat", systemImage: "bubble.left", description: Text("Project conversations are coming soon. Create a task with ⌘N."))
             case .instructions:
                 ScrollView {

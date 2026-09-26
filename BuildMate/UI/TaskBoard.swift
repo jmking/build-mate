@@ -72,6 +72,7 @@ struct TaskList: View {
     let tasks: [WorkTask]
     let emptyTitle: String
     let emptyDescription: String
+    var showsState = true
     var body: some View {
         if tasks.isEmpty {
             ContentUnavailableView(emptyTitle, systemImage: "list.bullet.rectangle", description: Text(emptyDescription))
@@ -87,7 +88,7 @@ struct TaskList: View {
                                         Text("#\(task.number)").font(.caption.monospaced()).foregroundStyle(.secondary).frame(minWidth: 44, alignment: .leading)
                                         Text(task.title).foregroundStyle(.primary).multilineTextAlignment(.leading)
                                             .frame(maxWidth: .infinity, alignment: .leading)
-                                        StateLabel(task: task).font(.caption).fixedSize()
+                                        if showsState { StateLabel(task: task).font(.caption).fixedSize() }
                                     }.padding(.vertical, 8).contentShape(Rectangle())
                                 }.buttonStyle(.plain)
                                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
