@@ -101,6 +101,8 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 | Question | `questionmark.circle` |
 Project identity: use the neutral outline `folder` SF Symbol in the label colour, independent of Git hosting. Add 4 pt leading inset to the project disclosure label so the folder has breathing room beside the native chevron; keep the icon/title spacing native. Hide the decorative icon from accessibility; the project name labels the row.
 
+Sidebar Projects header: inset the 20 pt Add Project button by 10 pt on the trailing edge to align its symbol with the native row count badges.
+
 Brand marks are reserved for repository/service-specific actions and information, never the project icon. GitHub and Bitbucket marks (`docs/design/assets/github.svg`, `bitbucket.svg`) follow each brand's usage guidelines: GitHub mark in the label colour, Bitbucket mark in Bitbucket blue. Editor/Terminal/Finder icons are the real app icons from `NSWorkspace` at runtime.
 
 ## 6. Components (reference → native)

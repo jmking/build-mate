@@ -39,6 +39,7 @@ struct MainWindow: View {
                         Spacer()
                         Button { model.showAddProject = true } label: { Image(systemName: "plus").frame(width: 20, height: 20) }
                             .buttonStyle(.plain).help("Add Project (⇧⌘N)").accessibilityLabel("Add Project")
+                            .padding(.trailing, 10)
                     }
                 }
             }
