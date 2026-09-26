@@ -29,7 +29,7 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 - Removing a project deletes its data and worktrees and leaves the clone untouched.
 
 **Project chat and backlog**
-- Describing work produces a proposal card; **Add N to Backlog** creates tasks in Backlog with dependencies; **Start Now** creates them in Queue.
+- Describing work produces a proposal card; **Add N to Backlog** creates tasks in Backlog with dependencies; **Add to queue** creates them in Queue.
 - Typing "start the first two now, backlog the rest" results in exactly that, echoed as an event.
 - Backlog tasks are never dispatched. Moving to Queue dispatches in rank order when a slot is free.
 - Refine with Agent updates the description and any questions appear in the chat.

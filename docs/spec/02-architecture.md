@@ -106,7 +106,7 @@ The persisted `done` state is displayed as **Merged** throughout the app. Keep t
 | From | To | Trigger | Guard / notes |
 |---|---|---|---|
 | (new) | backlog | Created from project chat (default), New Task sheet "Add to Backlog", phone | |
-| (new) | todo | Chat "start now" / "go straight to Queue", sheet "Start Now", proposal "Start Now" | |
+| (new) | todo | Chat "start now" / "go straight to Queue", sheet "Add to queue", proposal "Add to queue" | |
 | backlog | todo | User: Move to Queue, swipe Start, chat instruction | |
 | todo | (dispatched) | Scheduler | Dispatchable (section 2) and a slot is free. Highest rank first. |
 | dispatched | needs_clarification | Agent calls `ask_question` with `blocking: true` during its first ("understand") turn | |

@@ -52,7 +52,7 @@ final class WorkspaceTests: XCTestCase {
         let brief = app.textViews["task-description"]
         XCTAssertTrue(brief.waitForExistence(timeout: 5))
         brief.typeText("Please make the CLI output more compact and easier to scan.")
-        XCTAssertTrue(app.buttons["Start Now"].isEnabled)
+        XCTAssertTrue(app.buttons["Add to queue"].isEnabled)
         app.buttons["Add to Backlog"].click()
         XCTAssertTrue(visibleText("Keep command output compact").waitForExistence(timeout: 5))
         app.buttons["edit-task"].click()

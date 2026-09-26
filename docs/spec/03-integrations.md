@@ -89,7 +89,7 @@ Exposed to task agents (T) and the project agent (P). All calls are validated by
 | `request_review(summary, needsRecording, rationale, checks, recordingCommand?, screenshotsCommand?)` | T | Declare implementation complete and propose task-specific evidence. `checks` contains `{name, command}` entries. Legacy threads lacking newer fields can encode the full report as JSON in summary. Recording writes to `$BUILD_MATE_RECORDING_PATH`; before/after PNGs write to `$BUILD_MATE_BEFORE_PATH` / `$BUILD_MATE_AFTER_PATH`. | Triggers the proof runner; on success moves to `human_review` (or opens the PR if review is off). |
 | `report_screenshot(path, caption)` | T | Future ad-hoc transcript screenshots. | Not registered in milestone 4: review screenshots are produced by the sandboxed `screenshotsCommand` and saved in media. |
 | `note(text)` | T, P | Short progress note shown as an agent message. | |
-| `propose_tasks(tasks[], shipAs)` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Start Now / Add to Backlog. |
+| `propose_tasks(tasks[], shipAs)` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Add to queue / Add to Backlog. |
 | `create_tasks(tasks[], destination: backlog|todo)` | P | Create tasks directly when the user explicitly asked ("go straight to Queue"). | Creates tasks; returns their numbers. |
 | `add_dependency(task, dependsOn)` | T, P | Record a newly discovered dependency. | Adds it and posts a Needs You notice (the user can remove it). |
 | `project_status()` | P | Read tasks, states, open questions and PRs. | Read-only. |
