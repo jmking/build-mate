@@ -1,1 +1,6 @@
 .DS_Store
+BuildMate.xcodeproj/
+.build/
+DerivedData/
+*.xcresult
+__pycache__/

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fail closed: a GitHub test must never accidentally fall through to real TWG.
+printf '%s\n' 'Unexpected Bitbucket invocation in GitHub core test' >&2
+exit 99

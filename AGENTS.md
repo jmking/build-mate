@@ -45,6 +45,8 @@ Keep this section current as the project grows.
 - Generate the project: `xcodegen generate`
 - Build: `xcodebuild -scheme BuildMate -destination 'platform=macOS' build`
 - Test: `xcodebuild -scheme BuildMate -destination 'platform=macOS' test`
+- Build to a predictable run path: `xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build`
+- Run: `open .build/Build/Products/Debug/BuildMate.app`
 
 ## Rules that always apply
 - **Never write Build Mate files into a user's repository.** All project data, generated `WORKFLOW.md`, worktrees, media and logs live under `~/Library/Application Support/Build Mate/` (`docs/spec/02-architecture.md` §3).

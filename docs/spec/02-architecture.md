@@ -126,7 +126,7 @@ Five checkpoints derived from state and data: **Clarified** (no open blocking qu
 Follow Symphony's loop with these specifics:
 - **Tick** every 5 s locally (no external tracker to poll). SCM status (CI, reviews, comments) for tasks in `in_pr` is polled every 60 s per task, with backoff to 5 min when nothing changes for 30 min. Webhooks are out of scope for v1.
 - **Dispatch**: pick dispatchable Todo tasks by rank; respect `agentsAtOnce` across all projects and per-project pause.
-- **Workspace**: on first dispatch, create the branch from `defaultBranch` (or from the stack base branch) and a worktree; run `afterCreate`. Before every run attempt run `beforeRun`; after, `afterRun`.
+- **Workspace**: on first dispatch, create the branch from `defaultBranch` (or from the stack base branch) and a worktree; run `afterCreate`. Before every run attempt run `beforeRun`; after, `afterRun`. Hook subprocesses run in private process groups; timeout/cancellation terminates their descendants too. Failed setup is retried in the existing worktree; `afterCreate` is retried until it succeeds, then never repeated for that worktree.
 - **Session**: one Codex thread per task, resumed across attempts and across human-in-the-loop pauses so the agent keeps its context (verify thread resume in spike, see 08). If resume is not possible, start a new thread and replay the task's message history as context.
 - **Turns**: each turn continues until the agent ends it, then the next turn starts automatically up to `maxTurnsPerTask`, unless the agent is waiting (question, approval, review) or the task is paused.
 - **Stall detection**: no Codex event for `stall` ms marks the attempt stalled and schedules a retry.
@@ -139,7 +139,7 @@ For each task session Build Mate builds the initial prompt from, in order:
 3. **Project instructions** (sidebar › Instructions). Project instructions override global ones on conflict.
 4. **Task**: title, description, attachments (images inline; videos as key frames and transcript, see 03), answers to questions so far, approved plan, dependency context (what the tasks it depends on changed), and the current goal for its state.
 
-The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Mate does not copy it. Instruction changes apply from the next turn of every running session.
+The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Mate does not copy it. Instruction changes apply from the next turn of every running session. In Codex 0.151, the fixed developer brief delegates current project/global instructions to the freshly assembled text input each turn; the resume override did not replace existing instructions in the spike (08).
 
 The **project agent** gets 1–3 plus a project brief (repo summary, open tasks and their states) and the `propose_tasks` / `create_tasks` tools. It runs read-only in a dedicated worktree of the default branch, refreshed on each new chat message.
 
@@ -148,7 +148,8 @@ The **project agent** gets 1–3 plus a project brief (repo summary, open tasks 
 - **Recording**: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-driven (the agent drives a browser through a browser tool and Build Mate records). Output: MP4/H.264, max 3 minutes, saved to `media/`.
 - **Screenshots**: for UI changes when enabled, before (default branch) and after (task branch).
 - **Changes summary**: files changed, additions, deletions, and a one-paragraph agent summary.
-- Proof is `complete` when every required item exists and passed. Only then can the task enter Human review.
+- The configured recording command receives an absolute `$BUILD_MATE_RECORDING_PATH` in project media storage and must write MP4/H.264 there. The core verifies a playable video track and duration in (0, 180] seconds. A missing required command or recording fails proof.
+- Proof is `complete` when every required item exists and passed and the implementation is committed (a dirty worktree fails proof). Only then can the task enter Human review.
 - Proof stays in Build Mate. It is **not** added to PR descriptions (the team should not see Build Mate artefacts).
 
 ## 9. Pull requests and stacking

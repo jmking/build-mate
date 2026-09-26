@@ -1,0 +1,53 @@
+name: BuildMate
+options:
+  deploymentTarget:
+    macOS: '26.0'
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: '26.0'
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: '-'
+    ENABLE_APP_SANDBOX: NO
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 7.11.1
+targets:
+  BuildMate:
+    type: application
+    platform: macOS
+    sources: [BuildMate]
+    dependencies:
+      - package: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.buildmate.app
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_CFBundleDisplayName: Build Mate
+  BuildMateTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: BuildMateTests
+        excludes: [Fixtures]
+      - path: BuildMateTests/Fixtures
+        type: folder
+        buildPhase: resources
+      - path: BuildMate/Core
+    dependencies:
+      - package: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.buildmate.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  BuildMate:
+    build:
+      targets:
+        BuildMate: all
+    test:
+      targets: [BuildMateTests]
+      gatherCoverageData: false

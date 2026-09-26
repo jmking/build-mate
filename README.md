@@ -1,18 +1,47 @@
 # Build Mate
 
-Build Mate is a native macOS app (with an iPhone companion) for managing AI coding agents at the level of **work**, not sessions. You describe what you want in a project chat; Build Mate splits it into tasks, runs each task with its own agent in an isolated git worktree, and carries every task through a visible lifecycle to a merged pull request. You step in only where you are needed: answering questions, approving plans, reviewing proof of work.
-
-It is built on the ideas in OpenAI's [Symphony](https://github.com/openai/symphony) (`SPEC.md`): an orchestrator that polls a task tracker, dispatches agents into per-task workspaces, retries, and reconciles state. Build Mate implements that model natively in Swift, with its own built-in task tracker, and extends it (clarification, proof of work, approvals, project chat, remote control).
-
-## Repository layout
-
-| Path | What it is |
-|---|---|
-| `AGENTS.md` | Instructions for coding agents (Codex, Claude Code). Read first. `CLAUDE.md` imports it for older Claude Code versions. |
-| `docs/codex-kickoff.md` | The prompt that starts the v1 build in Codex. |
-| `docs/spec/` | The product and engineering specification. Start at `docs/spec/00-index.md`. |
-| `docs/design/` | Every designed screen, light and dark: PNGs, static HTML references, icon assets. See `docs/design/README.md`. |
+Build Mate v1 is a native macOS app for managing AI coding work through to merge. Swift 6, SwiftUI, macOS 26+, one app process, SQLite via GRDB. Codex runs through `codex app-server`; git and host integrations use their CLIs.
 
 ## Status
 
-Specification and visual design only. No code yet. Version plan: `docs/spec/07-delivery.md`.
+Milestones 1 (integration spikes) and 2 (core) are implemented. The app currently opens a native startup screen. Project setup, Needs You, the board and transcript UI begin in milestone 3; this is not the complete v1 interface.
+
+The core supports durable projects/tasks/sessions, guarded state transitions, rank/dependency dispatch, external worktrees, hooks with timeouts, Codex dynamic tools, clarification and plan approval, proof gates, human review, GitHub PR creation and merge detection, retries and reconciliation. The test suite exercises the complete initial lifecycle with fake CLI processes and a real local bare git remote. It never calls real Codex, GitHub or Bitbucket.
+
+Real Codex lifecycle/dynamic tools/sandbox probes passed on 0.151.0. TWG is absent on the development Mac: its authenticated Bitbucket integration remains pending. Full PR watch/repair/merge and restacking are milestone 5. See [findings and setup](docs/spec/08-open-questions.md).
+
+## Build, test and run
+
+Requires the installed Xcode with a macOS 26+ SDK and XcodeGen (`brew install xcodegen`). GRDB 7.11.1 is the sole package dependency. Xcode resolves it on the first build. Do not edit the generated Xcode project.
+
+```sh
+xcodegen generate
+xcodebuild -scheme BuildMate -destination 'platform=macOS' build
+xcodebuild -scheme BuildMate -destination 'platform=macOS' test
+```
+
+For a predictable app path:
+
+```sh
+xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build
+open .build/Build/Products/Debug/BuildMate.app
+```
+
+The app uses `~/Library/Application Support/Build Mate/`. Tests supply separate temporary storage and an isolated environment. The hostless test target compiles the unmodified core sources, avoiding any test launch against real app data. No signing team or credentials are needed for local tests.
+
+## Milestone demos
+
+1. Manual scripts in `scripts/spikes/` exercised real Codex thread/turn continuation, steer, interrupt, resume after restart, usage events, persistent dynamic tools and explicit sandbox boundaries. Three local browser recordings produced valid MP4s. These scripts are manual probes, never part of `xcodebuild test`.
+2. `lifecycleKeepsCloneCleanGatesProofAndFinishesOnlyAfterMerge` demonstrates Todo → question → answer → plan approval → build → failed proof → repaired proof → human review → Open Pull Request → merged → Done. It reopens the database at review, checks the original clone is untouched, and deletes app-owned worktrees/data. Two further e2e flows exercise scheduling/restart and failed/timed-out hooks. One unit test covers transition guards.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `AGENTS.md` | Engineering and test rules |
+| `project.yml` | XcodeGen source of truth |
+| `BuildMate/` | Native app entry point and core |
+| `BuildMateTests/` | Process-boundary e2e harness, executable fixtures, transition test |
+| `scripts/spikes/` | Manual integration probes; require real external tools |
+| `docs/spec/` | Product/engineering spec; start at `00-index.md` |
+| `docs/design/` | Light/dark PNGs, HTML references and assets |

@@ -52,3 +52,9 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 - Every action is reachable from the menu bar and has the shortcut in 04 §14.
 - The menu bar extra shows Needs You and Building items and opens tasks in the main window.
 - Notifications arrive for each new Needs You item and deep-link to it.
+
+## Milestones 1–2 handoff (2026-09-26)
+
+- **1 demo:** real Codex 0.151 thread/turn/steer/interrupt/restart-resume and persistent dynamic tools passed. Explicit worktree-only write policy plus networking passed. Three local Playwright recording attempts passed after resolving its ffmpeg prerequisite. TWG was not installed; the documented setup/REST mapping is the allowed GitHub-first fallback, not an authenticated Bitbucket verification. See 08.
+- **2 demo:** three process-boundary e2e tests cover the lifecycle through host merge, scheduler rank/dependency/pause/crash/stall behavior, and failed/timed-out hooks. One state-machine unit test checks every state pair plus proof/question/plan/dependency/merge guards. The user clone stays clean; data and worktrees stay beneath app storage.
+- The native startup screen launches and exposes its text to accessibility. Full designed light/dark screens, keyboard flows, VoiceOver operation, Reduce Motion and Reduce Transparency acceptance belong to milestones 3–7 and have not been claimed complete here.

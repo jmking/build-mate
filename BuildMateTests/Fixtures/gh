@@ -1,0 +1,14 @@
+#!/usr/bin/python3
+import json,os,pathlib,sys
+root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);a=sys.argv[1:]
+with (root/'gh-calls.jsonl').open('a') as f:f.write(json.dumps(a)+'\n')
+pr={'number':42,'url':'https://github.com/fixture/repo/pull/42','baseRefName':'main'}
+if a[:2]==['pr','list']:print(json.dumps([pr] if (root/'pr-created').exists() else []))
+elif a[:2]==['pr','create']:
+ body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
+ assert body=='Adds the requested feature.'
+ assert a[a.index('--base')+1]=='main'
+ (root/'pr-body').write_text(body);(root/'pr-created').touch();print(pr['url'])
+elif a[:2]==['pr','view']:
+ print(json.dumps({'state':'MERGED' if (root/'merged').exists() else 'OPEN'} if a[-1]=='state' else pr))
+else:sys.exit('Unexpected gh command')

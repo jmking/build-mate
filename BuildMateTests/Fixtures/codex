@@ -1,0 +1,62 @@
+#!/usr/bin/python3
+"""Process-boundary fake: speaks real app-server JSONL; never contacts a service."""
+import json, os, pathlib, subprocess, sys, time
+root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);root.mkdir(exist_ok=True)
+log=root/'calls.jsonl'
+thread='';cwd='';turn='';pending={};count=0
+
+def emit(value):print(json.dumps(value),flush=True)
+def event(method,params):emit({'method':method,'params':params})
+def reply(req,result):emit({'id':req['id'],'result':result})
+def call(tool,args):
+ global count
+ count+=1;key='tool-'+str(count);pending[key]=tool
+ emit({'id':key,'method':'item/tool/call','params':{'threadId':thread,'turnId':turn,'callId':key,'tool':tool,'arguments':args}})
+def statepath():return root/(thread+'.json')
+def readstate():return json.loads(statepath().read_text()) if statepath().exists() else {}
+def save(**values):
+ s=readstate();s.update(values);statepath().write_text(json.dumps(s))
+def complete():event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'completed','items':[],'error':None}})
+def build():
+ pathlib.Path(cwd,'feature.txt').write_text('implemented\n')
+ subprocess.run(['git','-C',cwd,'add','feature.txt'],check=True,stdout=subprocess.DEVNULL)
+ subprocess.run(['git','-C',cwd,'-c','user.name=Fake Agent','-c','user.email=fake@example.invalid','commit','-m','Implement feature'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ call('request_review',{'summary':'Adds the requested feature.'})
+
+for line in sys.stdin:
+ req=json.loads(line)
+ with log.open('a') as f:f.write(json.dumps({'method':req.get('method'),'id':req.get('id'),'params':req.get('params')})+'\n')
+ method=req.get('method');p=req.get('params',{})
+ if method=='initialize':reply(req,{'userAgent':'fake/0.151'})
+ elif method=='initialized':pass
+ elif method=='model/list':reply(req,{'data':[{'id':'fake-model','isDefault':True}],'nextCursor':None})
+ elif method=='account/rateLimits/read':reply(req,{'rateLimits':{'primary':{'usedPercent':10}}})
+ elif method=='thread/start':
+  cwd=p['cwd'];thread='fixture-'+pathlib.Path(cwd).parent.name+'-'+pathlib.Path(cwd).name
+  assert p['dynamicTools'] and p['sandbox']=='workspace-write' and p['approvalPolicy']=='never'
+  save(cwd=cwd);reply(req,{'thread':{'id':thread}})
+ elif method=='thread/resume':
+  thread=p['threadId'];cwd=readstate()['cwd'];reply(req,{'thread':{'id':thread}})
+ elif method=='turn/start':
+  thread=p['threadId'];turn='turn-'+str(readstate().get('turns',0)+1);save(turns=readstate().get('turns',0)+1)
+  assert p['sandboxPolicy']['excludeSlashTmp'] and p['sandboxPolicy']['excludeTmpdirEnvVar']
+  reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
+  if (root/'crash-once').exists():
+   (root/'crash-once').unlink();sys.exit(7)
+  if (root/'stall').exists():continue
+  if not readstate().get('answered'):call('ask_question',{'prompt':'Which output?','options':['Plain','Rich'],'allowsFreeText':True,'blocking':True})
+  else:call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
+ elif method=='turn/steer':reply(req,{'turnId':turn})
+ elif method=='turn/interrupt':reply(req,{});event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'interrupted','items':[]}})
+ elif 'id' in req and req['id'] in pending:
+  tool=pending.pop(req['id'])
+  if tool=='ask_question':
+   assert req['result']['contentItems'][0]['text']=='Plain';save(answered=True)
+   time.sleep(0.05)
+   call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
+  elif tool=='submit_plan':build()
+  elif tool=='request_review':
+   if not req['result']['success']:
+    (root/'proof-repaired').touch();call('request_review',{'summary':'Adds the requested feature.'})
+   else:complete()
+ else:emit({'id':req.get('id'),'error':{'code':-32601,'message':'Unexpected fake method'}})
