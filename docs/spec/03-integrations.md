@@ -22,12 +22,13 @@ Build Mate runs agents through `codex app-server` (JSON-RPC over stdio), the sam
 | Activity feed | `item/started`, `item/completed`, `item/commandExecution/outputDelta`, `item/fileChange/*`, `turn/diff/updated`, `item/agentMessage/delta`, `turn/plan/updated`. Group consecutive tool items into one `activity` message. |
 | Token counts | `thread/tokenUsage/updated`. |
 | Stall detection | Time since the last notification on the thread. |
-| Instruction changes | Applied on the next `turn/start` by passing updated instructions (verify whether `developerInstructions` can be updated mid-thread; otherwise inject via `thread/inject_items`). |
+| Instruction changes | Fixed lifecycle developer brief; assemble current global/project instructions in every turn input. In 0.151, `thread/resume.developerInstructions` returned success but did not replace the original instruction in the manual probe. |
+
+Every `turn/start` supplies `sandboxPolicy: { type: "workspaceWrite", writableRoots: [worktreePath], networkAccess: settings.network, excludeTmpdirEnvVar: true, excludeSlashTmp: true }`. The explicit exclusions prevent temporary-directory exceptions from broadening the write boundary. Resolve an unspecified model from `model/list`'s `isDefault` entry and send its ID explicitly.
 
 ### Build Mate tools for agents
-Agents need a few Build Mate-specific tools (§5). Two mechanisms, in order of preference:
-1. **Dynamic tools** (client-side): the app-server sends `item/tool/call` (`DynamicToolCallParams`) and Build Mate responds. The schema contains `DynamicToolSpec`, but tool registration is not in the stable `thread/start` params in 0.151; treat as experimental and verify (08).
-2. **MCP server** (fallback, stable): Build Mate runs a local MCP server (stdio) and registers it per session with `thread/start` `config` override `mcp_servers.buildmate = { command, args }`.
+Use **experimental client-side dynamic tools**, verified with codex-cli 0.151.0 on 2026-09-26. Initialize with `capabilities: { experimentalApi: true }`, then register `dynamicTools: [{ name, description, inputSchema }]` on `thread/start`. Handle `item/tool/call` server requests and reply on the same JSON-RPC ID with `{ contentItems: [{ type: "inputText", text: "…" }], success: true }`. Tools persist with the thread and survive `thread/resume` after restarting app-server. No MCP server or extra app process is required. Unsupported experimental registration is an actionable compatibility error, never a silent tool-less fallback.
+
 Also handle `item/tool/requestUserInput` (Codex's own ask-the-user request) by converting it into a Build Mate Question.
 
 ## 2. GitHub (via `gh`)
@@ -48,19 +49,20 @@ Build Mate uses the user's authenticated GitHub CLI. It checks `gh auth status` 
 ## 3. Bitbucket Cloud (via TWG CLI)
 Bitbucket Cloud projects use Atlassian's **Teamwork Graph CLI** (`twg`), which supports Bitbucket repos, PRs, branches, commits, pipelines and deployments. Bitbucket uses a separate Bitbucket token configured with `twg setup bitbucket` (Bitbucket is not on TWG's OAuth). Build Mate checks setup when a Bitbucket project is added and guides the user through it; no tokens stored by Build Mate.
 
-Required operations (map each to the TWG command from Atlassian's Command Catalog during the spike; record the exact commands here):
+`twg` is not installed on the spike Mac (2026-09-26). The [official catalog](https://developer.atlassian.com/platform/teamwork-graph/twg-cli/commands/commands-catalog/) confirms command families below, but does not specify all flags or JSON envelopes. **Use the exact REST contract as the mapping until authenticated CLI help and output are verified**; do not invent flags. `R` below means `https://api.bitbucket.org/2.0/repositories/{workspace}/{repo_slug}`; `P` means `R/pullrequests/{id}`. Substitute URL-encoded path segments. All bodies are JSON.
 
-| Operation | TWG command (verify) | Fallback |
+| Operation | Catalog command (flags/output unverified) | Exact REST fallback |
 |---|---|---|
-| Resolve repo, default branch | `twg` repo info | `git remote get-url origin` + Bitbucket REST `GET /2.0/repositories/{ws}/{repo}` |
-| Open PR (with destination branch for stacking) | `twg` PR create | REST `POST /2.0/repositories/{ws}/{repo}/pullrequests` |
-| PR status: state, approvals, participants | `twg` PR get | REST `GET .../pullrequests/{id}` |
-| Build status (Pipelines and commit statuses) | `twg` pipelines / commit status | REST `GET .../commit/{sha}/statuses` |
-| Comments incl. inline, replies | `twg` PR comments | REST `.../pullrequests/{id}/comments` |
-| Update destination (restack) | `twg` PR update | REST `PUT .../pullrequests/{id}` |
-| Merge (squash, close source branch) | `twg` PR merge | REST `POST .../pullrequests/{id}/merge` with `merge_strategy: squash`, `close_source_branch: true` |
+| Resolve repo/default branch | `twg bitbucket repo get` | `GET R`; read `full_name`, `mainbranch.name` |
+| Create PR/stacked destination | `twg bitbucket pull-requests create` | `POST R/pullrequests`, body `{ "title": title, "description": summary, "source": {"branch":{"name":head}}, "destination":{"branch":{"name":base}}, "close_source_branch":true }` |
+| State/approvals/participants | `twg bitbucket pull-requests get` | `GET P`; inspect `state`, `participants[].approved`, `reviewers`, `draft` |
+| Build/commit statuses | `twg bitbucket pipeline query` (pipeline subset only) | `GET R/commit/{sha}/statuses`; follow `next` for all pages |
+| Comments including inline/replies | `twg bitbucket pull-requests comment query` | `GET P/comments`; follow `next` |
+| Comment/reply | `twg bitbucket pull-requests comment create` | `POST P/comments`, body `{"content":{"raw":text}}`; add `"parent":{"id":commentId}` for a reply, or `"inline":{"path":file,"to":line}` for an inline comment |
+| Retarget destination | `twg bitbucket pull-requests update` (destination flag not established) | `PUT P`, body `{"destination":{"branch":{"name":base}}}` |
+| Squash merge | `twg bitbucket pull-requests merge` | `POST P/merge`, body `{"merge_strategy":"squash","close_source_branch":true}`; handle asynchronous merge responses before marking Done |
 
-Implementation: both hosts sit behind one `SCMProvider` protocol (`openPR, prStatus, checks, comments, reply, retarget, merge`) so the orchestrator never branches on host. Output parsing MUST use structured output (JSON) where the CLI provides it.
+Do not implement a REST credential reader by scraping TWG configuration. Token transport for any needed fallback is still an authenticated-spike question; credentials stay with TWG or Keychain. Milestone 2 proceeds with GitHub; the Bitbucket provider remains disabled until verified. See 08 for exact installation/setup steps. At milestone 5 both verified hosts can implement the small `SCMProvider` contract (`openPR, prStatus, checks, comments, reply, retarget, merge`); do not add a second-provider abstraction to the GitHub-only core prematurely.
 
 ## 4. Editors, Terminal and Finder
 - Detect installed apps with `NSWorkspace.shared.urlForApplication(withBundleIdentifier:)`:
