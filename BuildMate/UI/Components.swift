@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension TaskState {
     var title: String {
@@ -114,19 +115,37 @@ struct TaskPriorityDrag: ViewModifier {
         if [.backlog, .todo].contains(task.state) {
             content
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-                .draggable("build-mate-task:" + task.id.uuidString)
-                .dropDestination(for: String.self) { items, point in
-                    guard let item = items.first, item.hasPrefix("build-mate-task:"),
-                          let id = UUID(uuidString: String(item.dropFirst(16))),
-                          let source = model.snapshot.tasks.first(where: { $0.id == id }),
-                          source.projectId == task.projectId, source.state == task.state else { return false }
-                    model.perform { try model.reorderTask(id, relativeTo: task.id, after: point.y > height / 2) }
-                    return true
-                } isTargeted: { targeted = $0 }
+                .onDrag { NSItemProvider(object: ("build-mate-task:" + task.id.uuidString) as NSString) }
+                .onDrop(of: [UTType.text], delegate: TaskPriorityDrop(model: model, task: task, height: height, targeted: $targeted))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(targeted ? Color.accentColor : .clear, lineWidth: 2).allowsHitTesting(false))
                 .accessibilityAction(named: "Move earlier") { model.perform { try model.movePriority(task, earlier: true) } }
                 .accessibilityAction(named: "Move later") { model.perform { try model.movePriority(task, earlier: false) } }
                 .help("Drag above or below another task to change priority")
         } else { content }
+    }
+}
+
+private struct TaskPriorityDrop: DropDelegate {
+    let model: AppModel
+    let task: WorkTask
+    let height: CGFloat
+    @Binding var targeted: Bool
+    func dropEntered(info: DropInfo) { targeted = true }
+    func dropExited(info: DropInfo) { targeted = false }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool {
+        targeted = false
+        guard let provider = info.itemProviders(for: [UTType.text]).first else { return false }
+        let after = info.location.y > height / 2
+        provider.loadObject(ofClass: NSString.self) { value, _ in
+            guard let text = value as? String, text.hasPrefix("build-mate-task:"),
+                  let id = UUID(uuidString: String(text.dropFirst(16))) else { return }
+            Task { @MainActor in
+                guard let source = model.snapshot.tasks.first(where: { $0.id == id }),
+                      source.projectId == task.projectId, source.state == task.state else { return }
+                model.perform { try model.reorderTask(id, relativeTo: task.id, after: after) }
+            }
+        }
+        return true
     }
 }
