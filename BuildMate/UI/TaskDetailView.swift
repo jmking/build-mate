@@ -39,14 +39,14 @@ struct TaskDetailView: View {
                 ForEach(messages) { item in
                     if let question = questions.first(where: { $0.messageId == item.id }) { TaskQuestion(question: question) }
                     else if item.kind == "event" {
-                        HStack(spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Image(systemName: "arrow.right").accessibilityHidden(true)
                             Text(displayText(item))
-                            Text(item.createdAt, style: .time).foregroundStyle(.secondary)
+                            Text(item.createdAt, style: .time).foregroundStyle(.secondary).fixedSize()
                         }.font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
-                            HStack {
+                            HStack(alignment: .firstTextBaseline) {
                                 Text(item.role == "agent" ? "Agent" : item.role == "user" ? "You" : "Build Mate").fontWeight(.medium)
                                 Text(item.createdAt, style: .time)
                             }.font(.caption).foregroundStyle(.secondary)
@@ -77,12 +77,13 @@ struct TaskDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(messageStatus ?? composerExplanation).font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("message-status")
-                    HStack(alignment: .bottom) {
+                    HStack(alignment: .bottom, spacing: 12) {
                         TextField(composerTitle, text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain).font(.system(size: 14))
+                            .padding(.vertical, 7).frame(minHeight: 32)
                             .accessibilityLabel(composerTitle).accessibilityIdentifier("task-message").onSubmit(send)
                             .disabled(sending || openQuestion?.allowsFreeText == false)
                         Button(action: send) { Label(actionTitle, systemImage: "arrow.up").labelStyle(.iconOnly).frame(width: 18, height: 18) }
-                            .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
+                            .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
                             .accessibilityLabel(actionTitle).help(actionTitle + " (⌘Return)")
                             .disabled(sending || openQuestion?.allowsFreeText == false || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             .keyboardShortcut(.return, modifiers: .command)

@@ -56,3 +56,10 @@ All Needs You sections now use the complete card as a native button, with a rect
 ## Project folder icon follow-up — 2026-09-26
 
 Replaced the hosting-service logo with the neutral outline folder SF Symbol. Verified light/dark rendering and the project name/pause accessibility label without redundant hosting text. Build passed. The first regression run hit SQLite error 5 (`BEGIN IMMEDIATE TRANSACTION`) in the unchanged scheduler/restart test; an unchanged rerun passed all five tests in 12.937 seconds. This records an intermittent test failure, not a SQLite fix. No additional tests for the decorative icon change.
+
+
+## Text alignment pass — 2026-09-26
+
+Corrected the composer’s short-field/tall-button bottom alignment with optical text insets and matched native control sizing. Applied first-baseline alignment to form rows and footers, setup grid cells, transcript metadata, Needs You cards and task lists. Task lists reserve consistent number space and keep multiline titles leading aligned. The visual pass also found native list separators starting underneath the trailing status label; explicitly aligned them to the row leading edge.
+
+Manually inspected the composer empty and with multiline text, task brief/inspector, long wrapped card/list titles, board, New Task and Add Project (including discovered repository metadata). Checked light and dark appearance in isolated fixtures; the original fixture title was restored afterward. Native controls and accessibility identifiers remain intact. Build and the existing five-test suite pass; no new tests for these layout-only changes. Spoken VoiceOver and the previously documented XCTest UI-host limitation remain unverified.

@@ -38,8 +38,8 @@ struct NeedsYouView: View {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
                 ForEach(tasks) { task in
                     Button { model.destination = .task(task.id) } label: {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: symbol).foregroundStyle(color).padding(.top, 2)
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Image(systemName: symbol).foregroundStyle(color)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(task.title).fontWeight(.medium)
                                 Text("\(model.projectName(task.projectId)) · #\(task.number)").font(.caption).foregroundStyle(.secondary)
@@ -47,7 +47,7 @@ struct NeedsYouView: View {
                                 if task.state == .humanReview { RoadToMerge(task: task).frame(maxWidth: 220) }
                             }.multilineTextAlignment(.leading)
                             Spacer()
-                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 3)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
                             .contentShape(Rectangle())

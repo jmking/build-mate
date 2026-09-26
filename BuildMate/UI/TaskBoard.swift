@@ -84,13 +84,14 @@ struct TaskList: View {
                         Section(state.title) {
                             ForEach(group) { task in
                                 Button { model.destination = .task(task.id) } label: {
-                                    HStack(spacing: 16) {
-                                        Text("#\(task.number)").font(.caption.monospaced()).foregroundStyle(.secondary)
-                                        Text(task.title).foregroundStyle(.primary)
-                                        Spacer()
-                                        StateLabel(task: task).font(.caption)
+                                    HStack(alignment: .firstTextBaseline, spacing: 16) {
+                                        Text("#\(task.number)").font(.caption.monospaced()).foregroundStyle(.secondary).frame(minWidth: 44, alignment: .leading)
+                                        Text(task.title).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        StateLabel(task: task).font(.caption).fixedSize()
                                     }.padding(.vertical, 8).contentShape(Rectangle())
                                 }.buttonStyle(.plain)
+                                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                             }
                         }
                     }

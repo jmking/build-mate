@@ -14,7 +14,7 @@ struct AddProjectSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Add Project").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
             Text("Choose a local clone on this Mac.").foregroundStyle(.secondary)
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 TextField("Repository folder", text: $path).textFieldStyle(.roundedBorder).focused($pathFocused).onSubmit { if !path.isEmpty && !checking { inspect() } }.accessibilityIdentifier("repository-path")
                     .onChange(of: path) { discovered = nil; failure = nil }
                 Button("Choose…") { chooseFolder() }
@@ -26,14 +26,14 @@ struct AddProjectSheet: View {
             if let discovered {
                 GroupBox {
                     Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 12) {
-                        GridRow { Text("Project").foregroundStyle(.secondary); Text(discovered.project.name) }
-                        GridRow { Text("Host").foregroundStyle(.secondary); Text(discovered.project.host == .github ? "GitHub" : "Bitbucket Cloud") }
-                        GridRow { Text("Default branch").foregroundStyle(.secondary); Text(discovered.project.defaultBranch).font(.body.monospaced()) }
-                        GridRow { Text("CLI status").foregroundStyle(.secondary); Label(discovered.status, systemImage: discovered.authenticated ? "checkmark.circle" : "exclamationmark.circle") }
+                        GridRow(alignment: .firstTextBaseline) { Text("Project").foregroundStyle(.secondary); Text(discovered.project.name) }
+                        GridRow(alignment: .firstTextBaseline) { Text("Host").foregroundStyle(.secondary); Text(discovered.project.host == .github ? "GitHub" : "Bitbucket Cloud") }
+                        GridRow(alignment: .firstTextBaseline) { Text("Default branch").foregroundStyle(.secondary); Text(discovered.project.defaultBranch).font(.body.monospaced()) }
+                        GridRow(alignment: .firstTextBaseline) { Text("CLI status").foregroundStyle(.secondary); Label(discovered.status, systemImage: discovered.authenticated ? "checkmark.circle" : "exclamationmark.circle") }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
                 }
                 if let command = discovered.setupCommand {
-                    HStack {
+                    HStack(alignment: .firstTextBaseline) {
                         Text("Run in Terminal: \(command)").font(.caption.monospaced()).textSelection(.enabled)
                         Button("Copy Command") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(command, forType: .string) }
                     }
@@ -41,7 +41,7 @@ struct AddProjectSheet: View {
             }
             if let failure { Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 8)
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Nothing is written to the repository.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -111,7 +111,7 @@ struct NewTaskSheet: View {
             if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Text(selectedProject?.runBlockReason ?? "Start Now adds the task to Todo. It runs when the project is resumed and an agent slot is available.")
                 .font(.caption).foregroundStyle(.secondary)
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Agents only pick up tasks in Todo.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { creation?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)

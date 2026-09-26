@@ -60,6 +60,8 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 
 ## 4. Layout, spacing, radii
 - Spacing scale: 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40.
+- Align mixed-size text/control rows to their first text baseline: form fields/buttons, footer captions/actions, task number/title/status, transcript metadata, and Needs You glyph/title/chevron. Wrapped titles stay leading aligned; task metadata stays on the first line. List separators start at the row's leading edge, not underneath trailing status labels.
+- Composer: the text field has a minimum 32 pt height with 7 pt optical vertical insets and a large native circular send control. Its single line is vertically centred with the button; when it grows, the last text line remains aligned with the bottom action. Hint and input share a leading edge. Check empty, typed, wrapped and multiline states.
 - **Concentric corners**: inner radius = outer radius − padding. Board column 20 → card 12 (8 padding). Sheet 22 → inner panel 12 (10 padding).
 - Radii: windows (system, 16 in references), cards 12, grouped boxes 12 (Mac) / 26 (iOS), sheets 22, capsule controls (height ÷ 2), chips 15, badges 9.
 - Mac sidebar 232; inspector 340; chat max line width 720; list pane in Backlog 420.
