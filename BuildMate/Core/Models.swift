@@ -61,7 +61,7 @@ extension Project {
     }
 }
 
-enum MessageDelivery: Sendable { case sent, saved }
+enum MessageDelivery: Sendable { case sent, saved, queued }
 
 struct AppSettings: Codable, Sendable {
     var agentsAtOnce = 4

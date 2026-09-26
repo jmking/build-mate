@@ -89,11 +89,27 @@ struct RecordingPlayer: View {
     var body: some View {
         Group {
             if FileManager.default.fileExists(atPath: path) {
-                VideoPlayer(player: player).accessibilityLabel("Proof recording")
+                NativeRecordingPlayer(player: player).accessibilityLabel("Proof recording")
             } else { ContentUnavailableView("Recording unavailable", systemImage: "video.slash") }
         }
         .task(id: path) { player?.pause(); player = AVPlayer(url: URL(fileURLWithPath: path)) }
         .onDisappear { player?.pause(); player = nil }
+    }
+}
+
+// The installed macOS runtime crashes in _AVKit_SwiftUI's VideoPlayer metadata.
+// AVPlayerView provides the same native playback controls without that bridge.
+private struct NativeRecordingPlayer: NSViewRepresentable {
+    let player: AVPlayer?
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        return view
+    }
+    func updateNSView(_ view: AVPlayerView, context: Context) { view.player = player }
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player?.pause()
+        view.player = nil
     }
 }
 
@@ -107,7 +123,7 @@ struct ReviewEvidence: View {
             Text("Proof of work").font(.headline).accessibilityAddTraits(.isHeader)
             if !proof.complete || proof.commitSHA == nil {
                 Label("Fresh proof required", systemImage: "exclamationmark.circle").foregroundStyle(.secondary)
-                Text("Send this task back for fresh proof before opening a pull request.").font(.caption).foregroundStyle(.secondary)
+                Text("Ask the agent in chat for fresh proof before opening a pull request.").font(.caption).foregroundStyle(.secondary)
             }
             Text(proof.summary).textSelection(.enabled)
             if let rationale = proof.rationale { Text(rationale).font(.caption).foregroundStyle(.secondary) }
@@ -198,7 +214,6 @@ struct LifecycleSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let sheet: ReviewSheet
-    @State private var note = ""
     @State private var command = ""
     @State private var portVariable = "PORT"
     @State private var readyPath = "/"
@@ -230,13 +245,12 @@ struct LifecycleSheet: View {
         }
     }
     private var title: String {
-        switch sheet { case .sendBack: "Send back for changes"; case .changes: "Changes"; case .previewSetup: "Local Preview"; case .defaults: "Use the agent’s suggestions?"; case .log: "Check output"; case .image: "Screenshot" }
+        switch sheet { case .changes: "Changes"; case .previewSetup: "Local Preview"; case .defaults: "Use the agent’s suggestions?"; case .log: "Check output"; case .image: "Screenshot" }
     }
-    private var actionable: Bool { switch sheet { case .sendBack, .previewSetup, .defaults: true; default: false } }
-    private var actionTitle: String { switch sheet { case .sendBack: "Send Back"; case .defaults: "Use Suggestions"; default: "Save Configuration" } }
+    private var actionable: Bool { switch sheet { case .previewSetup, .defaults: true; default: false } }
+    private var actionTitle: String { switch sheet { case .defaults: "Use Suggestions"; default: "Save Configuration" } }
     private var valid: Bool {
         switch sheet {
-        case .sendBack: !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .previewSetup: !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .defaults(let id): !questions(id).isEmpty && questions(id).allSatisfy { $0.suggestedAnswer != nil }
         default: true
@@ -245,9 +259,6 @@ struct LifecycleSheet: View {
     private func questions(_ id: UUID) -> [Question] { model.snapshot.questions.filter { $0.taskId == id && $0.answer == nil && $0.blocking } }
     @ViewBuilder private var content: some View {
         switch sheet {
-        case .sendBack:
-            Text("Describe what needs changing. The agent keeps its context and must provide fresh proof. Paused work stays paused.").foregroundStyle(.secondary)
-            TextEditor(text: $note).frame(height: 170).accessibilityLabel("Requested changes")
         case .previewSetup:
             Text("Runs in the task’s worktree. Use the port variable in your command and bind to 127.0.0.1. Saving does not run it.").foregroundStyle(.secondary)
             TextField("Command (for example: npm run dev -- --port $PORT --host 127.0.0.1)", text: $command).textFieldStyle(.roundedBorder).accessibilityLabel("Preview command")
@@ -291,7 +302,6 @@ struct LifecycleSheet: View {
             defer { saving = false }
             do {
                 switch sheet {
-                case .sendBack(let id): try await model.core.sendBack(id, note: note)
                 case .defaults(let id):
                     for question in questions(id) { if let answer = question.suggestedAnswer { try await model.core.answer(question.id, text: answer, useSuggested: true) } }
                 case .previewSetup(let id):

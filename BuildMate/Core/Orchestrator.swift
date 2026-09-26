@@ -258,12 +258,12 @@ actor Orchestrator {
         if try dependenciesReady(store.get(WorkTask.self, approval.taskId)) { try transition(approval.taskId, to: .building) }
         await tick()
     }
-    func sendBack(_ id: UUID, note: String) async throws {
+    private func requestChanges(_ id: UUID, note: String) async throws {
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !note.isEmpty else { throw CoreError.invalid("Describe the changes you want.") }
         guard !openingPRs.contains(id), editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
         defer { editingTasks.remove(id) }
-        guard try store.get(WorkTask.self, id).state == .humanReview else { throw CoreError.invalid("Only a task awaiting review can be sent back.") }
+        guard try store.get(WorkTask.self, id).state == .humanReview else { throw CoreError.invalid("Only a task awaiting review can receive review feedback.") }
         await stopPreview(id)
         if let worker = workers[id] { worker.cancel(); await clients[id]?.stop(); await worker.value }
         let session = try store.session(for: id)
@@ -273,13 +273,18 @@ actor Orchestrator {
             try task.save(db)
             try db.execute(sql: "UPDATE proof SET complete = 0 WHERE taskId = ?", arguments: [id])
             try Message(sessionId: session.id, role: "user", body: note).insert(db)
-            try Message(sessionId: session.id, role: "system", kind: "event", body: "Sent back for changes. Fresh proof is required.").insert(db)
+            try Message(sessionId: session.id, role: "system", kind: "event", body: "Review feedback received. Fresh proof is required.").insert(db)
         }
         editingTasks.remove(id)
         await tick()
     }
     @discardableResult
     func steer(_ id: UUID, text: String) async throws -> MessageDelivery {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Enter a message.") }
+        if try store.get(WorkTask.self, id).state == .humanReview {
+            try await requestChanges(id, note: text)
+            return .queued
+        }
         let session = try store.session(for: id)
         try store.save(Message(sessionId: session.id, role: "user", body: text))
         if let client = clients[id], let thread = session.codexThreadId, let turn = session.currentTurn {
@@ -299,7 +304,7 @@ actor Orchestrator {
         await stopPreview(id)
         let head = try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)
         let clean = try await runner.run("git", ["status", "--porcelain"], cwd: cwd).output.isEmpty
-        guard clean, proof.commitSHA == head else { throw CoreError.invalid("The worktree changed since proof was recorded. Send it back for fresh proof before opening a pull request.") }
+        guard clean, proof.commitSHA == head else { throw CoreError.invalid("The worktree changed since proof was recorded. Ask the agent in chat for fresh proof before opening a pull request.") }
         let project = try store.get(Project.self, task.projectId)
         guard project.host != .local else { throw CoreError.invalid("This project is local. Publishing and pull requests require a hosting service.") }
         var base = project.defaultBranch

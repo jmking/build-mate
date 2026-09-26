@@ -82,8 +82,6 @@ struct BuildMateApp: App {
                     .disabled(model?.selectedProject == nil).help("Set the project’s preview command, port variable and ready path")
                 Button("View Changes…") { if let task = model?.selectedTask { model?.reviewSheet = .changes(task.id) } }
                     .disabled(model?.selectedTask == nil).help("Review the saved proof’s change summary and file list")
-                Button("Send Back for Changes…") { if let task = model?.selectedTask { model?.reviewSheet = .sendBack(task.id) } }
-                    .disabled(model?.selectedTask?.state != .humanReview).help("Request changes and require fresh proof")
                 Button("Open Pull Request") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.openPullRequest(task.id) }

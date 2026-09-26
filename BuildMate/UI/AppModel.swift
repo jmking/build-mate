@@ -311,6 +311,6 @@ struct InstalledApp: Identifiable {
     let url: URL
 }
 enum ReviewSheet: Identifiable {
-    case sendBack(UUID), changes(UUID), previewSetup(UUID), defaults(UUID), log(String), image(String)
+    case changes(UUID), previewSetup(UUID), defaults(UUID), log(String), image(String)
     var id: String { String(describing: self) }
 }

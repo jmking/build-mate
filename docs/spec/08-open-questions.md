@@ -19,7 +19,7 @@ Record findings inline (date, what was tested, result) and update the affected s
 - Retention for recordings and logs (spec: logs 14 days; recordings kept until the task is deleted).
 
 ## Known gaps in the designs
-- Not drawn: Add Project, Hooks tab, list view, usage meter, paused banner, first-run, error states, changes sheet, larger recording player, Send Back sheet, Duo closed Backlog/Instructions. Build them from 04 and 06 in the same visual language.
+- Not drawn: Add Project, Hooks tab, list view, usage meter, paused banner, first-run, error states, changes sheet, larger recording player, Duo closed Backlog/Instructions. Build them from 04 and 06 in the same visual language.
 - The Building composer placeholder says "It reads this on its next turn"; use "Message the agent" (agents receive steer messages immediately).
 - The designs' "Studio · 4 building" host chip and Remote screen are v2.
 
@@ -160,7 +160,7 @@ The owner supplied new light/dark chat references: agent bubbles are light grey 
 
 - Use agent-provided, optional `suggestedAnswer` for **Let the Agent Decide**. Show every proposed answer and require explicit confirmation. Legacy questions without suggestions stay answerable normally; never pick the first option on the user's behalf.
 - Use the existing sandboxed proof command mechanism for recording and before/after screenshots, rather than add an embedded browser or a second recording service. The agent writes outputs to app-owned paths; Build Mate validates H.264/duration and decodable PNGs, independently runs checks, and records the commit SHA. This verifies executable results and media format, not whether the evidence adequately demonstrates the change.
-- Send Back keeps the thread, branch and approved plan, saves the feedback, invalidates proof and resumes unless paused. Editing scope still requires a new plan. Existing proof without a SHA must be refreshed before publishing. Three failed proof attempts pause for human attention; Resume resets that consecutive-failure allowance.
+- Review feedback through chat keeps the thread, branch and approved plan, saves the feedback, invalidates proof and resumes unless paused. Editing scope still requires a new plan. Existing proof without a SHA must be refreshed before publishing. Three failed proof attempts pause for human attention; Resume resets that consecutive-failure allowance.
 - Preview “idle” means 30 minutes since Run/Open Preview in Build Mate. External browser activity is not observable. Each running preview holds a heavy-work slot; Stop frees it immediately. Preview commands are explicit per-project configuration and must use the supplied port and local bind address; no automatic dependency installation. CLI/native tasks use Terminal/editor instead of HTTP preview.
 - Preview output is redacted, capped to the latest 64,000 characters in memory, and available while the preview/status exists. Preview processes are ephemeral and are not restored after app restart.
 - Full Settings remains milestone 7; New Task exposes the per-task plan approval override now. Full SCM/stacking/watch/merge remains milestone 5.
@@ -169,3 +169,9 @@ The owner supplied new light/dark chat references: agent bubbles are light grey 
 ## Editor menu icon rendering (2026-09-27)
 
 The installed macOS 27 SDK documents that menu images are normally hidden unless `NSMenuItem.preferredImageVisibility` is visible. SwiftUI exposes no equivalent modifier in this SDK. Use a small `NSComboButton` representable with native `NSMenu` rows, 16 pt intrinsic `NSImage` sizes and a guarded macOS 27 image-visibility override. This is a concrete AppKit exception, not a custom-drawn menu. Keep the original Default Editor submenu as requested.
+
+### Review feedback through chat (2026-09-27)
+
+Per user direction, remove the separate Send Back button, sheet and menu command. Any non-empty chat message in Awaiting human review resumes the existing task through Building and invalidates old proof. This simplest reading avoids a second model call to classify questions versus change requests; even a review question reopens the conversation and requires fresh proof before publication. Existing pause flags remain authoritative. Other inactive states continue to save messages without dispatching.
+
+Review verification exposed a runtime abort in `_AVKit_SwiftUI` superclass metadata when a recording is displayed on this Mac. Use native `AVPlayerView` with inline controls in a small SwiftUI representable; retain the existing player lifetime and expanded recording window. This is a concrete compatibility exception to SwiftUI first.

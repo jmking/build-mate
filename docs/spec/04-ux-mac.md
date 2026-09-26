@@ -15,7 +15,7 @@ Main window
 │  │     │  └─ Task view (one per task, back/forward)
 │  │     └─ Instructions                                  ⌘5
 │  └─ Footer: agents busy · usage · Pause All · Settings
-├─ Sheets: New Task, Add Project, Send Back, Delete confirmations
+├─ Sheets: New Task, Add Project, Delete confirmations
 Menu bar extra (popover)
 Settings window: General · Hooks · Instructions (global) · Remote (v2)
 ```
@@ -108,7 +108,7 @@ Whenever a worktree path is present, show small Terminal and Finder icon buttons
 
 ### 9c. Human review — `mac-09-task-human-review`
 - Display the task status as **Awaiting human review** in state labels, headings and transition events. The Status checklist retains **Human review** as the name of its review stage, including after completion.
-- Inspector: Status (Human review = current), **Recording** (plays inline; click for a larger player window), **Try it yourself**: **Run locally** (primary, starts the preview and opens the browser), **Open in <editor>**, **Terminal**; **Changes** row (files · +/−; opens a changes sheet with the per-file list and "Open in <editor>"). Footer: **Send back…** (sheet with a note field; returns to Building) and **Open Pull Request** (primary, with the host mark).
+- Inspector: Status (Human review = current), **Recording** (plays inline; click for a larger player window), **Try it yourself**: **Run locally** (primary, starts the preview and opens the browser), **Open in <editor>**, **Terminal**; **Changes** row (files · +/−; opens a changes sheet with the per-file list and "Open in <editor>"). Review feedback is sent through the chat composer and automatically returns the task to Building with fresh proof required. Footer: **Open Pull Request** (primary, with the host mark).
 
 ### 9d. In PR — `mac-10-task-in-pr`
 - Transcript shows autonomous fixes as activity rows ("Fixed a failing lint check · pushed 3f2a91c", "Addressed 2 review comments from Sam") and decision questions.
@@ -169,7 +169,7 @@ The native shell implements the sidebar, Add Project, Needs You summary, five-co
 
 Task proof: **Automatic** lets the agent choose checks and visual recording as appropriate to the task and brief. New Task also offers **Checks only** and **Checks + recording**; the inspector shows the choice, evidence rationale and whether recording was required. Missing recording configuration does not block Start Now or Move to Queue: evidence is proposed and checked before Human review. Bitbucket starts stay disabled until its provider is verified.
 
-The composer distinguishes **Send answer**, **Send message** (an active Codex turn), and **Save message** (no active turn). Saving persists the message for the next run and never starts or resumes a task. Successful submission confirms whether the message was sent or saved. Return submits; ⌘Return is also available. Draft and delivery status reset when changing tasks.
+The composer distinguishes **Send answer**, **Send message** (an active Codex turn), **Send message** (awaiting human review; returns to Building and requires fresh proof), and **Save message** (other states with no active turn). Saving persists the message for the next run and never starts or resumes a task. Successful submission confirms whether the message was sent or saved. Return submits; ⌘Return is also available. Draft and delivery status reset when changing tasks.
 
 Retained retry diagnostics do not appear as a current Fix item while a recovered turn is running or waiting for a question/approval.
 
@@ -177,7 +177,7 @@ Queue ordering: picking up a Backlog row or Queue card/list row shows a raised n
 
 Usage UI follow-up: the sidebar shows the most constrained Codex account window, a remaining-percentage bar and reset time. Its popover lists every reported bucket/window, shared-account explanation, last refresh, errors and Refresh. Refresh on startup/every minute and consume live account notifications; an account-only app-server process creates no agent thread. Unknown windows/resets remain unavailable, never zero or invented. Failed refreshes retain clearly labelled last-known values. This delivery is informational: automatic 15% holds, Resume Anyway, threshold settings and menu-bar usage remain milestone 7. The percentage bar turns orange below 25% and red below 15% as a warning only.
 
-The inactive task composer hint reads “Messages are saved for when work resumes.” This describes delivery before sending; the post-send status still confirms the actual result.
+Outside human review, the inactive task composer hint reads “Messages are saved for when work resumes.” This describes delivery before sending; the post-send status still confirms the actual result.
 
 ## Task identity in the interface (2026-09-26)
 
@@ -189,9 +189,9 @@ Use task titles, with project names where needed, to identify tasks. Hide intern
 - New Task includes **Plan approval**: project default, ask before building, or build automatically. The override is stored atomically with task creation. A pending plan is readable in the inspector and approved there or from Task › Approve Plan.
 - **Let the Agent Decide…** shows the agent's explicit suggestions for unresolved blocking questions in a confirmation sheet. Accepting records `agentDefault`; tasks remain paused if previously paused. Questions without suggestions require a normal answer.
 - Human review shows the proof summary/rationale, check results with durations and clickable logs, an inline AVKit recording with native controls, Expand Recording in a separate window, and before/after screenshots that expand in a sheet. **Changes** shows per-file additions/deletions and Open File.
-- **Send Back…** requires feedback, preserves the thread/branch/approved plan and invalidates proof. **Open Pull Request** uses the existing basic GitHub path and rechecks the reviewed commit and clean worktree. Local projects retain their committed worktree for editor/Terminal use. Full Bitbucket, stacking/watch/merge controls remain milestone 5.
+- **Chat review feedback** replaces Send Back. A non-empty message while awaiting human review automatically returns to Building, preserves the thread/branch/approved plan and invalidates proof. Paused task/project/global work stays paused; otherwise the scheduler resumes it when a slot is available. The composer explains this before sending. **Open Pull Request** uses the existing basic GitHub path and rechecks the reviewed commit and clean worktree. Local projects retain their committed worktree for editor/Terminal use. Full Bitbucket, stacking/watch/merge controls remain milestone 5.
 - **Run locally** first offers project preview configuration if missing; saving never starts a process. Starting, ready, stopped and failed states expose Stop, redacted output and configuration. Ready opens the browser; later clicks reuse it. CLI/native projects can open their worktree in Terminal/editor instead.
-- **Open in…** uses installed Cursor, VS Code and Xcode with their app icons; offers Terminal, installed iTerm/Ghostty, Finder, and per-project default editor. Task actions target its worktree; project actions target the clone. Missing/removed paths produce an actionable error. Shortcuts: ⌘O, ⌃⌘T, ⌥⌘R. Preview, changes, Send Back, suggestions, plan approval, PR opening and recording expansion are also in the Task menu. All added buttons have help text.
+- **Open in…** uses installed Cursor, VS Code and Xcode with their app icons; offers Terminal, installed iTerm/Ghostty, Finder, and per-project default editor. Task actions target its worktree; project actions target the clone. Missing/removed paths produce an actionable error. Shortcuts: ⌘O, ⌃⌘T, ⌥⌘R. Preview, changes, suggestions, plan approval, PR opening and recording expansion are also in the Task menu. All added buttons have help text.
 
 
 Editor-icon refinement (2026-09-27): the Open in control shows only a centred 16 pt app icon and dropdown chevron; the editor name remains in its tooltip and accessibility label. Its dropdown uses the real installed app icons for editors, Terminal/iTerm/Ghostty and Finder. Retain the existing Default Editor submenu, with a checkmark on the selected editor; choosing it remains scoped to the current project. Use the native AppKit split button to explicitly preserve identifying menu images on macOS 27; macOS 26 uses its normal menu images. Tooltips and keyboard selection remain available.

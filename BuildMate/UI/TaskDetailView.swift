@@ -12,10 +12,11 @@ struct TaskDetailView: View {
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || model.selectedProject?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
-    private var composerTitle: String { openQuestion != nil ? "Answer the question" : activeTurn ? "Message the agent" : "Save a message for the next run" }
-    private var actionTitle: String { openQuestion != nil ? "Send answer" : activeTurn ? "Send message" : "Save message" }
+    private var composerTitle: String { openQuestion != nil ? "Answer the question" : (activeTurn || task.state == .humanReview) ? "Message the agent" : "Save a message for the next run" }
+    private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || task.state == .humanReview) ? "Send message" : "Save message" }
     private var composerExplanation: String {
         if let question = openQuestion { return question.allowsFreeText ? "Your answer resolves this question. Paused tasks stay paused." : "Choose one of the answer buttons above." }
+        if task.state == .humanReview { return isPaused ? "Tell the agent what to change. Work will resume when unpaused." : "Tell the agent what to change. It will continue working." }
         return activeTurn ? "Sent to the current agent turn." : "Messages are saved for when work resumes."
     }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerId == task.id && $0.ownerType == "task" } }
@@ -159,13 +160,10 @@ struct TaskDetailView: View {
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if task.state == .humanReview {
+                if task.state == .humanReview && model.selectedProject?.host == .github {
                     VStack(spacing: 10) {
                         Divider()
                         HStack {
-                            Button("Send Back…") { model.reviewSheet = .sendBack(task.id) }
-                                .help("Request changes and require fresh proof before review")
-                                .disabled(openingPR)
                             Spacer(minLength: 4)
                             if model.selectedProject?.host == .github {
                                 Button(openingPR ? "Opening…" : "Open Pull Request") {
@@ -208,7 +206,11 @@ struct TaskDetailView: View {
                 messageStatus = "Answer saved."
             } else {
                 let delivery = try await model.core.steer(task.id, text: text)
-                messageStatus = delivery == .sent ? "Sent to the agent." : "Saved. The agent will read this when work resumes."
+                switch delivery {
+                case .sent: messageStatus = "Sent to the agent."
+                case .saved: messageStatus = "Saved. The agent will read this when work resumes."
+                case .queued: messageStatus = isPaused ? "Feedback saved. Work will resume when unpaused." : "Feedback sent. The agent will continue working."
+                }
             }
             message = ""
         }

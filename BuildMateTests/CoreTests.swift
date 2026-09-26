@@ -104,19 +104,20 @@ struct CoreTests {
         try await f.wait("fresh proof after edit") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
         #expect(try f.store.session(for: task.id).codexThreadId == thread)
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Preserve errors in the compact output"))
-        // Send Back preserves context and pause, and a changed reviewed commit cannot be published.
-        do { try await core.sendBack(task.id, note: "  "); Issue.record("Accepted empty feedback") } catch {}
+        // Chat review feedback preserves context and pause, and a changed reviewed commit cannot be published.
+        do { try await core.steer(task.id, text: "  "); Issue.record("Accepted empty feedback") } catch {}
         let worktree = try #require(f.store.get(WorkTask.self, task.id).worktreePath)
         #expect(try f.store.all(Proof.self).first?.changes.map(\.path) == ["feature.txt"])
         _ = try await f.runner.run("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "Changed after review"], cwd: worktree)
         do { try await core.openPullRequest(task.id); Issue.record("Published a commit without proof") } catch {}
         try await core.pause(task.id, paused: true)
-        try await core.sendBack(task.id, note: "Please verify the revised commit")
+        #expect(try await core.steer(task.id, text: "Please verify the revised commit") == .queued)
+        #expect(try f.store.all(Message.self).filter { $0.role == "user" && $0.body == "Please verify the revised commit" }.count == 1)
         #expect(try f.store.get(WorkTask.self, task.id).state == .building)
         #expect(try f.store.get(WorkTask.self, task.id).paused)
         #expect(try f.store.all(Proof.self).allSatisfy { !$0.complete })
         try await core.pause(task.id, paused: false)
-        try await f.wait("fresh proof after send back") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
+        try await f.wait("fresh proof after chat feedback") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
         #expect(try f.store.session(for: task.id).codexThreadId == thread)
         #expect(try f.store.all(Approval.self).filter { $0.status == "approved" }.count == 1)
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Please verify the revised commit"))
@@ -196,7 +197,7 @@ struct CoreTests {
             #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == (recording ? 2 : visual ? 0 : 1))
             if !visual {
                 try f.marker("always-fail-proof")
-                try await core.sendBack(task.id, note: "Exercise failed proof recovery")
+                try await core.steer(task.id, text: "Exercise failed proof recovery")
                 try await f.wait("three failures pause work") { try f.store.get(WorkTask.self, task.id).paused && f.store.all(RunAttempt.self).last?.endedAt != nil }
                 #expect(try f.store.get(WorkTask.self, task.id).retry?.error.contains("three times") == true)
                 #expect(try f.store.get(WorkTask.self, task.id).state == .building)
