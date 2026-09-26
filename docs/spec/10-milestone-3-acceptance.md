@@ -52,3 +52,7 @@ The existing process-boundary shell flow now covers generated naming without a w
 ## Whole-card navigation follow-up — 2026-09-26
 
 All Needs You sections now use the complete card as a native button, with a rectangular hit area covering the padding and spacer. Removed the separate Open/Review button; a trailing chevron indicates navigation. The accessible button label includes task, project, number and reason, with an “Opens the task” hint. Verified light/dark rendering, card activation and a pointer click in the blank middle of the card opening the correct task. Existing five-test suite passed in 13.175 seconds; no extra tests for this small presentation change.
+
+## Project folder icon follow-up — 2026-09-26
+
+Replaced the hosting-service logo with the neutral outline folder SF Symbol. Verified light/dark rendering and the project name/pause accessibility label without redundant hosting text. Build passed. The first regression run hit SQLite error 5 (`BEGIN IMMEDIATE TRANSACTION`) in the unchanged scheduler/restart test; an unchanged rerun passed all five tests in 12.937 seconds. This records an intermittent test failure, not a SQLite fix. No additional tests for the decorative icon change.

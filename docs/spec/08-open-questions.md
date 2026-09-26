@@ -93,3 +93,8 @@ The request to refine the current shell does not expand later-milestone features
 User direction: titles should be generated from content and only optionally edited. Generate once on creation, not on each keystroke; a collapsed optional override keeps the brief primary. Save a locally shortened first sentence/line if Codex is unavailable, produces invalid output or exceeds the deadline. Existing tasks are not retroactively renamed. The task detail's pencil opens Rename Task; manual changes remain authoritative. A renamed task keeps its existing git branch and PR title.
 
 Naming is an ephemeral read-only Codex request, independent of paused project execution. This means Add to Backlog can use Codex to name a task while still never dispatching its implementation. The real installed app-server accepted the output schema and returned “Compact verbose CLI output while preserving errors” for a longer CLI brief in 3.69 s. No tool items were emitted. No account/auth payloads were recorded. The automated suite continues to use fake processes only.
+
+
+## Neutral project identity (2026-09-26)
+
+User direction: represent projects with a folder, as in Codex, instead of a GitHub/Bitbucket logo. A project's visual identity must not imply a single repository or hosting service. This change is presentation only: current v1 project discovery and storage still require one local clone with a GitHub or Bitbucket Cloud origin. Multiple repositories, mixed-host projects and local-only repositories need separate functional scope; the neutral icon does not imply they are implemented.

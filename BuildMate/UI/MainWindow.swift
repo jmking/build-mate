@@ -23,7 +23,7 @@ struct MainWindow: View {
                             }
                         } label: {
                             HStack {
-                                Image(project.host == .github ? "github" : "bitbucket").resizable().scaledToFit().frame(width: 16, height: 16).accessibilityLabel(project.host == .github ? "GitHub" : "Bitbucket Cloud")
+                                Image(systemName: "folder").symbolVariant(.none).font(.system(size: 16)).foregroundStyle(.primary).frame(width: 16, height: 16).accessibilityHidden(true)
                                 Text(project.name).lineLimit(1)
                                 if project.paused { Image(systemName: "pause.fill").font(.caption).accessibilityLabel("Project paused") }
                             }
@@ -139,4 +139,3 @@ struct MainWindow: View {
         return "\(model.needsCount) waiting across \(model.snapshot.projects.count) projects"
     }
 }
-

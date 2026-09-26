@@ -24,7 +24,7 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 ## 2. Window anatomy (all main-window screens)
 - **Sidebar** (232 pt, collapsible ⌃⌘S): system sidebar material (glass over the desktop), plain right border. Traffic lights at top-left; Hide Sidebar button at top-right of the sidebar.
   - **Needs You** row with a neutral count badge (total items waiting on the user).
-  - **Projects** heading with **+** (Add Project). Each project row: disclosure chevron, host mark (GitHub mark in label colour, Bitbucket mark in Bitbucket blue), name, optional pause glyph (project paused), neutral badge = items needing the user in that project.
+  - **Projects** heading with **+** (Add Project). Each project row: disclosure chevron, neutral outline folder SF Symbol in the label colour, name, optional pause glyph (project paused), neutral badge = items needing the user in that project.
   - Expanded project children (indented): **Chat**, **Backlog** (plain count), **Tasks** (badge = needs-you count), **Instructions**.
   - Selection: neutral translucent fill, regular weight text, accent-tinted SF Symbols (HIG sidebar).
   - Footer: "N of M agents busy" (tabular numerals), usage meter (see §13), **Pause All** (⌥⌘P), **Settings** (⌘,).
@@ -75,7 +75,7 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 - **List view** (not drawn): a table grouped by state with the same columns of data; filter by state including Done.
 
 ## 7. New Task sheet — `mac-05-new-task-sheet`
-- Sheet attached to the main window (⌘N anywhere). Fields: project pull-down (host mark), "What should be built" (multiline, initially focused), optional title under **Set a title yourself**, Attachments (tiles + dashed add area; drag-and-drop, paste; milestone 6).
+- Sheet attached to the main window (⌘N anywhere). Fields: project pull-down (neutral folder when an icon is shown), "What should be built" (multiline, initially focused), optional title under **Set a title yourself**, Attachments (tiles + dashed add area; drag-and-drop, paste; milestone 6).
 - A nonblank brief is required. On creation, Codex generates a concise descriptive title from the brief unless the user supplies one. Show progress, prevent duplicate submission and allow Cancel while naming. If generation fails or times out, use the first line/sentence of the brief, shortened to 80 characters; saving must still work. Naming does not start the coding task or create a worktree, including for Backlog. No model requests while typing.
 - The task brief's **Rename task** button opens a native sheet with Save (Return) and Cancel (Escape). Manual titles are never automatically replaced. Renaming does not change the description, state, existing worktree branch or an existing PR title.
 - Footer: "Agents only pick up tasks in Todo." · **Cancel** (esc) · **Start Now** · **Add to Backlog** (primary, ↩).

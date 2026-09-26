@@ -96,7 +96,9 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 | Drag handle | `line.3.horizontal` |
 | Changes | `doc` |
 | Question | `questionmark.circle` |
-Brand marks: GitHub and Bitbucket marks (`docs/design/assets/github.svg`, `bitbucket.svg`) follow each brand's usage guidelines: GitHub mark in the label colour, Bitbucket mark in Bitbucket blue. Editor/Terminal/Finder icons are the real app icons from `NSWorkspace` at runtime.
+Project identity: use the neutral outline `folder` SF Symbol in the label colour, independent of Git hosting. Hide the decorative icon from accessibility; the project name labels the row.
+
+Brand marks are reserved for repository/service-specific actions and information, never the project icon. GitHub and Bitbucket marks (`docs/design/assets/github.svg`, `bitbucket.svg`) follow each brand's usage guidelines: GitHub mark in the label colour, Bitbucket mark in Bitbucket blue. Editor/Terminal/Finder icons are the real app icons from `NSWorkspace` at runtime.
 
 ## 6. Components (reference → native)
 | Component | Native build |
