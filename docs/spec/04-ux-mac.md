@@ -68,9 +68,9 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 
 ## 6. Tasks board — `mac-04-board`
 - Toolbar: "Tasks"; **Pause Project**; List/Board segmented control (⌘L toggles); Search; New Task (⌘N).
-- Columns (left to right): **Queue**, **Needs Clarification**, **Building**, **Human review**, **In PR**. Merged is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Queue header has **+**.
+- Columns (left to right): **Queue**, **Needs Clarification**, **Building**, **Awaiting human review**, **In PR**. Merged is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Queue header has **+**.
 - Queue column starts with a dashed **Backlog · N** row linking to Backlog.
-- Card (12 pt radius): optional attachment preview (image, or video with glass play button), title (2 lines max), number, attachment count, status on the right (coloured dot + text, e.g. "2 questions", "Approve plan", "Paused", "Retry in 0:31", "Proof complete", "Fixing build", "1 of 2 approvals"), optional "Waits on #427" chip, and the 5-segment **Road to merge** bar (not shown for Queue cards without progress).
+- Card (12 pt radius): optional attachment preview (image, or video with glass play button), title (2 lines max), number, attachment count, status on the right (coloured dot + text, e.g. "2 questions", "Approve plan", "Paused", "Retry in 0:31", "Proof complete", "Fixing build", "1 of 2 approvals"), optional "Waits on #427" chip. Do not show segmented progress bars on board or Needs You cards; the labelled Road to merge checklist lives in task details.
 - Drag and drop: Backlog ↔ Queue, and Queue reorder, are allowed; other moves are agent-driven, except dragging a card to the Backlog link (moves it back and stops its session after confirmation).
 - Context menu: Open, Open in <editor>, Pause/Resume, Move to Backlog, Cancel Task…, Copy Link.
 - **List view** (not drawn): a table grouped by state with the same columns of data; filter by state including Merged.
@@ -105,6 +105,7 @@ Right inspector: **Road to merge** checklist (vertical, five steps, sub-items fo
 - The design shows the Open-in menu expanded for reference.
 
 ### 9c. Human review — `mac-09-task-human-review`
+- Display the task status as **Awaiting human review** in state labels, headings and transition events. The Road to merge checklist retains **Human review** as the name of its review stage, including after completion.
 - Inspector: Road to merge (Human review = current), **Recording** (plays inline; click for a larger player window), **Try it yourself**: **Run locally** (primary, starts the preview and opens the browser), **Open in <editor>**, **Terminal**; **Changes** row (files · +/−; opens a changes sheet with the per-file list and "Open in <editor>"). Footer: **Send back…** (sheet with a note field; returns to Building) and **Open Pull Request** (primary, with the host mark).
 
 ### 9d. In PR — `mac-10-task-in-pr`

@@ -5,7 +5,7 @@ extension TaskState {
     var title: String {
         switch self {
         case .backlog: "Backlog"; case .todo: "Queue"; case .needsClarification: "Needs Clarification"
-        case .building: "Building"; case .humanReview: "Human review"; case .inPR: "In PR"; case .done: "Merged"; case .canceled: "Canceled"
+        case .building: "Building"; case .humanReview: "Awaiting human review"; case .inPR: "In PR"; case .done: "Merged"; case .canceled: "Canceled"
         }
     }
     var symbol: String {
@@ -30,30 +30,21 @@ struct StateLabel: View {
 }
 struct RoadToMerge: View {
     var task: WorkTask
-    var vertical = false
     private var completed: Int {
         switch task.state { case .building: 1; case .humanReview: 3; case .inPR: 4; case .done: 5; default: 0 }
     }
     private let names = ["Clarified", "Built", "Proof of work", "Human review", "Merged"]
     var body: some View {
-        Group {
-            if vertical {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(names.enumerated()), id: \.offset) { index, name in
-                        HStack(spacing: 8) {
-                            Image(systemName: index < completed ? "checkmark.circle.fill" : index == completed ? "circle.inset.filled" : "circle")
-                                .foregroundStyle(index < completed ? Color.green : index == completed ? .accentColor : .secondary)
-                                .frame(width: 18)
-                            Text(name).foregroundStyle(index <= completed ? .primary : .secondary)
-                        }.font(.callout)
-                        if index < names.count - 1 {
-                            Rectangle().fill(.separator).frame(width: 1, height: 12).padding(.leading, 8.5)
-                        }
-                    }
-                }
-            } else {
-                HStack(spacing: 3) {
-                    ForEach(0..<5) { index in Capsule().fill(index < completed ? Color.green : Color.secondary.opacity(0.2)).frame(height: 3) }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(names.enumerated()), id: \.offset) { index, name in
+                HStack(spacing: 8) {
+                    Image(systemName: index < completed ? "checkmark.circle.fill" : index == completed ? "circle.inset.filled" : "circle")
+                        .foregroundStyle(index < completed ? Color.green : index == completed ? .accentColor : .secondary)
+                        .frame(width: 18)
+                    Text(name).foregroundStyle(index <= completed ? .primary : .secondary)
+                }.font(.callout)
+                if index < names.count - 1 {
+                    Rectangle().fill(.separator).frame(width: 1, height: 12).padding(.leading, 8.5)
                 }
             }
         }
@@ -72,7 +63,6 @@ struct TaskCard: View {
                 if let id = task.dependsOn.first, let dependency = model.snapshot.tasks.first(where: { $0.id == id }), dependency.state != .done {
                     Label("Waits on #\(dependency.number)", systemImage: "link").font(.caption).foregroundStyle(.secondary)
                 }
-                if task.state != .todo && task.state != .backlog { RoadToMerge(task: task) }
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))

@@ -110,7 +110,6 @@ Brand marks are reserved for repository/service-specific actions and information
 | Toolbar groups | `ToolbarItemGroup` / `ControlGroup` |
 | List/Board switch | segmented `Picker` in toolbar |
 | Open in editor | `Menu` with primary action (pull-down button) |
-| Road to merge bar | custom 5-segment view; accessibility label "Road to merge: step N of 5, <state>" |
 | Road to merge checklist | custom vertical list with connecting line |
 | Proposal card | custom view with `Toggle` (checkbox style) rows |
 | Question card | custom view; answer chips are `Button`s with `.bordered` capsule style |

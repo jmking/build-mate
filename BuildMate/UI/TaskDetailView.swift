@@ -103,7 +103,7 @@ struct TaskDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     Text("Road to merge").font(.headline).accessibilityAddTraits(.isHeader)
-                    RoadToMerge(task: task, vertical: true)
+                    RoadToMerge(task: task)
                     Divider()
                     Text("Brief").font(.headline)
                     Text(task.description.isEmpty ? task.title : task.description).foregroundStyle(.secondary)

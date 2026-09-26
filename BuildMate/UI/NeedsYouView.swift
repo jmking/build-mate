@@ -44,7 +44,6 @@ struct NeedsYouView: View {
                                 Text(task.title).fontWeight(.medium)
                                 Text("\(model.projectName(task.projectId)) · #\(task.number)").font(.caption).foregroundStyle(.secondary)
                                 Text(detail(task)).foregroundStyle(.secondary).lineLimit(3)
-                                if task.state == .humanReview { RoadToMerge(task: task).frame(maxWidth: 220) }
                             }.multilineTextAlignment(.leading)
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).frame(width: 12).accessibilityHidden(true)
