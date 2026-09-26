@@ -99,20 +99,20 @@ Whenever a worktree path is present, show small Terminal and Finder icon buttons
 
 ### 9a. Needs Clarification — `mac-07-task-needs-clarification`
 - Question cards (purple tint border): question text + answer chips; free-text via composer. Answering all blocking questions resumes the agent.
-- Inspector: Road to merge (Clarified = needs you, "2 questions · waiting 8 min"), Brief (text + attachments). Footer: **Let the agent decide** (agent proceeds with its stated defaults; confirmation popover lists them).
+- Inspector: Status (Clarified = needs you, "2 questions · waiting 8 min"), Brief (text + attachments). Footer: **Let the agent decide** (agent proceeds with its stated defaults; confirmation popover lists them).
 
 ### 9b. Building — `mac-08-task-building`
 - Live status line at the end of the transcript ("● Editing docs/api/audit.md…").
-- Inspector: Road to merge (Built = current, "Working · 14 min"; Proof sub-items unchecked), **Worktree** (path, **Open in <editor>**, **Terminal**), Brief.
+- Inspector: Status (Built = current, "Working · 14 min"; Proof sub-items unchecked), **Worktree** (path, **Open in <editor>**, **Terminal**), Brief.
 - The design shows the Open-in menu expanded for reference.
 
 ### 9c. Human review — `mac-09-task-human-review`
-- Display the task status as **Awaiting human review** in state labels, headings and transition events. The Road to merge checklist retains **Human review** as the name of its review stage, including after completion.
-- Inspector: Road to merge (Human review = current), **Recording** (plays inline; click for a larger player window), **Try it yourself**: **Run locally** (primary, starts the preview and opens the browser), **Open in <editor>**, **Terminal**; **Changes** row (files · +/−; opens a changes sheet with the per-file list and "Open in <editor>"). Footer: **Send back…** (sheet with a note field; returns to Building) and **Open Pull Request** (primary, with the host mark).
+- Display the task status as **Awaiting human review** in state labels, headings and transition events. The Status checklist retains **Human review** as the name of its review stage, including after completion.
+- Inspector: Status (Human review = current), **Recording** (plays inline; click for a larger player window), **Try it yourself**: **Run locally** (primary, starts the preview and opens the browser), **Open in <editor>**, **Terminal**; **Changes** row (files · +/−; opens a changes sheet with the per-file list and "Open in <editor>"). Footer: **Send back…** (sheet with a note field; returns to Building) and **Open Pull Request** (primary, with the host mark).
 
 ### 9d. In PR — `mac-10-task-in-pr`
 - Transcript shows autonomous fixes as activity rows ("Fixed a failing lint check · pushed 3f2a91c", "Addressed 2 review comments from Sam") and decision questions.
-- Inspector: Road to merge (Merged = needs you or current), **Stack** (vertical: this PR → merged base PR(s) → main, with a caption when a rebase happened), **Pull request on GitHub/Bitbucket** (Checks, Approvals, Comments rows, each opening detail), watch explainer ("The agent watches for failed builds and review comments… only asks you when it needs a decision"). Footer: **View on GitHub / View on Bitbucket** (host mark).
+- Inspector: Status (Merged = needs you or current), **Stack** (vertical: this PR → merged base PR(s) → main, with a caption when a rebase happened), **Pull request on GitHub/Bitbucket** (Checks, Approvals, Comments rows, each opening detail), watch explainer ("The agent watches for failed builds and review comments… only asks you when it needs a decision"). Footer: **View on GitHub / View on Bitbucket** (host mark).
 
 ## 10. Menu bar extra — `mac-11-menu-bar-extra`
 - `MenuBarExtra` with window style, 340 pt wide, glass.
@@ -182,3 +182,13 @@ The inactive task composer hint reads “Messages are saved for when work resume
 ## Task identity in the interface (2026-09-26)
 
 Use task titles, with project names where needed, to identify tasks. Hide internal task numbers from board cards, grouped lists, task-window subtitles, Needs You and their spoken accessibility labels; omit the former number column entirely. Dependency labels read “Waits on <task title>”. This supersedes numbered-task examples above. Keep task numbers internally for persistence, agent references, search compatibility and automation identifiers. Preserve real pull request numbers and original conversation text.
+
+
+## Milestone 4 implemented lifecycle controls
+
+- New Task includes **Plan approval**: project default, ask before building, or build automatically. The override is stored atomically with task creation. A pending plan is readable in the inspector and approved there or from Task › Approve Plan.
+- **Let the Agent Decide…** shows the agent's explicit suggestions for unresolved blocking questions in a confirmation sheet. Accepting records `agentDefault`; tasks remain paused if previously paused. Questions without suggestions require a normal answer.
+- Human review shows the proof summary/rationale, check results with durations and clickable logs, an inline AVKit recording with native controls, Expand Recording in a separate window, and before/after screenshots that expand in a sheet. **Changes** shows per-file additions/deletions and Open File.
+- **Send Back…** requires feedback, preserves the thread/branch/approved plan and invalidates proof. **Open Pull Request** uses the existing basic GitHub path and rechecks the reviewed commit and clean worktree. Local projects retain their committed worktree for editor/Terminal use. Full Bitbucket, stacking/watch/merge controls remain milestone 5.
+- **Run locally** first offers project preview configuration if missing; saving never starts a process. Starting, ready, stopped and failed states expose Stop, redacted output and configuration. Ready opens the browser; later clicks reuse it. CLI/native projects can open their worktree in Terminal/editor instead.
+- **Open in…** uses installed Cursor, VS Code and Xcode with their app icons; offers Terminal, installed iTerm/Ghostty, Finder, and per-project default editor. Task actions target its worktree; project actions target the clone. Missing/removed paths produce an actionable error. Shortcuts: ⌘O, ⌃⌘T, ⌥⌘R. Preview, changes, Send Back, suggestions, plan approval, PR opening and recording expansion are also in the Task menu. All added buttons have help text.

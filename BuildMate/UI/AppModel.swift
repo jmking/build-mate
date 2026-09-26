@@ -57,6 +57,8 @@ final class AppModel {
     var error: String?
     var schedulerError: String?
     var usage = UsageSnapshot()
+    var previews: [UUID: PreviewStatus] = [:]
+    var reviewSheet: ReviewSheet?
     var priorityDrag: PriorityDrag?
     private var observing = false
 
@@ -94,6 +96,7 @@ final class AppModel {
             settings = try store.settings()
             schedulerError = await core.lastError
             usage = await core.usage
+            previews = await core.previews
         } catch { self.error = error.localizedDescription }
     }
     var selectedProject: Project? {
@@ -212,7 +215,7 @@ final class AppModel {
         try add(discovered)
         await refresh()
     }
-    func createTask(projectID: UUID, title: String, description: String, start: Bool, proofRequirement: ProofRequirement = .automatic) async throws {
+    func createTask(projectID: UUID, title: String, description: String, start: Bool, proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil) async throws {
         let project = try store.get(Project.self, projectID)
         if start, let reason = project.runBlockReason { throw CoreError.invalid(reason) }
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -222,7 +225,7 @@ final class AppModel {
         let needsTitle = resolvedTitle.isEmpty
         if needsTitle { resolvedTitle = Orchestrator.provisionalTitle(description) }
         try Task.checkCancellation()
-        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog, proofRequirement: proofRequirement)
+        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild)
         snapshot.tasks.append(task)
         showNewTask = false; destination = .task(task.id)
         if needsTitle { await core.refineTitle(of: task) }
@@ -262,4 +265,52 @@ final class AppModel {
         if let id = value["task"].flatMap(UUID.init(uuidString:)), snapshot.tasks.contains(where: { $0.id == id }) { destination = .task(id) }
         else if let id = value["project"].flatMap(UUID.init(uuidString:)), snapshot.projects.contains(where: { $0.id == id }), let page = value["page"].flatMap(ProjectPage.init(rawValue:)) { destination = .project(id, page) }
     }
+
+    var installedEditors: [InstalledApp] {
+        [("Cursor", "com.todesktop.230313mzl4w4u92"), ("Visual Studio Code", "com.microsoft.VSCode"), ("Xcode", "com.apple.dt.Xcode")].compactMap { name, id in
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: id).map { InstalledApp(id: id, name: name, url: $0) }
+        }
+    }
+    var defaultEditor: InstalledApp? {
+        installedEditors.first { $0.id == selectedProject?.settings.editor } ?? installedEditors.first
+    }
+    func setEditor(_ id: String) throws {
+        guard var project = selectedProject else { return }
+        project.settings.editor = id; try store.save(project); try store.workflow(for: project)
+    }
+    func openLocation(task: WorkTask? = nil, appID: String? = nil, file: String? = nil) {
+        let selected = task ?? selectedTask
+        let path = selected?.worktreePath ?? (selected == nil ? selectedProject?.repoPath : nil)
+        perform {
+            guard let path else { throw CoreError.invalid("This task has no available worktree.") }
+            let root = URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath()
+            let url = file.map { root.appending(path: $0).resolvingSymlinksInPath() } ?? root
+            guard url.path == root.path || url.path.hasPrefix(root.path + "/"), FileManager.default.fileExists(atPath: url.path) else {
+                throw CoreError.invalid("This file or worktree is no longer available.")
+            }
+            if let appID {
+                guard let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID) else { throw CoreError.invalid("The selected app is not installed.") }
+                _ = try await NSWorkspace.shared.open([url], withApplicationAt: application, configuration: NSWorkspace.OpenConfiguration())
+            } else if !NSWorkspace.shared.open(url) { throw CoreError.invalid("The location could not be opened in Finder.") }
+        }
+    }
+    func runPreview(_ task: WorkTask) {
+        if snapshot.projects.first(where: { $0.id == task.projectId })?.settings.previewCommand.isEmpty != false {
+            reviewSheet = .previewSetup(task.projectId); return
+        }
+        perform {
+            let url = try await self.core.startPreview(task.id)
+            guard NSWorkspace.shared.open(url) else { throw CoreError.invalid("The preview is ready, but your browser could not be opened.") }
+        }
+    }
+}
+
+struct InstalledApp: Identifiable {
+    let id: String
+    let name: String
+    let url: URL
+}
+enum ReviewSheet: Identifiable {
+    case sendBack(UUID), changes(UUID), previewSetup(UUID), defaults(UUID), log(String), image(String)
+    var id: String { String(describing: self) }
 }

@@ -8,6 +8,7 @@ struct TaskDetailView: View {
     @State private var message = ""
     @State private var messageStatus: String?
     @State private var sending = false
+    @State private var openingPR = false
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || model.selectedProject?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
@@ -71,7 +72,7 @@ struct TaskDetailView: View {
                 }
                 if let retry = task.retry, model.retryNeedsAttention(task) {
                     Label(retry.error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
-                    Text("Next retry: \(retry.dueAt.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary)
+                    Text(task.paused ? "Resume when you’re ready to try again." : "Next retry: \(retry.dueAt.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary)
                 }
             }.padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
         }
@@ -115,10 +116,10 @@ struct TaskDetailView: View {
                             HStack {
                                 Text("Worktree").font(.headline).accessibilityAddTraits(.isHeader)
                                 Spacer()
-                                Button("Open in Terminal", systemImage: "terminal") { openWorktree(path, inTerminal: true) }
+                                Button("Open in Terminal", systemImage: "terminal") { model.openLocation(task: task, appID: "com.apple.Terminal") }
                                     .help("Open a new Terminal at this worktree")
                                     .accessibilityIdentifier("open-worktree-terminal")
-                                Button("Open in Finder", systemImage: "folder") { openWorktree(path, inTerminal: false) }
+                                Button("Open in Finder", systemImage: "folder") { model.openLocation(task: task) }
                                     .help("Open this worktree in Finder")
                                     .accessibilityIdentifier("open-worktree-finder")
                             }.labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
@@ -127,11 +128,7 @@ struct TaskDetailView: View {
                     }
                     if let proof {
                         Divider()
-                        Text("Proof of work").font(.headline)
-                        if !proof.complete { Text("Proof incomplete — verification is required before review.").font(.caption).foregroundStyle(.secondary) }
-                        ForEach(Array(proof.checks.enumerated()), id: \.offset) { _, check in Label(check.name + " · " + check.status, systemImage: check.status == "passed" ? "checkmark.circle" : "xmark.circle") }
-                        if let rationale = proof.rationale { Text(rationale).foregroundStyle(.secondary) }
-                        Text(proof.recordingPath != nil ? "Recording captured" : proof.recordingRequired ? "Required recording not captured" : "Recording not required").foregroundStyle(.secondary)
+                        ReviewEvidence(task: task, proof: proof)
                     }
                     if let pr = task.pr, let url = URL(string: pr.url) {
                         Link("View Pull Request #\(pr.number)", destination: url).help("Open this pull request in your browser")
@@ -142,41 +139,56 @@ struct TaskDetailView: View {
                             .disabled(model.selectedProject?.runBlockReason != nil)
                         if let reason = model.selectedProject?.runBlockReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                     }
+                    if task.state == .needsClarification {
+                        Button("Let the Agent Decide…") { model.reviewSheet = .defaults(task.id) }
+                            .disabled(questions.filter { $0.answer == nil && $0.blocking }.contains { $0.suggestedAnswer == nil })
+                            .help("Review the agent’s suggested answers before accepting them; unavailable when a question has no suggestion")
+                    }
                     ForEach(model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" }) { approval in
+                        if let plan = approval.planText { Text("Proposed plan").font(.headline); Text(plan).textSelection(.enabled) }
                         Button("Approve Plan") { model.perform { try await model.core.approvePlan(approval.id) } }.buttonStyle(.borderedProminent)
                             .help("Approve this plan so the agent can continue when work is resumed")
                     }
                     if task.state == .humanReview {
-                        Text("Review playback and preview controls are coming soon.").font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        PreviewControls(task: task)
                         if model.selectedProject?.host == .local {
                             Text("Changes are committed in the task worktree. Publishing and pull requests are not available for local projects yet.").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-            }.background(AppSurface.raised).inspectorColumnWidth(min: 280, ideal: 340, max: 380)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if task.state == .humanReview {
+                    VStack(spacing: 10) {
+                        Divider()
+                        HStack {
+                            Button("Send Back…") { model.reviewSheet = .sendBack(task.id) }
+                                .help("Request changes and require fresh proof before review")
+                                .disabled(openingPR)
+                            Spacer(minLength: 4)
+                            if model.selectedProject?.host == .github {
+                                Button(openingPR ? "Opening…" : "Open Pull Request") {
+                                    openingPR = true
+                                    model.perform {
+                                        defer { openingPR = false }
+                                        try await model.core.openPullRequest(task.id)
+                                    }
+                                }.buttonStyle(.borderedProminent).disabled(openingPR || proof?.complete != true || task.paused)
+                                    .help("Publish the reviewed changes as a GitHub pull request")
+                            }
+                        }.padding(.horizontal, 16).padding(.bottom, 16)
+                    }.background(AppSurface.raised)
+                }
+            }
+            .background(AppSurface.raised).inspectorColumnWidth(min: 320, ideal: 380, max: 440)
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
         .toolbar {
+            ToolbarItem { OpenInMenu().disabled(task.worktreePath == nil) }
             ToolbarItem {
                 Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal)
                     .help(task.paused ? "Resume work on this task (⌘.)" : "Pause work on this task (⌘.)")
-            }
-        }
-    }
-    private func openWorktree(_ path: String, inTerminal: Bool) {
-        model.perform {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
-                throw CoreError.invalid("This worktree folder is no longer available.")
-            }
-            let url = URL(fileURLWithPath: path, isDirectory: true)
-            if inTerminal {
-                guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else {
-                    throw CoreError.invalid("Terminal could not be found on this Mac.")
-                }
-                _ = try await NSWorkspace.shared.open([url], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
-            } else if !NSWorkspace.shared.open(url) {
-                throw CoreError.invalid("The worktree folder could not be opened in Finder.")
             }
         }
     }
@@ -196,7 +208,7 @@ struct TaskDetailView: View {
                 messageStatus = "Answer saved."
             } else {
                 let delivery = try await model.core.steer(task.id, text: text)
-                messageStatus = delivery == .sent ? "Sent to the agent." : "Saved for the next run. The task has not been started or resumed."
+                messageStatus = delivery == .sent ? "Sent to the agent." : "Saved. The agent will read this when work resumes."
             }
             message = ""
         }

@@ -93,6 +93,7 @@ struct MainWindow: View {
                                 Image(systemName: "list.bullet").tag(true).help("Show tasks as a list (⌘L)")
                             }.pickerStyle(.segmented).frame(width: 78).help("Toggle List/Board (⌘L)")
                         }
+                        if model.selectedProject != nil { OpenInMenu() }
                         Button { model.showNewTask = true } label: { Label("New Task", systemImage: "plus") }
                             .disabled(model.snapshot.projects.isEmpty).help("New Task (⌘N)")
                     }
@@ -112,6 +113,7 @@ struct MainWindow: View {
         .frame(minWidth: 1100, minHeight: 700)
         .sheet(isPresented: $model.showAddProject) { AddProjectSheet().presentationBackground(AppSurface.sheet) }
         .sheet(isPresented: $model.showNewTask) { NewTaskSheet().presentationBackground(AppSurface.sheet) }
+        .sheet(item: $model.reviewSheet) { LifecycleSheet(sheet: $0).presentationBackground(AppSurface.sheet) }
         .sheet(item: $model.editingTask) { EditTaskSheet(task: $0).presentationBackground(AppSurface.sheet) }
         .alert("Unable to complete the action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }.help("Dismiss this error")

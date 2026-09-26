@@ -173,6 +173,7 @@ struct NewTaskSheet: View {
     @State private var title = ""
     @State private var description = ""
     @State private var proofRequirement: ProofRequirement = .automatic
+    @State private var askBeforeBuild: Bool?
     @State private var creation: Task<Void, Never>?
     @State private var failure: String?
     @FocusState private var descriptionFocused: Bool
@@ -208,6 +209,11 @@ struct NewTaskSheet: View {
                 Text("Automatic lets the agent choose relevant checks and a recording for visual changes. You can also describe the evidence you want in the brief.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            Picker("Plan approval", selection: $askBeforeBuild) {
+                Text("Project default (\(selectedProject?.settings.askBeforeBuild == true ? "ask first" : "build automatically"))").tag(Optional<Bool>.none)
+                Text("Ask me before building").tag(Optional(true))
+                Text("Build automatically").tag(Optional(false))
+            }.disabled(creation != nil).help("Choose whether to review the plan before this task starts building")
             if creation != nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -240,7 +246,7 @@ struct NewTaskSheet: View {
         creation = Task {
             defer { creation = nil }
             do {
-                try await model.createTask(projectID: projectID, title: title, description: description, start: start, proofRequirement: proofRequirement)
+                try await model.createTask(projectID: projectID, title: title, description: description, start: start, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild)
                 await model.refresh()
             } catch is CancellationError { }
             catch { failure = error.localizedDescription }
