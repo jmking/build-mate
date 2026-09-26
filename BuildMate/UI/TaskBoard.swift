@@ -9,7 +9,7 @@ struct TaskBoard: View {
     var body: some View {
         Group {
         if model.listMode {
-            TaskList(tasks: model.tasks(projectID), emptyTitle: "No tasks yet", emptyDescription: "Create a task to start building.")
+            TaskList(tasks: model.tasks(projectID).filter { $0.state != .backlog }, emptyTitle: "No work queued yet", emptyDescription: "Move a task to Queue when it is ready to start.")
         } else {
             GeometryReader { geometry in
             ScrollView(.horizontal) {
