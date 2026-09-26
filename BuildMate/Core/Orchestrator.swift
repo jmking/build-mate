@@ -244,10 +244,14 @@ actor Orchestrator {
             }
             let merged = try store.get(WorkTask.self, id)
             if merged.state == .done, merged.worktreePath != nil, workers[id] == nil {
-                try await Workspace(store: store, runner: runner).remove(merged, project: project)
-                try await store.db.write { db in
-                    try db.execute(sql: "UPDATE task SET worktreePath = NULL, workspaceReady = 0 WHERE id = ?", arguments: [id])
-                }
+                let prefix = "Worktree cleanup for task #\(merged.number): "
+                do {
+                    try await Workspace(store: store, runner: runner).remove(merged, project: project)
+                    try await store.db.write { db in
+                        try db.execute(sql: "UPDATE task SET worktreePath = NULL, workspaceReady = 0 WHERE id = ?", arguments: [id])
+                    }
+                    if lastError?.hasPrefix(prefix) == true { lastError = nil }
+                } catch { lastError = prefix + runner.redacted(error.localizedDescription) }
             }
         } catch { lastError = runner.redacted(error.localizedDescription) }
     }

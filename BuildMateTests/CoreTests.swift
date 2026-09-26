@@ -131,6 +131,7 @@ struct CoreTests {
         await resumed.pollPR(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).worktreePath == nil)
         #expect(!FileManager.default.fileExists(atPath: mergedPath))
+        #expect(await resumed.lastError == nil)
         #expect(try reopened.all(Proof.self).contains { $0.taskId == task.id })
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
