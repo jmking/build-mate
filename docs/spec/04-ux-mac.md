@@ -69,9 +69,9 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 ## 6. Tasks board — `mac-04-board`
 - Toolbar: "Tasks"; **Pause Project**; List/Board segmented control (⌘L toggles); Search; New Task (⌘N).
 - Columns (left to right): **Queue**, **Needs Clarification**, **Building**, **Awaiting human review**, **In PR**. Merged is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Queue header has **+**.
-- Queue column starts with a dashed **Backlog · N** row linking to Backlog.
+- Queue contains only queued tasks. Backlog is accessed from the project sidebar; do not repeat its link or count inside Queue.
 - Card (12 pt radius): optional attachment preview (image, or video with glass play button), title (2 lines max), number, attachment count, status on the right (coloured dot + text, e.g. "2 questions", "Approve plan", "Paused", "Retry in 0:31", "Proof complete", "Fixing build", "1 of 2 approvals"), optional "Waits on #427" chip. Do not show segmented progress bars on board or Needs You cards; the labelled Road to merge checklist lives in task details.
-- Drag and drop: Backlog ↔ Queue, and Queue reorder, are allowed; other moves are agent-driven, except dragging a card to the Backlog link (moves it back and stops its session after confirmation).
+- Drag and drop reorders tasks within Backlog or Queue; it does not change task state. Use explicit actions to move tasks between Backlog and Queue. Other state changes are agent-driven or use the task's explicit review actions.
 - Context menu: Open, Open in <editor>, Pause/Resume, Move to Backlog, Cancel Task…, Copy Link.
 - **List view** (not drawn): a table grouped by state with the same columns of data; filter by state including Merged.
 

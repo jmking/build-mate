@@ -25,13 +25,6 @@ struct TaskBoard: View {
                             }.frame(height: 20).padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
                             ScrollView {
                                 LazyVStack(spacing: 8) {
-                                    if state == .todo {
-                                        Button { model.destination = .project(projectID, .backlog) } label: {
-                                            HStack { Label("Backlog", systemImage: "list.bullet.rectangle"); Spacer(); Text("\(model.tasks(projectID).filter { $0.state == .backlog }.count)") }
-                                                .font(.caption).padding(10).frame(maxWidth: .infinity)
-                                        }.buttonStyle(.plain)
-                                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator, style: StrokeStyle(lineWidth: 1, dash: [4])))
-                                    }
                                     ForEach(model.tasks(projectID).filter { $0.state == state }) { task in
                                         if reduceMotion {
                                             TaskCard(task: task).transition(.opacity)
