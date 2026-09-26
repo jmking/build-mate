@@ -42,6 +42,7 @@ struct Workspace: Sendable {
     func remove(_ task: WorkTask, project: Project) async throws {
         guard let path = task.worktreePath else { return }
         try ensureOwned(path)
+        guard FileManager.default.fileExists(atPath: path) else { return }
         try await runner.hook(project.settings.hooks.beforeRemove, cwd: path, timeout: project.settings.hooks.timeoutSeconds)
         try ensureOwned(path)
         // No --force: uncommitted work must never disappear during cleanup.

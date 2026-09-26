@@ -78,7 +78,7 @@ actor Orchestrator {
             let settings = try store.settings()
             let tasks = try store.all(WorkTask.self)
             let projects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
-            for task in tasks where task.state == .inPR && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
+            for task in tasks where (task.state == .inPR || (task.state == .done && task.worktreePath != nil)) && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
                 polling.insert(task.id); lastPoll[task.id] = now
                 Task { await pollPR(task.id) }
             }
@@ -239,8 +239,15 @@ actor Orchestrator {
         do {
             let task = try store.get(WorkTask.self, id)
             let project = try store.get(Project.self, task.projectId)
-            if try await GitHub(runner: runner, root: store.root).merged(task: task, project: project) {
+            if task.state == .inPR, try await GitHub(runner: runner, root: store.root).merged(task: task, project: project) {
                 try transition(id, to: .done, merged: true)
+            }
+            let merged = try store.get(WorkTask.self, id)
+            if merged.state == .done, merged.worktreePath != nil, workers[id] == nil {
+                try await Workspace(store: store, runner: runner).remove(merged, project: project)
+                try await store.db.write { db in
+                    try db.execute(sql: "UPDATE task SET worktreePath = NULL, workspaceReady = 0 WHERE id = ?", arguments: [id])
+                }
             }
         } catch { lastError = runner.redacted(error.localizedDescription) }
     }

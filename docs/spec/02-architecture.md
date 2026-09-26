@@ -53,6 +53,7 @@ Root: `~/Library/Application Support/Build Mate/`
 Rules:
 - Build Mate MUST NOT create, modify or commit files in the user's clone other than through git operations on task branches. It MUST NOT add `.gitignore` entries or config files.
 - Worktree bookkeeping lives in the clone's `.git/worktrees/` (local, never pushed). Removing a task removes its worktree (`git worktree remove`, after `before_remove`).
+- After a confirmed merge, remove the task worktree once its worker stops. Keep the task, transcript, proof and local branch. Run `beforeRemove`; never force removal of dirty worktrees. Failed cleanup is reported and retried on the next reconciliation poll, including after restart.
 - Deleting a project removes its data and worktrees, never the user's clone.
 
 ## 4. Data model

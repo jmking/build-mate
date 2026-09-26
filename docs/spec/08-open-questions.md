@@ -118,3 +118,7 @@ Existing repositories without origin can also be added after their initial commi
 User direction: tasks must be editable after creation. Replace the rename-only pencil with a visible Edit action, an Edit Task menu shortcut and board/list context actions. Allow title, brief and proof preference changes, preserving the selected project, branch and task identity. Cancel is draft-only; Save never generates a replacement title automatically.
 
 Simplest safe behavior for scope changes after work starts: pause and await the existing worker, invalidate proof and plan approvals, supersede unanswered questions, and leave the task paused in Todo for a fresh plan on explicit Resume. Keep the thread and worktree so work is not lost. Backlog stays Backlog. Title-only edits do not pause or invalidate anything. Once a PR is opening/open or the task is terminal, only its title is editable; changing completed/published scope needs a new task. The core enforces these rules even if state changes while the editor is open.
+
+## Merged workspace cleanup (2026-09-26)
+
+Automatically remove clean worktrees after confirmed merge, with no live worker. Retain the local branch (and thus committed history), transcript and proof. A dirty worktree or failed beforeRemove hook is preserved, reported, and retried every minute, including after restart. Canceled and Human review tasks are unaffected.

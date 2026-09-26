@@ -120,9 +120,18 @@ struct CoreTests {
         // Simulate the host merge in the real bare remote; no network host exists in this test.
         _ = try await f.runner.run("git", ["--git-dir", f.remote.path, "update-ref", "refs/heads/main", "refs/heads/" + branch])
         try f.marker("merged")
+        let mergedPath = try #require(reopened.get(WorkTask.self, task.id).worktreePath)
+        let unsaved = URL(fileURLWithPath: mergedPath).appending(path: "unsaved.txt")
+        try "Preserve this local work".write(to: unsaved, atomically: true, encoding: .utf8)
         await resumed.pollPR(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).state == .done)
         #expect(try reopened.get(WorkTask.self, task.id).doneAt != nil)
+        #expect(FileManager.default.fileExists(atPath: unsaved.path)) // A merge must never force-delete uncommitted work.
+        try FileManager.default.removeItem(at: unsaved)
+        await resumed.pollPR(task.id)
+        #expect(try reopened.get(WorkTask.self, task.id).worktreePath == nil)
+        #expect(!FileManager.default.fileExists(atPath: mergedPath))
+        #expect(try reopened.all(Proof.self).contains { $0.taskId == task.id })
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
         #expect(try String(contentsOf: f.control.appending(path: "pr-body"), encoding: .utf8) == "Adds the requested feature.")

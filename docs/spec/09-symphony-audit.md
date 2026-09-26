@@ -20,7 +20,7 @@ SQLite is the authoritative tracker/configuration source. `WORKFLOW.md` is an ap
 
 Keep the product's 5-second polling, four-agent default, rank ordering, two-proof limit, and persistent thread/session records. There are no additional per-state limits. A task's total turn budget pauses it for human attention instead of automatically cycling workers indefinitely. Normal continuation stays in the live thread with refreshed project/global guidance. Failed attempts reuse the worktree and use persisted exponential retry deadlines; UTC deadlines intentionally survive app restart.
 
-Questions and plan approval can hold a dynamic call open indefinitely without consuming the stall/turn timeout. These live processes reserve capacity; pausing closes them. Keep completed/canceled worktrees until explicit deletion so local changes remain recoverable. Retry `afterCreate` until setup succeeds. Abort removal if its hook fails or git reports uncommitted changes.
+Questions and plan approval can hold a dynamic call open indefinitely without consuming the stall/turn timeout. These live processes reserve capacity; pausing closes them. Keep canceled worktrees until explicit deletion. User-directed follow-up: clean merged worktrees are removed automatically; dirty worktrees and failing removal hooks are preserved and reported. Retry `afterCreate` until setup succeeds. Abort removal if its hook fails or git reports uncommitted changes.
 
 ## Remaining later-milestone work
 
