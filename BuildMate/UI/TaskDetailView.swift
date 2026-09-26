@@ -102,7 +102,7 @@ struct TaskDetailView: View {
         .inspector(isPresented: $model.showInspector) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text("Road to merge").font(.headline).accessibilityAddTraits(.isHeader)
+                    Text("Status").font(.headline).accessibilityAddTraits(.isHeader)
                     RoadToMerge(task: task)
                     Divider()
                     Text("Brief").font(.headline)

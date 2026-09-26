@@ -93,7 +93,7 @@ Designs: `mac-07` to `mac-10`. Toolbar (floating over content): Back/Forward gro
 
 Left: the session transcript (same components as the chat) with the task's **brief** as the first user message (with attachments), activity rows, agent messages, screenshots, questions, events. Composer: attach, "Message the agent", send.
 
-Right inspector: **Road to merge** checklist (vertical, five steps, sub-items for Proof), then state-specific sections, then an optional footer with the primary action.
+Right inspector: **Status** heading above the road-to-merge checklist (vertical, five steps, sub-items for Proof), then state-specific sections, then an optional footer with the primary action. Use “Status” for the checklist's accessibility label too.
 
 ### 9a. Needs Clarification — `mac-07-task-needs-clarification`
 - Question cards (purple tint border): question text + answer chips; free-text via composer. Answering all blocking questions resumes the agent.

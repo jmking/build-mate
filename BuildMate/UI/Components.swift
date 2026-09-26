@@ -49,7 +49,7 @@ struct RoadToMerge: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Road to merge: \(completed) of 5 complete, \(task.state.title)")
+        .accessibilityLabel("Status: \(completed) of 5 complete, \(task.state.title)")
     }
 }
 struct TaskCard: View {
