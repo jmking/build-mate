@@ -82,6 +82,13 @@ struct ShellTests {
         let task = try #require(model.selectedTask)
         #expect(task.state == .backlog && task.title == "Make output readable")
         #expect(task.worktreePath == nil)
+        try await model.editTask(task.id, title: "Keep errors readable", description: "Compact output, with full error details", proofRequirement: .checksOnly)
+        let edited = try uiStore.get(WorkTask.self, task.id)
+        #expect(edited.title == "Keep errors readable" && edited.description == "Compact output, with full error details" && edited.proofRequirement == .checksOnly)
+        #expect(edited.state == .backlog && !edited.paused && edited.worktreePath == nil)
+        #expect(try uiStore.all(Session.self).isEmpty) // Editing a draft must not create or dispatch an agent session.
+        do { try await model.editTask(task.id, title: "  ", description: "Lost draft", proofRequirement: .automatic); Issue.record("Empty title accepted") } catch {}
+        #expect(try uiStore.get(WorkTask.self, task.id).description == edited.description)
         // No recording setup is needed to queue functional work; global pause still prevents dispatch.
         try await model.createTask(projectID: discovered.project.id, title: "Functional work", description: "Verify an API", start: true, proofRequirement: .checksOnly)
         let started = try #require(uiStore.all(WorkTask.self).first { $0.title == "Functional work" })
@@ -104,6 +111,7 @@ struct ShellTests {
         #expect(restored.selectedTask?.id == task.id)
         observer.cancel(); await observer.value; await restored.core.shutdown()
         #expect(restored.snapshot.messages.contains { $0.body == "A persisted transcript" })
+        #expect(restored.selectedTask?.description == edited.description && restored.selectedTask?.proofRequirement == .checksOnly)
         // Description-only creation gets a model title; failures and cancellation must not lose the brief or start work.
         let brief = "Please improve our CLI so verbose output is compact and easy to scan. Keep errors visible."
         try await model.createTask(projectID: discovered.project.id, title: "  ", description: brief, start: false)
@@ -112,7 +120,7 @@ struct ShellTests {
         #expect(generated.title == "Keep command output compact" && generated.description == brief)
         #expect(generated.state == .backlog && generated.worktreePath == nil)
         #expect(try uiStore.all(Session.self).allSatisfy { $0.ownerId != generated.id })
-        try model.renameTask(generated.id, title: "  Keep errors visible in compact output  ")
+        try await model.editTask(generated.id, title: "  Keep errors visible in compact output  ", description: generated.description, proofRequirement: generated.proofRequirement)
         let renamed = try uiStore.get(WorkTask.self, generated.id)
         #expect(renamed.title == "Keep errors visible in compact output" && renamed.description == brief && renamed.state == .backlog)
         try f.marker("title-failure")

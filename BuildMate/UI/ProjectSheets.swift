@@ -93,6 +93,70 @@ struct AddProjectSheet: View {
     }
 }
 
+struct EditTaskSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let task: WorkTask
+    @State private var title: String
+    @State private var description: String
+    @State private var proofRequirement: ProofRequirement
+    @State private var saving = false
+    @State private var failure: String?
+    @FocusState private var titleFocused: Bool
+
+    init(task: WorkTask) {
+        self.task = task
+        _title = State(initialValue: task.title)
+        _description = State(initialValue: task.description)
+        _proofRequirement = State(initialValue: task.proofRequirement)
+    }
+    private var scopeLocked: Bool { task.state.terminal || task.state == .inPR }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Edit Task").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Title").font(.caption).foregroundStyle(.secondary)
+                TextField("Task title", text: $title).textFieldStyle(.roundedBorder).focused($titleFocused)
+                    .accessibilityLabel("Task title").accessibilityIdentifier("edit-task-title").disabled(saving)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("What should be built").font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $description).font(.system(size: 14)).scrollContentBackground(.hidden)
+                    .frame(height: 165).padding(10)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
+                    .accessibilityLabel("Task description").accessibilityIdentifier("edit-task-description")
+                    .disabled(saving || scopeLocked)
+            }
+            Picker("Proof", selection: $proofRequirement) {
+                ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
+            }.fixedSize().disabled(saving || scopeLocked).accessibilityIdentifier("edit-task-proof")
+            Text(scopeLocked ? "Only the title can be changed once a pull request is open or the task is finished."
+                 : "Changes to the brief or proof pause work that has already started. Resume the task when you’re ready for a new plan and fresh proof.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+            HStack(alignment: .firstTextBaseline) {
+                if saving { ProgressView().controlSize(.small); Text("Saving changes…").font(.caption).foregroundStyle(.secondary) }
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving)
+                Button("Save Changes", action: save).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }.padding(28).frame(width: 670).interactiveDismissDisabled(saving).onAppear { titleFocused = true }
+    }
+    private func save() {
+        guard !saving else { return }
+        saving = true; failure = nil
+        Task {
+            defer { saving = false }
+            do {
+                try await model.editTask(task.id, title: title, description: description, proofRequirement: proofRequirement)
+                dismiss()
+            } catch { failure = error.localizedDescription }
+        }
+    }
+}
+
 struct NewTaskSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss

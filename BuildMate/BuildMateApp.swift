@@ -44,6 +44,9 @@ struct BuildMateApp: App {
                 Button("Find") { model?.findRequested.toggle() }.keyboardShortcut("f")
             }
             CommandMenu("Task") {
+                Button("Edit Task…") { model?.editingTask = model?.selectedTask }
+                    .keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model?.selectedTask == nil)
+                Divider()
                 Button("Pause / Resume Task") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.pause(task.id, paused: !task.paused) }

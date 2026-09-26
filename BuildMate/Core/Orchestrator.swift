@@ -11,6 +11,7 @@ actor Orchestrator {
     private var lastPoll: [UUID: Date] = [:]
     private var heavySteps = 0
     private var openingPRs: Set<UUID> = []
+    private var editingTasks: Set<UUID> = []
     private var ticking = false
     private var shuttingDown = false
     private(set) var lastError: String?
@@ -87,7 +88,7 @@ actor Orchestrator {
             var occupied = workers.count
             for task in tasks.sorted(by: { $0.rank == $1.rank ? $0.createdAt < $1.createdAt : $0.rank > $1.rank }) {
                 guard occupied < settings.agentsAtOnce else { break }
-                guard workers[task.id] == nil, let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
+                guard workers[task.id] == nil, !editingTasks.contains(task.id), let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
                       (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
                 do { try project.settings.validate() }
@@ -130,8 +131,56 @@ actor Orchestrator {
         }
     }
     func pause(_ id: UUID, paused: Bool) async throws {
+        guard !editingTasks.contains(id) else { throw CoreError.invalid("Wait for the task edit to finish.") }
         var task = try store.get(WorkTask.self, id); task.paused = paused; try store.save(task)
         await tick()
+    }
+    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement) async throws {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
+        guard editingTasks.insert(id).inserted else { throw CoreError.invalid("This task is already being edited.") }
+        defer { editingTasks.remove(id) }
+        var task = try store.get(WorkTask.self, id)
+        let scopeChanged = task.description != description || task.proofRequirement != proofRequirement
+        guard scopeChanged || task.title != title else { return }
+        if scopeChanged {
+            guard !task.state.terminal, task.state != .inPR, !openingPRs.contains(id) else {
+                throw CoreError.invalid("Only the title can be edited after a pull request is opening or the task is finished.")
+            }
+            if task.worktreePath != nil || workers[id] != nil {
+                task.paused = true; try store.save(task)
+                if let worker = workers[id] {
+                    let client = clients[id]
+                    let session = try store.session(for: id)
+                    if let client, let thread = session.codexThreadId, let turn = session.currentTurn {
+                        await client.interrupt(thread: thread, turn: turn)
+                    }
+                    worker.cancel(); await client?.stop(); await worker.value
+                }
+                task = try store.get(WorkTask.self, id)
+                // Replan atomically below, only after the old worker can no longer publish proof.
+                if task.state != .backlog { task.state = .todo }
+                task.paused = true
+            }
+            task.retry = nil
+        }
+        task.title = title; task.description = description; task.proofRequirement = proofRequirement; task.updatedAt = Date()
+        let edited = task
+        try await store.db.write { db in
+            if scopeChanged {
+                try edited.save(db)
+                try db.execute(sql: "UPDATE proof SET complete = 0 WHERE taskId = ?", arguments: [id])
+                try db.execute(sql: "UPDATE approval SET status = 'superseded', resolvedAt = ? WHERE taskId = ? AND kind = 'plan'", arguments: [Date(), id])
+                try db.execute(sql: "UPDATE question SET answer = 'Superseded by task edit', answeredBy = 'taskEdit', answeredAt = ? WHERE taskId = ? AND answer IS NULL", arguments: [Date(), id])
+            } else {
+                // A running worker may advance while this write is queued. Preserve its lifecycle fields.
+                try db.execute(sql: "UPDATE task SET title = ?, updatedAt = ? WHERE id = ?", arguments: [edited.title, edited.updatedAt, id])
+            }
+            if let session = try Session.filter(Column("ownerType") == "task" && Column("ownerId") == id).fetchOne(db) {
+                let body = scopeChanged ? "Task brief or proof updated. Previous proof and plans are superseded." : "Task title updated."
+                try Message(sessionId: session.id, role: "system", kind: "event", body: body).insert(db)
+            }
+        }
     }
     func answer(_ id: UUID, text: String) async throws {
         var question = try store.get(Question.self, id)
@@ -164,6 +213,7 @@ actor Orchestrator {
         return .saved
     }
     func openPullRequest(_ id: UUID) async throws {
+        guard !editingTasks.contains(id) else { throw CoreError.invalid("Wait for the task edit to finish.") }
         let task = try store.get(WorkTask.self, id)
         guard openingPRs.insert(id).inserted else { throw CoreError.invalid("Pull request is already opening") }
         defer { openingPRs.remove(id) }
@@ -365,10 +415,10 @@ actor Orchestrator {
     }
 
     private func prompt(task: WorkTask, project: Project) throws -> String {
-        let answers = try store.all(Question.self).filter { $0.taskId == task.id }.map { "\($0.prompt): \($0.answer ?? "unanswered")" }.joined(separator: "\n")
+        let answers = try store.all(Question.self).filter { $0.taskId == task.id && $0.answeredBy != "taskEdit" }.map { "\($0.prompt): \($0.answer ?? "unanswered")" }.joined(separator: "\n")
         let session = try store.session(for: task.id)
         let messages = try store.all(Message.self).filter { $0.sessionId == session.id && $0.role == "user" }.map(\.body).joined(separator: "\n")
-        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nAnswers:\n\(answers)\nAdditional user messages:\n\(messages)\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. A recording command writes MP4 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema only accepts summary, encode the complete report as JSON in summary.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review."
+        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages:\n\(messages)\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. A recording command writes MP4 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema only accepts summary, encode the complete report as JSON in summary.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {

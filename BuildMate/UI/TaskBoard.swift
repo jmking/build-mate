@@ -92,6 +92,7 @@ struct TaskList: View {
                                     }.padding(.vertical, 8).contentShape(Rectangle())
                                 }.buttonStyle(.plain)
                                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                                    .contextMenu { Button("Edit Task…") { model.editingTask = task } }
                             }
                         }
                     }

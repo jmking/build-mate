@@ -55,11 +55,11 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertTrue(app.buttons["Start Now"].isEnabled)
         app.buttons["Add to Backlog"].click()
         XCTAssertTrue(visibleText("Keep command output compact").waitForExistence(timeout: 5))
-        app.buttons["rename-task"].click()
-        let title = app.textFields["rename-task-title"]
+        app.buttons["edit-task"].click()
+        let title = app.textFields["edit-task-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.click(); title.typeKey("a", modifierFlags: .command); title.typeText("Make output easier to read")
-        app.buttons["Save"].click()
+        app.buttons["Save Changes"].click()
         XCTAssertTrue(visibleText("Make output easier to read").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Move to Todo"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Move to Todo"].isEnabled)

@@ -123,6 +123,9 @@ The persisted `done` state is displayed as **Merged** throughout the app. Keep t
 | any active | canceled | User: Cancel task | Session stopped, worktree kept until the user deletes the task. PR closed only if the user confirms. |
 | any | (paused flag) | Pause task / project / all | See section 10. |
 
+### Task edits
+Title-only edits preserve lifecycle and proof. A scope edit (brief or proof preference) is an atomic replan operation: block dispatch/publication during the edit, pause any started task, interrupt and await its worker, then save the new fields, invalidate proof, supersede prior plan approvals and resolve pending questions as superseded. Started tasks return to Todo paused (or stay Backlog); unstarted drafts keep their state and pause flag. Resume reuses the existing thread/worktree with the current task prompt. Old answers remain historical context; superseded unanswered questions are excluded from the new prompt. Scope edits are rejected once a PR is opening/open or the task is terminal. This does not add a general-purpose Building → Todo transition.
+
 ### Road to merge (display)
 Five checkpoints derived from state and data: **Clarified** (no open blocking questions and, if needed, plan approved), **Built** (agent requested review), **Proof of work** (proof complete, with sub-items Checks and, when applicable, Recording), **Human review** (approved, or skipped by settings), **Merged**. Each is `done`, `current`, `needsYou` or `todo`. The 5-segment bar on cards and the vertical checklist in the task inspector are two renderings of the same data.
 

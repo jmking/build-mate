@@ -87,6 +87,21 @@ struct CoreTests {
         #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == 2) // Missing and invalid video cannot bypass the user's recording requirement.
         #expect(try f.store.all(Message.self).contains { $0.kind == "proof" }) // Failed proof reached the agent before review.
         #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "pr-created").path))
+        // Editing reviewed work must invalidate proof and the approved plan before the same thread resumes.
+        let originalBranch = try f.store.get(WorkTask.self, task.id).branchName
+        try await core.editTask(task.id, title: "Improve plain output", description: "Preserve errors in the compact output", proofRequirement: .checksAndRecording)
+        let edited = try f.store.get(WorkTask.self, task.id)
+        #expect(edited.state == .todo && edited.paused && edited.branchName == originalBranch)
+        #expect(try f.store.all(Proof.self).allSatisfy { !$0.complete })
+        #expect(try f.store.all(Approval.self).allSatisfy { $0.status == "superseded" })
+        do { try await core.openPullRequest(task.id); Issue.record("Edited work bypassed fresh proof") } catch {}
+        try await core.pause(task.id, paused: false)
+        try await f.wait("fresh plan after edit") { try f.store.all(Approval.self).contains { $0.status == "pending" } }
+        let freshPlan = try #require(f.store.all(Approval.self).first { $0.status == "pending" })
+        try await core.approvePlan(freshPlan.id)
+        try await f.wait("fresh proof after edit") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
+        #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Preserve errors in the compact output"))
         await core.shutdown()
 
         // Reopen SQLite and the orchestrator at the human-review boundary.
@@ -95,6 +110,10 @@ struct CoreTests {
         try await resumed.recover()
         try await resumed.openPullRequest(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).state == .inPR)
+        do { try await resumed.editTask(task.id, title: "Changed scope", description: "Different work", proofRequirement: .checksOnly); Issue.record("PR task scope edited") } catch {}
+        try await resumed.editTask(task.id, title: "Clear plain output", description: edited.description, proofRequirement: edited.proofRequirement)
+        #expect(try reopened.get(WorkTask.self, task.id).state == .inPR)
+        #expect(try reopened.get(WorkTask.self, task.id).branchName == originalBranch)
         await resumed.pollPR(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).state == .inPR)
         let branch = try #require(reopened.get(WorkTask.self, task.id).branchName)
@@ -128,7 +147,15 @@ struct CoreTests {
             let core = Orchestrator(store: f.store, runner: f.runner)
             await core.tick()
             try await f.wait("question") { try !f.store.all(Question.self).isEmpty }
-            try await core.answer(f.store.all(Question.self)[0].id, text: "Plain")
+            if !visual {
+                try await core.editTask(task.id, title: task.title, description: "Updated functional task brief", proofRequirement: requirement)
+                #expect(try f.store.get(WorkTask.self, task.id).paused)
+                #expect(try f.store.all(Question.self).allSatisfy { $0.answeredBy == "taskEdit" })
+                try await core.pause(task.id, paused: false)
+                try await f.wait("new question after edit") { try f.store.all(Question.self).contains { $0.answer == nil } }
+            }
+            let question = try #require(f.store.all(Question.self).first { $0.answer == nil })
+            try await core.answer(question.id, text: "Plain")
             try await f.wait("task-specific proof") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
             let proof = try #require(f.store.all(Proof.self).first)
             #expect(proof.complete && proof.checks.count == 1 && proof.checks[0].status == "passed")

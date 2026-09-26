@@ -49,6 +49,7 @@ final class AppModel {
     var findRequested = false
     var showAddProject = false
     var showNewTask = false
+    var editingTask: WorkTask?
     var showInspector = true
     var listMode = false
     var search = ""
@@ -156,12 +157,9 @@ final class AppModel {
         showNewTask = false; destination = .task(task.id)
         await core.tick()
     }
-    func renameTask(_ id: UUID, title: String) throws {
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
-        try store.db.write { db in
-            try db.execute(sql: "UPDATE task SET title = ?, updatedAt = ? WHERE id = ?", arguments: [title, Date(), id])
-        }
+    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement) async throws {
+        try await core.editTask(id, title: title, description: description, proofRequirement: proofRequirement)
+        await refresh()
     }
     func moveToTodo(_ task: WorkTask) async throws {
         let project = try store.get(Project.self, task.projectId)

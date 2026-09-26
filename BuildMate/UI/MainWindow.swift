@@ -104,6 +104,7 @@ struct MainWindow: View {
         .frame(minWidth: 1100, minHeight: 700)
         .sheet(isPresented: $model.showAddProject) { AddProjectSheet() }
         .sheet(isPresented: $model.showNewTask) { NewTaskSheet() }
+        .sheet(item: $model.editingTask) { EditTaskSheet(task: $0) }
         .alert("Unable to complete the action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }

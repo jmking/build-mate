@@ -84,6 +84,7 @@ struct TaskCard: View {
         .accessibilityIdentifier("task-\(task.number)")
         .contextMenu {
             Button("Open") { model.destination = .task(task.id) }
+            Button("Edit Task…") { model.editingTask = task }
             Button(task.paused ? "Resume" : "Pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }
         }
     }
