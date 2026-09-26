@@ -114,6 +114,33 @@ final class AppModel {
     func navigate(_ page: ProjectPage) {
         if let project = selectedProject ?? snapshot.projects.first { destination = .project(project.id, page) }
     }
+    func reorderTask(_ id: UUID, relativeTo targetID: UUID, after: Bool) throws {
+        guard id != targetID else { return }
+        try store.db.write { db in
+            guard let task = try WorkTask.fetchOne(db, key: id), let target = try WorkTask.fetchOne(db, key: targetID),
+                  task.projectId == target.projectId, task.state == target.state, [.backlog, .todo].contains(task.state) else {
+                throw CoreError.invalid("Reorder tasks within the same project's Backlog or Todo list.")
+            }
+            var group = try WorkTask.filter(Column("projectId") == task.projectId && Column("state") == task.state.rawValue)
+                .order(Column("rank").desc, Column("createdAt")).fetchAll(db).map(\.id)
+            group.removeAll { $0 == id }
+            guard let index = group.firstIndex(of: targetID) else { return }
+            group.insert(id, at: index + (after ? 1 : 0))
+            for (index, taskID) in group.enumerated() {
+                try db.execute(sql: "UPDATE task SET rank = ?, updatedAt = ? WHERE id = ?", arguments: [group.count - index, Date(), taskID])
+            }
+        }
+    }
+    func priorityNeighbor(_ task: WorkTask, earlier: Bool) -> WorkTask? {
+        guard [.backlog, .todo].contains(task.state) else { return nil }
+        let group = snapshot.tasks.filter { $0.projectId == task.projectId && $0.state == task.state }
+        guard let index = group.firstIndex(where: { $0.id == task.id }) else { return nil }
+        let next = index + (earlier ? -1 : 1)
+        return group.indices.contains(next) ? group[next] : nil
+    }
+    func movePriority(_ task: WorkTask, earlier: Bool) throws {
+        if let target = priorityNeighbor(task, earlier: earlier) { try reorderTask(task.id, relativeTo: target.id, after: !earlier) }
+    }
     func goBack() {
         guard let previous = backHistory.popLast() else { return }
         if let destination { forwardHistory.append(destination) }

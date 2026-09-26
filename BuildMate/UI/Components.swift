@@ -85,7 +85,48 @@ struct TaskCard: View {
         .contextMenu {
             Button("Open") { model.destination = .task(task.id) }
             Button("Edit Task…") { model.editingTask = task }
+            TaskPriorityActions(task: task)
             Button(task.paused ? "Resume" : "Pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }
         }
+        .modifier(TaskPriorityDrag(task: task))
+    }
+}
+
+struct TaskPriorityActions: View {
+    @Environment(AppModel.self) private var model
+    let task: WorkTask
+    var body: some View {
+        if [.backlog, .todo].contains(task.state) {
+            Button("Move Earlier") { model.perform { try model.movePriority(task, earlier: true) } }
+                .disabled(model.priorityNeighbor(task, earlier: true) == nil)
+            Button("Move Later") { model.perform { try model.movePriority(task, earlier: false) } }
+                .disabled(model.priorityNeighbor(task, earlier: false) == nil)
+        }
+    }
+}
+
+struct TaskPriorityDrag: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @State private var height: CGFloat = 1
+    @State private var targeted = false
+    let task: WorkTask
+    func body(content: Content) -> some View {
+        if [.backlog, .todo].contains(task.state) {
+            content
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+                .draggable("build-mate-task:" + task.id.uuidString)
+                .dropDestination(for: String.self) { items, point in
+                    guard let item = items.first, item.hasPrefix("build-mate-task:"),
+                          let id = UUID(uuidString: String(item.dropFirst(16))),
+                          let source = model.snapshot.tasks.first(where: { $0.id == id }),
+                          source.projectId == task.projectId, source.state == task.state else { return false }
+                    model.perform { try model.reorderTask(id, relativeTo: task.id, after: point.y > height / 2) }
+                    return true
+                } isTargeted: { targeted = $0 }
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(targeted ? Color.accentColor : .clear, lineWidth: 2).allowsHitTesting(false))
+                .accessibilityAction(named: "Move earlier") { model.perform { try model.movePriority(task, earlier: true) } }
+                .accessibilityAction(named: "Move later") { model.perform { try model.movePriority(task, earlier: false) } }
+                .help("Drag above or below another task to change priority")
+        } else { content }
     }
 }

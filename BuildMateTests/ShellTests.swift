@@ -89,10 +89,20 @@ struct ShellTests {
         #expect(try uiStore.all(Session.self).isEmpty) // Editing a draft must not create or dispatch an agent session.
         do { try await model.editTask(task.id, title: "  ", description: "Lost draft", proofRequirement: .automatic); Issue.record("Empty title accepted") } catch {}
         #expect(try uiStore.get(WorkTask.self, task.id).description == edited.description)
+        let other = try uiStore.createTask(projectId: discovered.project.id, title: "Other draft", rank: 10)
+        try model.reorderTask(task.id, relativeTo: other.id, after: false)
+        await model.refresh()
+        #expect(model.tasks(discovered.project.id).first?.id == task.id)
+        try model.reorderTask(task.id, relativeTo: other.id, after: true)
+        await model.refresh()
+        #expect(model.tasks(discovered.project.id).first?.id == other.id)
+        #expect(try uiStore.get(WorkTask.self, task.id).state == .backlog)
+        try await model.core.deleteTask(other.id)
         // No recording setup is needed to queue functional work; global pause still prevents dispatch.
         try await model.createTask(projectID: discovered.project.id, title: "Functional work", description: "Verify an API", start: true, proofRequirement: .checksOnly)
         let started = try #require(uiStore.all(WorkTask.self).first { $0.title == "Functional work" })
         #expect(started.state == .todo && started.proofRequirement == .checksOnly && started.worktreePath == nil)
+        do { try model.reorderTask(task.id, relativeTo: started.id, after: false); Issue.record("Cross-state reorder accepted") } catch {}
         #expect(try await model.core.steer(started.id, text: "For the next run") == .saved)
         #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "calls.jsonl").path))
         try await model.moveToTodo(task)

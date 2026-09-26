@@ -122,3 +122,7 @@ Simplest safe behavior for scope changes after work starts: pause and await the 
 ## Merged workspace cleanup (2026-09-26)
 
 Automatically remove clean worktrees after confirmed merge, with no live worker. Retain the local branch (and thus committed history), transcript and proof. A dirty worktree or failed beforeRemove hook is preserved, reported, and retried every minute, including after restart. Canceled and Human review tasks are unaffected.
+
+## Queue ordering follow-up (2026-09-26)
+
+Bring Backlog and Todo ordering forward. Persist contiguous descending ranks in a single transaction; retain task states and dependencies. Dragging changes priority only within the same project/state; cross-column movement is not implied. An already-running worker is never preempted.

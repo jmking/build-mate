@@ -186,8 +186,10 @@ struct CoreTests {
         var settings = AppSettings(); settings.agentsAtOnce = 1; try f.store.saveSettings(settings)
         let backlog = try f.store.createTask(projectId: f.project.id, title: "Never dispatch", rank: 100)
         let dependency = try f.store.createTask(projectId: f.project.id, title: "Blocked", state: .todo, rank: 90, dependsOn: [backlog.id])
-        let high = try f.store.createTask(projectId: f.project.id, title: "First", state: .todo, rank: 20)
-        let low = try f.store.createTask(projectId: f.project.id, title: "Second", state: .todo, rank: 10)
+        let high = try f.store.createTask(projectId: f.project.id, title: "First", state: .todo, rank: 10)
+        let low = try f.store.createTask(projectId: f.project.id, title: "Second", state: .todo, rank: 20)
+        let ordering = await AppModel(store: f.store, runner: f.runner)
+        try await ordering.reorderTask(high.id, relativeTo: low.id, after: false) // The next dispatch follows the user’s reordered queue.
         try f.marker("crash-once")
         let core = Orchestrator(store: f.store, runner: f.runner)
         await core.tick()

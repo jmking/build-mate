@@ -92,7 +92,19 @@ struct TaskList: View {
                                     }.padding(.vertical, 8).contentShape(Rectangle())
                                 }.buttonStyle(.plain)
                                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                                    .contextMenu { Button("Edit Task…") { model.editingTask = task } }
+                                    .contextMenu {
+                                        Button("Edit Task…") { model.editingTask = task }
+                                        TaskPriorityActions(task: task)
+                                    }
+                                    .moveDisabled(![.backlog, .todo].contains(task.state))
+                            }.onMove { offsets, destination in
+                                guard let source = offsets.first, offsets.count == 1 else { return }
+                                var ordered = group.map(\.id)
+                                ordered.move(fromOffsets: offsets, toOffset: destination)
+                                let id = group[source].id
+                                guard let index = ordered.firstIndex(of: id), ordered.count > 1 else { return }
+                                let target = index == 0 ? ordered[1] : ordered[index - 1]
+                                model.perform { try model.reorderTask(id, relativeTo: target, after: index != 0) }
                             }
                         }
                     }

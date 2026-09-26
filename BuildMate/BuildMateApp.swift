@@ -47,6 +47,16 @@ struct BuildMateApp: App {
                 Button("Edit Task…") { model?.editingTask = model?.selectedTask }
                     .keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model?.selectedTask == nil)
                 Divider()
+                Button("Move Earlier") {
+                    guard let model, let task = model.selectedTask else { return }
+                    model.perform { try model.movePriority(task, earlier: true) }
+                }.keyboardShortcut(.upArrow, modifiers: [.command, .control])
+                    .disabled(model?.selectedTask.flatMap { model?.priorityNeighbor($0, earlier: true) } == nil)
+                Button("Move Later") {
+                    guard let model, let task = model.selectedTask else { return }
+                    model.perform { try model.movePriority(task, earlier: false) }
+                }.keyboardShortcut(.downArrow, modifiers: [.command, .control])
+                    .disabled(model?.selectedTask.flatMap { model?.priorityNeighbor($0, earlier: false) } == nil)
                 Button("Pause / Resume Task") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.pause(task.id, paused: !task.paused) }
