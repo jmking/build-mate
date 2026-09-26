@@ -24,7 +24,7 @@ For a predictable app path:
 
 ```sh
 xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build
-open .build/Build/Products/Debug/BuildMate.app
+open '.build/Build/Products/Debug/Build Mate.app'
 ```
 
 The app uses `~/Library/Application Support/Build Mate/`. Tests supply separate temporary storage and an isolated environment. The hostless test target compiles the unmodified core sources, avoiding any test launch against real app data. No signing team or credentials are needed for local tests.

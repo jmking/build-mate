@@ -30,6 +30,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.buildmate.app
+        PRODUCT_NAME: Build Mate
+        EXECUTABLE_NAME: BuildMate
         ASSETCATALOG_COMPILER_APPICON_NAME: BuildMate
   BuildMateTests:
     type: bundle.unit-test
