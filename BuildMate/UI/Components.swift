@@ -4,7 +4,7 @@ extension TaskState {
     var title: String {
         switch self {
         case .backlog: "Backlog"; case .todo: "Todo"; case .needsClarification: "Needs Clarification"
-        case .building: "Building"; case .humanReview: "Human review"; case .inPR: "In PR"; case .done: "Done"; case .canceled: "Canceled"
+        case .building: "Building"; case .humanReview: "Human review"; case .inPR: "In PR"; case .done: "Merged"; case .canceled: "Canceled"
         }
     }
     var symbol: String {

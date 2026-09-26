@@ -67,12 +67,12 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 
 ## 6. Tasks board — `mac-04-board`
 - Toolbar: "Tasks"; **Pause Project**; List/Board segmented control (⌘L toggles); Search; New Task (⌘N).
-- Columns (left to right): **Todo**, **Needs Clarification**, **Building**, **Human review**, **In PR**. Done is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Todo header has **+**.
+- Columns (left to right): **Todo**, **Needs Clarification**, **Building**, **Human review**, **In PR**. Merged is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Todo header has **+**.
 - Todo column starts with a dashed **Backlog · N** row linking to Backlog.
 - Card (12 pt radius): optional attachment preview (image, or video with glass play button), title (2 lines max), number, attachment count, status on the right (coloured dot + text, e.g. "2 questions", "Approve plan", "Paused", "Retry in 0:31", "Proof complete", "Fixing build", "1 of 2 approvals"), optional "Waits on #427" chip, and the 5-segment **Road to merge** bar (not shown for Todo cards without progress).
 - Drag and drop: Backlog ↔ Todo, and Todo reorder, are allowed; other moves are agent-driven, except dragging a card to the Backlog link (moves it back and stops its session after confirmation).
 - Context menu: Open, Open in <editor>, Pause/Resume, Move to Backlog, Cancel Task…, Copy Link.
-- **List view** (not drawn): a table grouped by state with the same columns of data; filter by state including Done.
+- **List view** (not drawn): a table grouped by state with the same columns of data; filter by state including Merged.
 
 ## 7. New Task sheet — `mac-05-new-task-sheet`
 - Sheet attached to the main window (⌘N anywhere). Fields: project pull-down (neutral folder when an icon is shown), "What should be built" (multiline, initially focused), optional title under **Set a title yourself**, Attachments (tiles + dashed add area; drag-and-drop, paste; milestone 6).

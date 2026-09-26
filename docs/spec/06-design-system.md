@@ -81,7 +81,7 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 | Building | `play.circle` |
 | Human review | `eye` |
 | In PR | `arrow.triangle.pull` |
-| Done | `checkmark.circle` |
+| Merged | `checkmark.circle` |
 | Pause / resume | `pause.fill` / `play.fill` |
 | Add / new task | `plus` |
 | Search | `magnifyingglass` |

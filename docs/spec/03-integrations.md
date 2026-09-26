@@ -65,7 +65,7 @@ Bitbucket Cloud projects use Atlassian's **Teamwork Graph CLI** (`twg`), which s
 | Comments including inline/replies | `twg bitbucket pull-requests comment query` | `GET P/comments`; follow `next` |
 | Comment/reply | `twg bitbucket pull-requests comment create` | `POST P/comments`, body `{"content":{"raw":text}}`; add `"parent":{"id":commentId}` for a reply, or `"inline":{"path":file,"to":line}` for an inline comment |
 | Retarget destination | `twg bitbucket pull-requests update` (destination flag not established) | `PUT P`, body `{"destination":{"branch":{"name":base}}}` |
-| Squash merge | `twg bitbucket pull-requests merge` | `POST P/merge`, body `{"merge_strategy":"squash","close_source_branch":true}`; handle asynchronous merge responses before marking Done |
+| Squash merge | `twg bitbucket pull-requests merge` | `POST P/merge`, body `{"merge_strategy":"squash","close_source_branch":true}`; handle asynchronous merge responses before marking Merged |
 
 Do not implement a REST credential reader by scraping TWG configuration. Token transport for any needed fallback is still an authenticated-spike question; credentials stay with TWG or Keychain. Milestone 2 proceeds with GitHub; the Bitbucket provider remains disabled until verified. See 08 for exact installation/setup steps. At milestone 5 both verified hosts can implement the small `SCMProvider` contract (`openPR, prStatus, checks, comments, reply, retarget, merge`); do not add a second-provider abstraction to the GitHub-only core prematurely.
 

@@ -6,7 +6,7 @@ Status: implementation and process-boundary tests delivered; spoken VoiceOver ac
 
 - `BuildMate`: build-for-testing succeeds; five tests pass through direct `xctest` (about 11 seconds). Four process-boundary flows plus the state-machine transition test.
 - Extended the existing shell flow: missing/signed-out gh, duplicate clone, task creation, absent recording command blocks both start paths, pre-existing Todo cannot launch Codex, saved message persists without dispatch, restoration, disabled Bitbucket, untouched clone.
-- Existing lifecycle flow verifies live `turn/steer` returns sent and still reaches merged/Done. All external integrations use fake executables; git uses a local bare remote.
+- Existing lifecycle flow verifies live `turn/steer` returns sent and still reaches Merged. All external integrations use fake executables; git uses a local bare remote.
 - `BuildMateUI` build-for-testing succeeds. Execution is not claimed: Xcode's UI automation-mode initialization timed out on this host. The scenario covers light/dark setup, board, transcript, readiness gates, composer confirmation and relaunch.
 
 ## Interactive evidence

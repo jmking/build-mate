@@ -99,6 +99,8 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 ### States
 `backlog → todo → needs_clarification ↔ building → human_review → in_pr → done` (plus `canceled`). `paused` and `retrying` are flags, not states.
 
+The persisted `done` state is displayed as **Merged** throughout the app. Keep the storage value unchanged for existing tasks.
+
 ### Transitions
 | From | To | Trigger | Guard / notes |
 |---|---|---|---|

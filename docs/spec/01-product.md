@@ -39,7 +39,7 @@ A Mac app where you **manage work instead of supervising agents**:
 | **Building** | The agent is implementing. |
 | **Human review** | Proof is complete; waiting for you to review before a PR opens. |
 | **In PR** | A PR is open. The agent watches it: fixes failing builds, addresses review comments, asks you only for decisions. |
-| **Done** | Merged (or closed). |
+| **Merged** | Pull request merged. |
 | **Proof of work** | Evidence produced for review: a screen recording of the change, check results, and a change summary. |
 | **Road to merge** | The five checkpoints every task passes: Clarified → Built → Proof of work → Human review → Merged. |
 | **Approval checkpoint** | A point where the agent must wait for you: before building (plan approval), before opening a PR (human review), before merging. Configurable. |
