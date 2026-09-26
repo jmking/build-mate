@@ -37,18 +37,24 @@ struct NeedsYouView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
                 ForEach(tasks) { task in
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: symbol).foregroundStyle(color).padding(.top, 2)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(task.title).fontWeight(.medium)
-                            Text("\(model.projectName(task.projectId)) · #\(task.number)").font(.caption).foregroundStyle(.secondary)
-                            Text(detail(task)).foregroundStyle(.secondary).lineLimit(3)
-                            if task.state == .humanReview { RoadToMerge(task: task).frame(maxWidth: 220) }
-                        }
-                        Spacer()
-                        Button(task.state == .humanReview ? "Review" : "Open") { model.destination = .task(task.id) }
-                            .accessibilityLabel("Open \(task.title)")
-                    }.padding(16).background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    Button { model.destination = .task(task.id) } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: symbol).foregroundStyle(color).padding(.top, 2)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(task.title).fontWeight(.medium)
+                                Text("\(model.projectName(task.projectId)) · #\(task.number)").font(.caption).foregroundStyle(.secondary)
+                                Text(detail(task)).foregroundStyle(.secondary).lineLimit(3)
+                                if task.state == .humanReview { RoadToMerge(task: task).frame(maxWidth: 220) }
+                            }.multilineTextAlignment(.leading)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).padding(.top, 3)
+                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                            .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel("\(task.title), \(model.projectName(task.projectId)), task \(task.number). \(detail(task))")
+                        .accessibilityHint("Opens the task")
+                        .accessibilityIdentifier("needs-you-\(title)-\(task.number)")
                 }
             }
         }

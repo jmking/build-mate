@@ -35,11 +35,12 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 ## 3. Needs You (home) — `mac-01-needs-you`
 **Purpose:** everything waiting on the user across all projects, answerable in place.
 - Toolbar: "Needs You" + "7 across 2 projects"; Search, New Task.
+- Every Needs You card opens its task when clicked anywhere, including its whitespace. Use one native button with a subtle trailing chevron, keyboard activation and an accessible task/reason label; no separate Open/Review button. Future inline answer/approval controls retain their own actions.
 - Sections, in this order, only when non-empty:
-  1. **Questions**: row = status dot (needs-you purple), task title, project · #number, the question text, answer chips, **Open**. Clicking a chip answers immediately (optimistic, undo toast for 5 s). If the question allows free text, **Open** focuses the task composer.
+  1. **Questions**: row = status dot (needs-you purple), task title, project · #number, the question text, answer chips. Clicking a chip answers immediately (optimistic, undo toast for 5 s). If the question allows free text, opening the card focuses the task composer.
   2. **Approvals**: plan approvals and merge approvals. Row = title, project · #number · reason ("you asked to approve the plan"), plan summary, **View Plan** (opens the task scrolled to the plan) and **Approve Plan** (or **Merge**).
   3. **Decisions in PR**: blocking questions raised while a task is In PR (same row as Questions).
-  4. **Ready for human review**: recording thumbnail (glass play button), title, project · #number · recording length · checks, Road-to-merge bar, **Open Preview**, **Review** (opens the task view).
+  4. **Ready for human review**: recording thumbnail (glass play button), title, project · #number · recording length · checks, Road-to-merge bar, **Open Preview**, clickable card (opens the task view).
 - Empty state: large SF Symbol `checkmark.circle`, "Nothing needs you", secondary line "Agents are working on N tasks." with a link to the busiest project.
 - Updates live; newly arrived items highlight briefly (respect Reduce Motion).
 
