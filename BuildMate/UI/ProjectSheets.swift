@@ -15,7 +15,7 @@ struct AddProjectSheet: View {
             Text("Add Project").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
             Text("Choose a local clone on this Mac.").foregroundStyle(.secondary)
             HStack {
-                TextField("Repository folder", text: $path).textFieldStyle(.roundedBorder).focused($pathFocused).accessibilityIdentifier("repository-path")
+                TextField("Repository folder", text: $path).textFieldStyle(.roundedBorder).focused($pathFocused).onSubmit { if !path.isEmpty && !checking { inspect() } }.accessibilityIdentifier("repository-path")
                     .onChange(of: path) { discovered = nil; failure = nil }
                 Button("Choose…") { chooseFolder() }
             }
@@ -50,7 +50,7 @@ struct AddProjectSheet: View {
                     model.perform { try model.add(discovered) }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(discovered == nil || checking).accessibilityIdentifier("confirm-add-project")
             }
-        }.padding(28).frame(width: 610).frame(minHeight: 370).onAppear { pathFocused = true }
+        }.padding(28).frame(width: 610).frame(minHeight: 370).accessibilityElement(children: .contain).onAppear { pathFocused = true }
     }
     private func inspect() {
         let requested = path
@@ -96,13 +96,14 @@ struct NewTaskSheet: View {
                 TextEditor(text: $description).font(.body).frame(height: 165).padding(6)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Task description")
             }
-            Text("Review requires proof checks and a recording command. Their setup controls are coming soon; save work to Backlog until your project is configured.")
+            Text(selectedProject?.runBlockReason ?? "Start Now adds the task to Todo. It runs when the project is resumed and an agent slot is available.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("Agents only pick up tasks in Todo.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Start Now") { create(start: true) }.disabled(!valid || selectedProject?.host != .github)
+                Button("Start Now") { create(start: true) }.disabled(!valid || selectedProject?.runBlockReason != nil)
+                    .help(selectedProject?.runBlockReason ?? "Add to Todo")
                 Button("Add to Backlog") { create(start: false) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(!valid)
             }
         }.padding(28).frame(width: 670).onAppear { projectID = model.selectedProject?.id ?? model.snapshot.projects.first?.id; titleFocused = true }

@@ -56,7 +56,7 @@ final class AppModel {
     var schedulerError: String?
     private var observing = false
 
-    init(store: Store) { self.store = store; core = Orchestrator(store: store) }
+    init(store: Store, runner: ProcessRunner = ProcessRunner()) { self.store = store; core = Orchestrator(store: store, runner: runner) }
 
     func observe() async {
         guard !observing else { return }
@@ -94,9 +94,15 @@ final class AppModel {
         guard case .task(let id) = destination else { return nil }
         return snapshot.tasks.first { $0.id == id }
     }
+    func retryNeedsAttention(_ task: WorkTask) -> Bool {
+        guard task.retry != nil, !task.state.terminal else { return false }
+        return !snapshot.sessions.contains { $0.ownerId == task.id && $0.status == "running" && $0.currentTurn != nil }
+            && !snapshot.questions.contains { $0.taskId == task.id && $0.answer == nil }
+            && !snapshot.approvals.contains { $0.taskId == task.id && $0.status == "pending" }
+    }
     func needsYou(_ task: WorkTask) -> Bool {
         !task.state.terminal && (task.state == .humanReview || snapshot.questions.contains { $0.taskId == task.id && $0.answer == nil }
-            || snapshot.approvals.contains { $0.taskId == task.id && $0.status == "pending" } || task.retry != nil)
+            || snapshot.approvals.contains { $0.taskId == task.id && $0.status == "pending" } || retryNeedsAttention(task))
     }
     var needsCount: Int { snapshot.tasks.filter(needsYou).count }
     var workers: Int { snapshot.sessions.filter { $0.status == "running" }.count }
@@ -132,9 +138,15 @@ final class AppModel {
     }
     func createTask(projectID: UUID, title: String, description: String, start: Bool) async throws {
         let project = try store.get(Project.self, projectID)
-        guard !start || project.host == .github else { throw CoreError.invalid("Bitbucket task runs are not enabled yet.") }
+        if start, let reason = project.runBlockReason { throw CoreError.invalid(reason) }
         let task = try store.createTask(projectId: projectID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, state: start ? .todo : .backlog)
         showNewTask = false; destination = .task(task.id)
+        await core.tick()
+    }
+    func moveToTodo(_ task: WorkTask) async throws {
+        let project = try store.get(Project.self, task.projectId)
+        if let reason = project.runBlockReason { throw CoreError.invalid(reason) }
+        try await core.transition(task.id, to: .todo)
         await core.tick()
     }
     func pauseAll() throws { var value = try store.settings(); value.paused.toggle(); try store.saveSettings(value); Task { await core.tick() } }

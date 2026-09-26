@@ -17,6 +17,7 @@ struct MainWindow: View {
                         })) {
                             ForEach(ProjectPage.allCases) { page in
                                 Label(page.rawValue, systemImage: page.symbol)
+                                    .badge(page == .backlog ? model.snapshot.tasks.filter { $0.projectId == project.id && $0.state == .backlog }.count : page == .tasks ? model.snapshot.tasks.filter { $0.projectId == project.id && model.needsYou($0) }.count : 0)
                                     .tag(Destination.project(project.id, page))
                             }
                         } label: {
@@ -58,6 +59,11 @@ struct MainWindow: View {
                 if let error = model.schedulerError {
                     Label(error, systemImage: "exclamationmark.triangle").padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
                 }
+                if let project = model.selectedProject, let reason = project.runBlockReason,
+                   case .project(_, .tasks) = model.destination {
+                    Label(reason, systemImage: "info.circle").font(.callout).padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
+                }
                 content
             }
             .navigationTitle(title)
@@ -98,7 +104,7 @@ struct MainWindow: View {
         switch model.destination {
         case .needsYou, nil: NeedsYouView()
         case .task(let id):
-            if let task = model.snapshot.tasks.first(where: { $0.id == id }) { TaskDetailView(task: task) }
+            if let task = model.snapshot.tasks.first(where: { $0.id == id }) { TaskDetailView(task: task).id(task.id) }
             else { ContentUnavailableView("Task not found", systemImage: "questionmark.folder") }
         case .project(let id, let page):
             switch page {

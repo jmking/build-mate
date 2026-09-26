@@ -19,10 +19,11 @@ extension TaskState {
 }
 
 struct StateLabel: View {
+    @Environment(AppModel.self) private var model
     var task: WorkTask
     var body: some View {
-        Label(task.paused ? "Paused" : task.retry != nil ? "Retry scheduled" : task.state.title,
-              systemImage: task.paused ? "pause.circle" : task.retry != nil ? "clock.arrow.circlepath" : task.state.symbol)
+        Label(task.paused ? "Paused" : model.retryNeedsAttention(task) ? "Retry scheduled" : task.state.title,
+              systemImage: task.paused ? "pause.circle" : model.retryNeedsAttention(task) ? "clock.arrow.circlepath" : task.state.symbol)
         .foregroundStyle(.secondary)
     }
 }

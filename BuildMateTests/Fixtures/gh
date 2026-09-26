@@ -2,6 +2,7 @@
 import json,os,pathlib,sys
 root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);a=sys.argv[1:]
 with (root/'gh-calls.jsonl').open('a') as f:f.write(json.dumps(a)+'\n')
+if (root/'missing-gh').exists():sys.exit(127)
 pr={'number':42,'url':'https://github.com/fixture/repo/pull/42','baseRefName':'main'}
 if a[:2]==['auth','status']:
  sys.exit(1 if (root/'signed-out').exists() else 0)

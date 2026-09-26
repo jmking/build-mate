@@ -87,7 +87,7 @@ actor Orchestrator {
             var occupied = workers.count
             for task in tasks.sorted(by: { $0.rank == $1.rank ? $0.createdAt < $1.createdAt : $0.rank > $1.rank }) {
                 guard occupied < settings.agentsAtOnce else { break }
-                guard workers[task.id] == nil, let project = projects[task.projectId], !project.paused, !task.paused,
+                guard workers[task.id] == nil, let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
                       (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
                 do { try project.settings.validate() }
@@ -153,12 +153,15 @@ actor Orchestrator {
         if try dependenciesReady(store.get(WorkTask.self, approval.taskId)) { try transition(approval.taskId, to: .building) }
         await tick()
     }
-    func steer(_ id: UUID, text: String) async throws {
+    @discardableResult
+    func steer(_ id: UUID, text: String) async throws -> MessageDelivery {
         let session = try store.session(for: id)
         try store.save(Message(sessionId: session.id, role: "user", body: text))
         if let client = clients[id], let thread = session.codexThreadId, let turn = session.currentTurn {
             _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .textInput(text)])
+            return .sent
         }
+        return .saved
     }
     func openPullRequest(_ id: UUID) async throws {
         let task = try store.get(WorkTask.self, id)
@@ -356,7 +359,7 @@ actor Orchestrator {
 
     private func requireRunnable(_ task: WorkTask) throws {
         let project = try store.get(Project.self, task.projectId)
-        guard !shuttingDown, !task.paused, !project.paused, !(try store.settings()).paused,
+        guard !shuttingDown, project.runBlockReason == nil, !task.paused, !project.paused, !(try store.settings()).paused,
               !task.state.terminal, task.state != .backlog, try dependenciesReady(task) else { throw CancellationError() }
     }
 

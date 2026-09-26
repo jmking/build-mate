@@ -69,6 +69,7 @@ struct CoreTests {
         #expect(task.state == .todo)
         await core.tick()
         try await f.wait("blocking question") { try f.store.get(WorkTask.self, task.id).state == .needsClarification }
+        #expect(try await core.steer(task.id, text: "Keep the output compact") == .sent)
         let question = try #require(f.store.all(Question.self).first)
         let thread = try #require(f.store.session(for: task.id).codexThreadId)
         // A human may take longer than the stall window; answering must still resume.

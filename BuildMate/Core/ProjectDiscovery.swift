@@ -12,7 +12,9 @@ struct ProjectDiscovery: Sendable {
 
     func inspect(path: String) async throws -> DiscoveredProject {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath()
-        let top = try await runner.run("git", ["rev-parse", "--show-toplevel"], cwd: url.path)
+        guard FileManager.default.fileExists(atPath: url.path) else { throw CoreError.invalid("That folder does not exist. Choose an existing local clone.") }
+        let top = try await runner.run("git", ["rev-parse", "--show-toplevel"], cwd: url.path, allowFailure: true)
+        guard top.status == 0 else { throw CoreError.invalid("That folder is not a git working copy. Choose an existing local clone.") }
         let repo = URL(fileURLWithPath: top.output.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath()
         let remote = try await runner.run("git", ["remote", "get-url", "origin"], cwd: repo.path).output.trimmingCharacters(in: .whitespacesAndNewlines)
         let host: Host

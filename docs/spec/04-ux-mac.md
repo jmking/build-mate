@@ -154,3 +154,9 @@ Menu bar menus: Build Mate, File (New Task, New Project, Close), Edit, View (Nee
 ## Milestone 3 implementation boundary
 
 The native shell implements the sidebar, Add Project, Needs You summary, five-column board, grouped task list, persisted task transcript and inspector. A minimal task-entry sheet and question/plan actions are available to exercise the core. Full New Task attachments, backlog ordering (including board drag/drop), editable instructions and project chat remain milestone 6; lifecycle review controls remain milestones 4–5. Native toolbar geometry and sidebar selection follow macOS controls. See 07 for validation status and 08 for setup assumptions.
+
+Milestone 3 run readiness: if required recording has no command, **Start Now** and **Move to Todo** are disabled with a visible explanation; saving to Backlog remains available. The core checks the same condition before dispatch, including tasks already in Todo. Proof setup UI arrives with lifecycle/settings work. Bitbucket starts stay disabled until its provider is verified.
+
+The composer distinguishes **Send answer**, **Send message** (an active Codex turn), and **Save message** (no active turn). Saving persists the message for the next run and never starts or resumes a task. Successful submission confirms whether the message was sent or saved. Return submits; ⌘Return is also available. Draft and delivery status reset when changing tasks.
+
+Retained retry diagnostics do not appear as a current Fix item while a recovered turn is running or waiting for a question/approval.

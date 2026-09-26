@@ -18,7 +18,7 @@ struct NeedsYouView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    rows("Fix", tasks: waiting.filter { $0.retry != nil }, symbol: "exclamationmark.triangle", color: .orange) { task in task.retry?.error ?? "" }
+                    rows("Fix", tasks: waiting.filter(model.retryNeedsAttention), symbol: "exclamationmark.triangle", color: .orange) { task in task.retry?.error ?? "" }
                     rows("Questions", tasks: waiting.filter { task in model.snapshot.questions.contains { $0.taskId == task.id && $0.answer == nil } }, symbol: "questionmark.circle", color: .purple) { task in
                         model.snapshot.questions.first { $0.taskId == task.id && $0.answer == nil }?.prompt ?? ""
                     }

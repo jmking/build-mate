@@ -52,8 +52,16 @@ final class WorkspaceTests: XCTestCase {
         let title = app.textFields["task-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         title.typeText("Make output easier to read")
+        XCTAssertFalse(app.buttons["Start Now"].isEnabled)
         app.buttons["Add to Backlog"].click()
         XCTAssertTrue(app.buttons["Move to Todo"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Move to Todo"].isEnabled)
+        var project = try XCTUnwrap(store.all(Project.self).first)
+        project.settings.recordingCommand = "true" // Fixture config; proof setup UI is outside this milestone.
+        try store.save(project)
+        let canMove = NSPredicate(format: "enabled == true")
+        let enabled = expectation(for: canMove, evaluatedWith: app.buttons["Move to Todo"])
+        await fulfillment(of: [enabled], timeout: 5)
         app.buttons["Move to Todo"].click()
         app.typeKey("4", modifierFlags: .command)
         XCTAssertTrue(app.buttons["task-1"].waitForExistence(timeout: 5))
@@ -64,6 +72,11 @@ final class WorkspaceTests: XCTestCase {
         app.buttons["task-1"].click()
         XCTAssertTrue(visibleText("I will keep the output compact and readable.").waitForExistence(timeout: 5))
         try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/buildmate-task-light.png"))
+        let composer = app.textFields["task-message"]
+        composer.click(); composer.typeText("Remember this next time")
+        XCTAssertEqual(app.buttons["send-task-message"].label, "Save message")
+        app.buttons["send-task-message"].click()
+        XCTAssertTrue(visibleText("The task has not been started or resumed").waitForExistence(timeout: 5))
         app.terminate()
         app.launchEnvironment["BUILD_MATE_APPEARANCE"] = "dark"
         app.launch()

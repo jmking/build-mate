@@ -39,6 +39,18 @@ extension ProjectSettings {
         }
     }
 }
+extension Project {
+    var runBlockReason: String? {
+        if host == .bitbucket { return "Bitbucket task runs are not available yet. You can save tasks to Backlog." }
+        if settings.recordingRequired && (settings.recordingCommand ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Task runs need a proof recording command. Proof setup is not available in this version yet. You can save tasks to Backlog."
+        }
+        return nil
+    }
+}
+
+enum MessageDelivery: Sendable { case sent, saved }
+
 struct AppSettings: Codable, Sendable {
     var agentsAtOnce = 4
     var heavyStepsAtOnce = 2

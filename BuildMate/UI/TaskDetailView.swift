@@ -4,6 +4,16 @@ struct TaskDetailView: View {
     @Environment(AppModel.self) private var model
     let task: WorkTask
     @State private var message = ""
+    @State private var messageStatus: String?
+    @State private var sending = false
+    private var openQuestion: Question? { questions.first { $0.answer == nil } }
+    private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
+    private var composerTitle: String { openQuestion != nil ? "Answer the question" : activeTurn ? "Message the agent" : "Save a message for the next run" }
+    private var actionTitle: String { openQuestion != nil ? "Send answer" : activeTurn ? "Send message" : "Save message" }
+    private var composerExplanation: String {
+        if let question = openQuestion { return question.allowsFreeText ? "Your answer resolves this question. Paused tasks stay paused." : "Choose one of the answer buttons above." }
+        return activeTurn ? "Sent to the current agent turn." : "Saved for the next agent run. This does not start or resume the task."
+    }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerId == task.id && $0.ownerType == "task" } }
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
     private var questions: [Question] { model.snapshot.questions.filter { $0.taskId == task.id } }
@@ -32,19 +42,28 @@ struct TaskDetailView: View {
                             }
                         }
                         if task.state == .building { Label(task.paused ? "Paused" : "Agent is working…", systemImage: task.paused ? "pause.circle" : "play.circle").foregroundStyle(.secondary) }
-                        if let retry = task.retry {
+                        if let retry = task.retry, model.retryNeedsAttention(task) {
                             Label(retry.error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
                             Text("Next retry: \(retry.dueAt.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary)
                         }
                     }.padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
                 }
                 if !task.state.terminal && task.state != .backlog {
-                    HStack(alignment: .bottom) {
-                        TextField(questions.contains { $0.answer == nil } ? "Answer the question" : "Message the agent", text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain).onSubmit(send)
-                        Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                            .buttonStyle(.plain).disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            .accessibilityLabel("Send message").help("Send message (Return)")
-                    }.padding(14).glassEffect(in: RoundedRectangle(cornerRadius: 22)).padding(20)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(messageStatus ?? composerExplanation).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("message-status")
+                        HStack(alignment: .bottom) {
+                            TextField(composerTitle, text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain)
+                                .accessibilityLabel(composerTitle).accessibilityIdentifier("task-message").onSubmit(send)
+                                .disabled(sending || openQuestion?.allowsFreeText == false)
+                            Button(actionTitle, action: send)
+                                .disabled(sending || openQuestion?.allowsFreeText == false || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                .keyboardShortcut(.return, modifiers: .command)
+                                .accessibilityIdentifier("send-task-message")
+                        }.padding(14).glassEffect(in: RoundedRectangle(cornerRadius: 22))
+                    }.padding(20)
+                    .onChange(of: message) { if !message.isEmpty { messageStatus = nil } }
+
                 }
             }
             if model.showInspector {
@@ -69,8 +88,9 @@ struct TaskDetailView: View {
                         }
                         if let pr = task.pr, let url = URL(string: pr.url) { Link("View Pull Request #\(pr.number)", destination: url) }
                         if task.state == .backlog {
-                            Button("Move to Todo") { model.perform { try await model.core.transition(task.id, to: .todo); await model.core.tick() } }.buttonStyle(.borderedProminent)
-                                .disabled(model.selectedProject?.host != .github)
+                            Button("Move to Todo") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
+                                .disabled(model.selectedProject?.runBlockReason != nil)
+                            if let reason = model.selectedProject?.runBlockReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                         }
                         ForEach(model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" }) { approval in
                             Button("Approve Plan") { model.perform { try await model.core.approvePlan(approval.id) } }.buttonStyle(.borderedProminent)
@@ -94,11 +114,18 @@ struct TaskDetailView: View {
     }
     private func send() {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        let question = questions.first { $0.answer == nil }
+        guard !text.isEmpty, !sending, openQuestion?.allowsFreeText != false else { return }
+        let question = openQuestion
+        sending = true
         model.perform {
-            if let question { try await model.core.answer(question.id, text: text) }
-            else { try await model.core.steer(task.id, text: text) }
+            defer { sending = false }
+            if let question {
+                try await model.core.answer(question.id, text: text)
+                messageStatus = "Answer saved."
+            } else {
+                let delivery = try await model.core.steer(task.id, text: text)
+                messageStatus = delivery == .sent ? "Sent to the agent." : "Saved for the next run. The task has not been started or resumed."
+            }
             message = ""
         }
     }
