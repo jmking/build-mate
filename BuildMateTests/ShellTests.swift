@@ -77,6 +77,42 @@ struct ShellTests {
         let calls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
         #expect(!calls.contains("thread/start") && !calls.contains("turn/start"))
         #expect(try f.store.all(Session.self).isEmpty)
+        // Old settings must load with the new hold default; low usage must gate real dispatch, not just its label.
+        try await f.store.db.write { db in
+            try db.execute(sql: "INSERT OR REPLACE INTO appSettings VALUES (1, ?)", arguments: [Data(#"{"agentsAtOnce":1,"heavyStepsAtOnce":1,"instructions":"legacy","paused":false}"#.utf8)])
+        }
+        #expect(try f.store.settings().usageHoldThreshold == 15)
+        try #"{"rateLimits":{"primary":{"usedPercent":95}}}"#.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage()
+        var slowReadProject = try f.store.get(Project.self, f.project.id)
+        slowReadProject.settings.readTimeoutMs = 60_000; try f.store.save(slowReadProject)
+        let queued = try f.store.createTask(projectId: f.project.id, title: "Wait for usage", state: .todo)
+        await model.core.tick(); await model.refresh()
+        #expect(model.usageHeld)
+        #expect(try f.store.all(RunAttempt.self).isEmpty)
+        try f.marker("usage-error"); await model.core.refreshUsage(); await model.core.tick()
+        #expect(await model.core.usageHeld()) // A failed refresh must not silently lift a known hold.
+        try FileManager.default.removeItem(at: f.control.appending(path: "usage-error"))
+        await model.core.resumeDespiteUsage()
+        let usageStore = f.store
+        try await f.wait("override dispatch") { @Sendable in try usageStore.all(Question.self).contains { $0.taskId == queued.id } }
+        await model.refresh()
+        let attention = model.attentionItems.map(\.id)
+        #expect(attention.count == 1)
+        await model.refresh(); #expect(model.attentionItems.map(\.id) == attention)
+        #expect(!model.usageHeld)
+        let thread = try f.store.session(for: queued.id).codexThreadId
+        try f.marker("ignore-interrupt")
+        let pauseStarted = Date()
+        try model.pauseAll(); await model.core.tick()
+        try await f.wait("bounded pause with unresponsive interrupt") { @Sendable in try usageStore.session(for: queued.id).status == "idle" }
+        #expect(Date().timeIntervalSince(pauseStarted) < 30)
+        #expect(try f.store.session(for: queued.id).codexThreadId == thread)
+        try #"{"rateLimits":{"primary":{"usedPercent":10}}}"#.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage()
+        try #"{"rateLimits":{"primary":{"usedPercent":95}}}"#.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage()
+        #expect(await model.core.usageHeld()) // Recovery resets the one-time override.
         await model.core.shutdown()
         try f.cleanup()
     }

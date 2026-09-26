@@ -24,6 +24,12 @@ actor Orchestrator {
     private(set) var lastError: String?
     private(set) var rateLimits: JSON = .null
     private(set) var usage = UsageSnapshot()
+    private var usageOverride = false
+    func usageHeld() -> Bool {
+        guard !usageOverride, let window = usage.limitingWindow else { return false }
+        return window.remaining < ((try? store.settings().usageHoldThreshold) ?? 15)
+    }
+    func resumeDespiteUsage() async { usageOverride = true; await tick() }
     private var lastUsageRefresh = Date.distantPast
     private var usageRefresh: Task<Void, Never>?
     private var usageClient: CodexClient?
@@ -44,6 +50,10 @@ actor Orchestrator {
             }
         }
     }
+    private func receiveUsage(_ limits: JSON, replacing: Bool = true) {
+        rateLimits = limits; usage.receive(limits, replacing: replacing)
+        if let window = usage.limitingWindow, window.remaining >= ((try? store.settings().usageHoldThreshold) ?? 15) { usageOverride = false }
+    }
     func refreshUsage() async {
         guard !usage.refreshing, !shuttingDown else { return }
         usage.refreshing = true; lastUsageRefresh = Date()
@@ -54,13 +64,15 @@ actor Orchestrator {
             // Account metadata only: no thread, turn, workspace or model request is created.
             try await client.start(runner: runner, cwd: store.root.path, timeout: 5)
             let limits = try await client.request("account/rateLimits/read", [:])
-            rateLimits = limits; usage.receive(limits)
+            receiveUsage(limits)
         } catch { usage.error = runner.redacted(error.localizedDescription) }
         await client.stop()
     }
     func start() async {
         guard loop == nil else { return }
         shuttingDown = false
+        await refreshUsage()
+        guard !shuttingDown else { return }
         do { try recover() } catch { lastError = error.localizedDescription; return }
         loop = Task { [weak self] in
             while !Task.isCancelled {
@@ -101,7 +113,8 @@ actor Orchestrator {
         ticking = true; defer { ticking = false }
         if now.timeIntervalSince(lastUsageRefresh) >= 60, !usage.refreshing {
             lastUsageRefresh = now
-            usageRefresh = Task { await refreshUsage() }
+            if usage.updatedAt == nil { await refreshUsage() }
+            else { usageRefresh = Task { await refreshUsage() } }
         }
         do {
             let initialSettings = try store.settings()
@@ -135,7 +148,7 @@ actor Orchestrator {
                 Task { await pollPR(task.id) }
             }
             await reconcileProjectChats(settings: settings, projects: projects)
-            guard !settings.paused else { return }
+            guard !settings.paused, !usageHeld(), !(usage.refreshing && usage.updatedAt == nil) else { return }
             guard settings.agentsAtOnce > 0, settings.heavyStepsAtOnce > 0 else { throw CoreError.invalid("Concurrency limits must be positive") }
             // A waiting worker still owns a process and a slot. Answering cannot overbook the limit.
             var occupied = workers.count + chatJobs.count
@@ -413,7 +426,7 @@ actor Orchestrator {
         do {
             let task = try store.get(WorkTask.self, id)
             try requireRunnable(task)
-            let p = try store.get(Project.self, task.projectId); project = p
+            var p = try store.get(Project.self, task.projectId); project = p
             try p.settings.validate()
             let count = try store.all(RunAttempt.self).filter { $0.taskId == id }.count + 1
             attempt = RunAttempt(taskId: id, attempt: count); try store.save(attempt!)
@@ -426,7 +439,6 @@ actor Orchestrator {
             try Workspace(store: store, runner: runner).ensureOwned(cwd!)
             try await client.start(runner: runner, cwd: cwd!, timeout: Double(p.settings.readTimeoutMs) / 1000)
             var session = try store.session(for: id)
-            let instructions = try prompt(task: prepared, project: p)
             if let thread = session.codexThreadId {
                 _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd!)])
             } else {
@@ -445,13 +457,14 @@ actor Orchestrator {
                 session.codexThreadId = thread
             }
             session.status = "running"; try store.save(session)
-            if let limits = try? await client.request("account/rateLimits/read", [:]) { rateLimits = limits; usage.receive(limits) }
-            var input = instructions
+            if let limits = try? await client.request("account/rateLimits/read", [:]) { receiveUsage(limits) }
             while true {
                 try Task.checkCancellation()
                 let current = try store.get(WorkTask.self, id)
                 guard [.todo, .building].contains(current.state) else { break }
                 try requireRunnable(current)
+                p = try store.get(Project.self, current.projectId)
+                let input = try prompt(task: current, project: p)
                 try Workspace(store: store, runner: runner).ensureOwned(cwd!)
                 session = try store.session(for: id)
                 if session.turnCount >= p.settings.maxTurnsPerTask {
@@ -485,7 +498,7 @@ actor Orchestrator {
                         session.tokensOut = params["tokenUsage"]["total"]["outputTokens"].int ?? session.tokensOut
                     }
                     try store.save(session)
-                    if method == "account/rateLimits/updated" { rateLimits = params; usage.receive(params, replacing: false) }
+                    if method == "account/rateLimits/updated" { receiveUsage(params, replacing: false) }
                     if method == "item/tool/call" || method == "item/tool/requestUserInput" {
                         let before = Date()
                         try await handle(event, taskId: id, client: client)
@@ -502,8 +515,6 @@ actor Orchestrator {
                 }
                 let latest = try store.get(WorkTask.self, id)
                 if latest.state == .humanReview || latest.state == .inPR { break }
-                let latestProject = try store.get(Project.self, latest.projectId)
-                input = try prompt(task: latest, project: latestProject) + "\nContinue the task; request review when ready."
                 try await Task.sleep(for: .seconds(1))
             }
             attempt?.status = "succeeded"

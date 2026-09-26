@@ -219,3 +219,13 @@ The ordinary project composer has no explanatory caption (user preference); reta
 ### Milestone 6 editor and attachment completion
 
 Instructions are editable in the project sidebar and Settings › Instructions, autosaved after one second and flushed on navigation. New Task includes the shared attachment controls and drop/paste support. Chat and New Task accept clipboard images/files with ⌘V. Videos show a thumbnail and supply six chronological frames to the agent; audio is not automatically transcribed.
+
+### Milestone 7 controls
+
+Settings (⌘,) has General, Hooks and Instructions tabs. Global concurrency, heavy-step limits and usage threshold are editable; per-project settings cover editor, turns, plan approval, timeouts, network and branch prefix. Hooks includes workspace hooks, local preview, checks and visual-proof commands, with an explicit command-editing confirmation. Incomplete checks stay drafts. PR creation remains explicit and automatic merging is unavailable pending milestone 5.
+
+Menu-bar extra shows attention items, building tasks/project chats, paused state and account usage. Open and notification actions reuse the main window. Notifications are enabled from Settings and grouped by project; Open routes directly to the task or chat. Closing the window keeps the menu-bar app active. Quitting with active agents asks before stopping them.
+
+Queue cards show “Waiting for usage” while held. The usage popover offers Resume Anyway. Merged is always a board column. Task menu includes Move to Backlog and Cancel Task, retaining history/worktrees. ⌃⌘S toggles the sidebar.
+
+Backlog’s Select Tasks action enables native Command-click/Shift-click multiselection. Move to Queue (⌘Return) queues the selection together; ordinary row clicks still open the task when selection mode is off.

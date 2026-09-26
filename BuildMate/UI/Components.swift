@@ -59,6 +59,9 @@ struct TaskCard: View {
         Button { model.destination = .task(task.id) } label: {
             VStack(alignment: .leading, spacing: 12) {
                 Text(task.title).font(.body.weight(.medium)).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(3)
+                if task.state == .todo && model.usageHeld {
+                    Label("Waiting for usage", systemImage: "hourglass").font(.caption).foregroundStyle(.secondary)
+                }
                 if task.paused || model.retryNeedsAttention(task) {
                     StateLabel(task: task).font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
                 }

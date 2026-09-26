@@ -109,6 +109,7 @@ struct MainWindow: View {
         .searchable(text: $model.search, prompt: "Search tasks")
         .searchFocused($searchFocused)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: columnVisibility)
+        .onChange(of: model.toggleSidebar) { columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly }
         .onChange(of: model.findRequested) { searchFocused = true }
         .frame(minWidth: 1100, minHeight: 700)
         .sheet(isPresented: $model.showAddProject) { AddProjectSheet().presentationBackground(AppSurface.sheet) }
@@ -118,7 +119,7 @@ struct MainWindow: View {
         .alert("Unable to complete the action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }.help("Dismiss this error")
         } message: { Text(model.error ?? "") }
-        .task { await model.observe() }
+
     }
     @ViewBuilder private var content: some View {
         switch model.destination {

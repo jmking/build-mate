@@ -4,7 +4,7 @@ struct UsageFooter: View {
     @Environment(AppModel.self) private var model
     @State private var expanded = false
     private var window: UsageWindow? { model.usage.limitingWindow }
-    private func tint(_ remaining: Int) -> Color { remaining < 15 ? .red : remaining < 25 ? .orange : .accentColor }
+    private func tint(_ remaining: Int) -> Color { remaining < model.settings.usageHoldThreshold ? .red : remaining < 25 ? .orange : .accentColor }
     var body: some View {
         Button { expanded.toggle() } label: {
             VStack(alignment: .leading, spacing: 5) {
@@ -16,6 +16,7 @@ struct UsageFooter: View {
                 if let window {
                     ProgressView(value: Double(window.remaining), total: 100).tint(tint(window.remaining))
                     Text("\(window.remaining)% left · \(window.duration)").monospacedDigit()
+                    if model.usageHeld { Text("New tasks on hold").foregroundStyle(.orange) }
                     if model.usage.error != nil { Text("Last known usage").foregroundStyle(.secondary) }
                     else if let reset = window.resetsAt { Text("Resets \(reset.formatted(date: Calendar.current.isDateInToday(reset) ? .omitted : .abbreviated, time: .shortened))").foregroundStyle(.secondary) }
                 } else {
@@ -53,7 +54,13 @@ struct UsageFooter: View {
                     if let updated = model.usage.updatedAt {
                         Text("Last checked \(updated.formatted(date: .omitted, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("Usage is shown for reference. Automatic usage holds are coming later.").font(.caption).foregroundStyle(.secondary)
+                    if model.usageHeld {
+                        Text("New tasks on hold").font(.headline)
+                        Button("Resume Anyway") { model.perform { await model.core.resumeDespiteUsage() } }
+                            .help("Allow new work until usage recovers or Build Mate restarts")
+                    } else {
+                        Text("New work pauses below \(model.settings.usageHoldThreshold)% remaining. Running agents continue.").font(.caption).foregroundStyle(.secondary)
+                    }
                     HStack {
                         Spacer()
                         Button("Refresh") { model.perform { await model.core.refreshUsage() } }.disabled(model.usage.refreshing)

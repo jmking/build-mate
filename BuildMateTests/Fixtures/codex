@@ -117,7 +117,8 @@ for line in sys.stdin:
   if not readstate().get('answered'):call('ask_question',{'prompt':'Which output?','options':['Plain','Rich'],'allowsFreeText':True,'blocking':True,'suggestedAnswer':'Plain'})
   else:call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
  elif method=='turn/steer':reply(req,{'turnId':turn})
- elif method=='turn/interrupt':reply(req,{});event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'interrupted','items':[]}})
+ elif method=='turn/interrupt':
+  if not (root/'ignore-interrupt').exists():reply(req,{});event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'interrupted','items':[]}})
  elif 'id' in req and req['id'] in pending:
   tool=pending.pop(req['id'])
   if project_mode:

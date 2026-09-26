@@ -39,10 +39,10 @@ actor CodexClient {
         else { events.append(value) }
     }
     private func failed(_ text: String) { failure = text }
-    func request(_ method: String, _ parameters: [String: JSON]) async throws -> JSON {
+    func request(_ method: String, _ parameters: [String: JSON], timeout override: Double? = nil) async throws -> JSON {
         sequence += 1; let id = sequence
         try await child.write(.object(["id": .number(Double(id)), "method": .string(method), "params": .object(parameters)]))
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(override ?? timeout)
         while true {
             try Task.checkCancellation()
             if let value = responses.removeValue(forKey: id) {
@@ -76,11 +76,11 @@ actor CodexClient {
         try await child.write(.object(["id": id, "error": .object(["code": .number(-32601), "message": .string("Unsupported server request")])]))
     }
     func interrupt(thread: String, turn: String) async {
-        let deadline = Date().addingTimeInterval(24)
-        while !activeCommands.isEmpty && Date() < deadline {
+        let deadline = Date().addingTimeInterval(20)
+        while !activeCommands.isEmpty && Date() < deadline && !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(50))
         }
-        _ = try? await request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)])
+        _ = try? await request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)], timeout: 4)
     }
     func stop() async { reader?.cancel(); reader = nil; await child.stop() }
 

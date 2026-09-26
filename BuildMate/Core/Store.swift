@@ -99,6 +99,7 @@ final class Store: Sendable {
         }
     }
     func saveSettings(_ settings: AppSettings) throws {
+        guard settings.agentsAtOnce > 0, settings.heavyStepsAtOnce > 0, (0...100).contains(settings.usageHoldThreshold) else { throw CoreError.invalid("Concurrency must be positive and the usage threshold between 0 and 100 percent.") }
         let data = try JSONEncoder().encode(settings)
         try db.write { try $0.execute(sql: "INSERT OR REPLACE INTO appSettings VALUES (1, ?)", arguments: [data]) }
     }

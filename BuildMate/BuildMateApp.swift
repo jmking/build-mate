@@ -8,7 +8,7 @@ struct BuildMateApp: App {
     @State private var error: String?
 
     var body: some Scene {
-        WindowGroup("Build Mate") {
+        Window("Build Mate", id: "main") {
             Group {
                 if let model { MainWindow().environment(model) }
                 else if let error { ContentUnavailableView("Unable to open Build Mate", systemImage: "exclamationmark.triangle", description: Text(error)).frame(minWidth: 1100, minHeight: 700) }
@@ -22,7 +22,15 @@ struct BuildMateApp: App {
                     let root = ProcessInfo.processInfo.environment["BUILD_MATE_DATA_ROOT"].map { URL(fileURLWithPath: $0) }
                     let store = try root.map { try Store(root: $0) } ?? Store()
                     let value = AppModel(store: store)
-                    delegate.core = value.core; model = value
+                    delegate.core = value.core; delegate.model = value; model = value
+                    let notifications = AttentionNotifications(root: store.root)
+                    notifications.open = { type, id in
+                        value.destination = type == "task" ? .task(id) : .project(id, .chat)
+                        openWindow(id: "main"); NSApp.activate()
+                    }
+                    delegate.notifications = notifications
+                    value.onRefresh = { items in Task { await notifications.update(items) } }
+                    delegate.observation = Task { await value.observe() }
                 } catch { self.error = error.localizedDescription }
             }
         }
@@ -35,6 +43,8 @@ struct BuildMateApp: App {
                     .help("Add an existing repository or create a new project (⇧⌘N)")
             }
             CommandGroup(after: .sidebar) {
+                Button("Toggle Sidebar") { model?.toggleSidebar.toggle() }.keyboardShortcut("s", modifiers: [.command, .control])
+                    .help("Show or hide the project sidebar (⌃⌘S)")
                 Button("Needs You") { model?.destination = .needsYou }.keyboardShortcut("1")
                     .help("Show tasks that need your attention (⌘1)")
                 Button("Chat") { model?.navigate(.chat) }.keyboardShortcut("2")
@@ -118,6 +128,16 @@ struct BuildMateApp: App {
                 }.keyboardShortcut(.downArrow, modifiers: [.command, .control])
                     .help("Move the selected task one place later in priority (⌃⌘↓)")
                     .disabled(model?.selectedTask.flatMap { model?.priorityNeighbor($0, earlier: false) } == nil)
+                Button("Move to Backlog") {
+                    guard let model, let task = model.selectedTask else { return }
+                    model.perform { try await model.core.transition(task.id, to: .backlog); await model.core.tick() }
+                }.disabled(model?.selectedTask.map { [.todo, .needsClarification, .building, .humanReview].contains($0.state) } != true)
+                    .help("Remove this task from active work and keep it in Backlog")
+                Button("Cancel Task") {
+                    guard let model, let task = model.selectedTask else { return }
+                    model.perform { try await model.core.transition(task.id, to: .canceled); await model.core.tick() }
+                }.disabled(model?.selectedTask == nil || model?.selectedTask?.state.terminal == true)
+                    .help("Stop this task and retain its history and worktree")
                 Button("Pause / Resume Task") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.pause(task.id, paused: !task.paused) }
@@ -132,8 +152,17 @@ struct BuildMateApp: App {
                     .help("Pause or resume agents across all projects (⌥⌘P)")
             }
         }
+        MenuBarExtra {
+            if let model { AgentMenu().environment(model) }
+        } label: {
+            Image(systemName: "hammer")
+                .overlay(alignment: .topTrailing) {
+                    if (model?.needsCount ?? 0) > 0 { Circle().frame(width: 4, height: 4).offset(x: 3, y: -2) }
+                }.accessibilityLabel("Build Mate, \(model?.needsCount ?? 0) need attention")
+                .help("Build Mate agents and Needs You")
+        }.menuBarExtraStyle(.window)
         Settings {
-            if let model { InstructionsView().environment(model).frame(width: 720, height: 560).containerBackground(AppSurface.window, for: .window) }
+            if let model { SettingsView().environment(model) }
         }
         WindowGroup("Proof Recording", id: "recording", for: String.self) { $path in
             if let path { RecordingPlayer(path: path).frame(minWidth: 640, minHeight: 360) }
@@ -151,9 +180,20 @@ struct BuildMateApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var core: Orchestrator?
+    var model: AppModel?
+    var observation: Task<Void, Never>?
+    var notifications: AttentionNotifications?
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let core else { return .terminateNow }
+        if let model, model.workers > 0 {
+            let alert = NSAlert()
+            alert.messageText = "\(model.workers) agents are working. Pause them and quit?"
+            alert.informativeText = "Worktrees and conversation history are kept so work can resume when you reopen Build Mate."
+            alert.addButton(withTitle: "Pause and Quit"); alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        }
+        observation?.cancel()
         Task { await core.shutdown(); sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
     }

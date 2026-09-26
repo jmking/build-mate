@@ -2,6 +2,15 @@ import AppKit
 import GRDB
 import Observation
 
+struct AttentionItem: Identifiable, Sendable {
+    var id: String
+    var ownerID: UUID
+    var ownerType = "task"
+    var projectID: UUID
+    var title: String
+    var detail: String
+}
+
 struct AppSnapshot: Sendable {
     var projects: [Project] = []
     var tasks: [WorkTask] = []
@@ -30,6 +39,7 @@ enum ProjectPage: String, CaseIterable, Identifiable {
 @MainActor @Observable
 final class AppModel {
     var settingsTab = "general"
+    var onRefresh: (([AttentionItem]) -> Void)?
     let store: Store
     let core: Orchestrator
     var snapshot = AppSnapshot()
@@ -55,6 +65,7 @@ final class AppModel {
     var showNewTask = false
     var editingTask: WorkTask?
     var showInspector = true
+    var toggleSidebar = false
     var listMode = false
     var search = ""
     var chatDrafts: [UUID: String] = [:]
@@ -62,6 +73,7 @@ final class AppModel {
     var error: String?
     var schedulerError: String?
     var usage = UsageSnapshot()
+    var usageHeld = false
     var previews: [UUID: PreviewStatus] = [:]
     var reviewSheet: ReviewSheet?
     var priorityDrag: PriorityDrag?
@@ -101,8 +113,34 @@ final class AppModel {
             settings = try store.settings()
             schedulerError = await core.lastError
             usage = await core.usage
+            usageHeld = await core.usageHeld()
             previews = await core.previews
+            onRefresh?(attentionItems)
         } catch { self.error = error.localizedDescription }
+    }
+    var attentionItems: [AttentionItem] {
+        var result: [AttentionItem] = []
+        for task in snapshot.tasks where !task.state.terminal {
+            for question in snapshot.questions where question.taskId == task.id && question.answer == nil {
+                result.append(AttentionItem(id: "question-\(question.id)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Answer a question"))
+            }
+            for approval in snapshot.approvals where approval.taskId == task.id && approval.status == "pending" {
+                result.append(AttentionItem(id: "approval-\(approval.id)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Approval needed"))
+            }
+            if task.state == .humanReview {
+                let proof = snapshot.proofs.first { $0.taskId == task.id }
+                result.append(AttentionItem(id: "review-\(proof?.id ?? task.id)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Awaiting human review"))
+            }
+            if retryNeedsAttention(task) {
+                result.append(AttentionItem(id: "retry-\(task.id)-\(task.retry?.dueAt.timeIntervalSince1970 ?? 0)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Agent needs help"))
+            }
+        }
+        for project in snapshot.projects {
+            for message in projectQuestions where snapshot.sessions.contains(where: { $0.id == message.sessionId && $0.ownerType == "project" && $0.ownerId == project.id }) {
+                result.append(AttentionItem(id: "project-question-\(message.id)", ownerID: project.id, ownerType: "project", projectID: project.id, title: project.name, detail: "Project chat has a question"))
+            }
+        }
+        return result
     }
     var selectedProject: Project? {
         switch destination {

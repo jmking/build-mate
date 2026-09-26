@@ -48,7 +48,7 @@ struct ProjectSettings: Codable, Sendable {
 }
 extension ProjectSettings {
     func validate() throws {
-        guard maxTurnsPerTask > 0, retryBackoffMaxMs > 0, turnTimeoutMs > 0, readTimeoutMs > 0,
+        guard maxTurnsPerTask > 0, retryBackoffMaxMs > 0, turnTimeoutMs > 0, readTimeoutMs > 0, stallTimeoutMs >= 0,
               hooks.timeoutSeconds.isFinite, hooks.timeoutSeconds > 0 else {
             throw CoreError.invalid("Turns, retry limits and timeouts must be positive")
         }
@@ -68,6 +68,17 @@ struct AppSettings: Codable, Sendable {
     var heavyStepsAtOnce = 2
     var instructions = ""
     var paused = false
+    var usageHoldThreshold = 15
+    init() {}
+    enum CodingKeys: String, CodingKey { case agentsAtOnce, heavyStepsAtOnce, instructions, paused, usageHoldThreshold }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        agentsAtOnce = try values.decodeIfPresent(Int.self, forKey: .agentsAtOnce) ?? 4
+        heavyStepsAtOnce = try values.decodeIfPresent(Int.self, forKey: .heavyStepsAtOnce) ?? 2
+        instructions = try values.decodeIfPresent(String.self, forKey: .instructions) ?? ""
+        paused = try values.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+        usageHoldThreshold = try values.decodeIfPresent(Int.self, forKey: .usageHoldThreshold) ?? 15
+    }
 }
 struct Hooks: Codable, Sendable {
     var afterCreate = ""
