@@ -30,6 +30,7 @@ struct MainWindow: View {
                             } icon: {
                                 Image(systemName: "folder").symbolVariant(.none).foregroundStyle(Color.primary).accessibilityHidden(true)
                             }
+                            .padding(.leading, 4)
                         }
                     }
                 } header: {
