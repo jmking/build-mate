@@ -229,3 +229,5 @@ Menu-bar extra shows attention items, building tasks/project chats, paused state
 Queue cards show “Waiting for usage” while held. The usage popover offers Resume Anyway. Merged is always a board column. Task menu includes Move to Backlog and Cancel Task, retaining history/worktrees. ⌃⌘S toggles the sidebar.
 
 Backlog’s Select Tasks action enables native Command-click/Shift-click multiselection. Move to Queue (⌘Return) queues the selection together; ordinary row clicks still open the task when selection mode is off.
+
+While an agent responds, project and task chats show a compact Messages-style three-dot speech bubble in the agent bubble colour, instead of a spinner/status sentence. Waiting for input, queued and paused states retain explicit labels. The bubble is static with Reduce Motion enabled.

@@ -38,19 +38,19 @@ struct ProjectChatView: View {
                                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                         } else { ProjectChatBubble(message: message) }
                     }
-                    if busy {
-                        HStack(spacing: 8) {
-                            if session?.status == "running" { ProgressView().controlSize(.small) }
-                            Text(session?.status == "waiting" ? "Waiting for your answer" : session?.status == "queued" ? (project?.paused == true || model.settings.paused ? "Chat queued · work is paused" : "Waiting for an agent slot") : "Agent is responding…")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                    if session?.status == "running" && project?.paused != true && !model.settings.paused {
+                        AgentTypingIndicator()
+                    } else if busy {
+                        Text(session?.status == "waiting" ? "Waiting for your answer" : project?.paused == true || model.settings.paused ? "Chat queued · work is paused" : "Waiting for an agent slot")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     if ["failed", "interrupted"].contains(session?.status ?? "") {
                         Button("Retry Response", systemImage: "arrow.clockwise") { model.perform { try await model.core.retryProjectChat(projectID) } }
                             .help("Continue this project conversation using the same Codex thread")
                     }
                     Color.clear.frame(height: 1).id("latest")
-                }.padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
+                }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: session?.status)
+                    .padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onChange(of: messages.count) { if sending || busy { withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { proxy.scrollTo("latest", anchor: .bottom) } } }

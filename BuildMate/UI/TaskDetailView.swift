@@ -68,12 +68,13 @@ struct TaskDetailView: View {
                     }
                 }
                 if task.state == .building {
-                    HStack(spacing: 8) {
-                        Image(systemName: isPaused ? "pause.circle" : "circle.fill")
-                            .font(.system(size: 8)).foregroundStyle(isPaused ? Color.secondary : .accentColor)
-                            .symbolEffect(.pulse, options: .repeating, isActive: activeTurn && !isPaused && !reduceMotion)
-                        Text(isPaused ? "Paused" : "Agent is working…").font(.caption).foregroundStyle(.secondary)
-                    }.accessibilityElement(children: .combine)
+                    if isPaused {
+                        Label("Paused", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
+                    } else if activeTurn {
+                        AgentTypingIndicator()
+                    } else if !model.retryNeedsAttention(task) {
+                        Text("Waiting for an agent…").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 if let retry = task.retry, model.retryNeedsAttention(task) {
                     Label(retry.error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
