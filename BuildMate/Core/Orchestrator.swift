@@ -16,9 +16,27 @@ actor Orchestrator {
     private var shuttingDown = false
     private(set) var lastError: String?
     private(set) var rateLimits: JSON = .null
+    private(set) var usage = UsageSnapshot()
+    private var lastUsageRefresh = Date.distantPast
+    private var usageRefresh: Task<Void, Never>?
+    private var usageClient: CodexClient?
 
     init(store: Store, runner: ProcessRunner = ProcessRunner()) {
         self.store = store; self.runner = runner
+    }
+    func refreshUsage() async {
+        guard !usage.refreshing, !shuttingDown else { return }
+        usage.refreshing = true; lastUsageRefresh = Date()
+        let client = CodexClient()
+        usageClient = client
+        defer { usage.refreshing = false; usageClient = nil }
+        do {
+            // Account metadata only: no thread, turn, workspace or model request is created.
+            try await client.start(runner: runner, cwd: store.root.path, timeout: 5)
+            let limits = try await client.request("account/rateLimits/read", [:])
+            rateLimits = limits; usage.receive(limits)
+        } catch { usage.error = runner.redacted(error.localizedDescription) }
+        await client.stop()
     }
     func start() async {
         guard loop == nil else { return }
@@ -42,6 +60,9 @@ actor Orchestrator {
     }
     func shutdown() async {
         shuttingDown = true
+        usageRefresh?.cancel()
+        await usageClient?.stop()
+        await usageRefresh?.value
         loop?.cancel(); loop = nil
         let pending = Array(workers.values)
         for worker in pending { worker.cancel() }
@@ -51,6 +72,10 @@ actor Orchestrator {
     func tick(now: Date = Date()) async {
         guard !ticking, !shuttingDown else { return }
         ticking = true; defer { ticking = false }
+        if now.timeIntervalSince(lastUsageRefresh) >= 60, !usage.refreshing {
+            lastUsageRefresh = now
+            usageRefresh = Task { await refreshUsage() }
+        }
         do {
             let initialSettings = try store.settings()
             let initialTasks = try store.all(WorkTask.self)
@@ -324,7 +349,7 @@ actor Orchestrator {
                 session.codexThreadId = thread
             }
             session.status = "running"; try store.save(session)
-            if let limits = try? await client.request("account/rateLimits/read", [:]) { rateLimits = limits }
+            if let limits = try? await client.request("account/rateLimits/read", [:]) { rateLimits = limits; usage.receive(limits) }
             var input = instructions
             while true {
                 try Task.checkCancellation()
@@ -364,7 +389,7 @@ actor Orchestrator {
                         session.tokensOut = params["tokenUsage"]["total"]["outputTokens"].int ?? session.tokensOut
                     }
                     try store.save(session)
-                    if method == "account/rateLimits/updated" { rateLimits = params }
+                    if method == "account/rateLimits/updated" { rateLimits = params; usage.receive(params, replacing: false) }
                     if method == "item/tool/call" || method == "item/tool/requestUserInput" {
                         let before = Date()
                         try await handle(event, taskId: id, client: client)

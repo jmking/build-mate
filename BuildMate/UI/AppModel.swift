@@ -55,6 +55,7 @@ final class AppModel {
     var search = ""
     var error: String?
     var schedulerError: String?
+    var usage = UsageSnapshot()
     private var observing = false
 
     init(store: Store, runner: ProcessRunner = ProcessRunner()) { self.store = store; core = Orchestrator(store: store, runner: runner) }
@@ -82,6 +83,7 @@ final class AppModel {
             }
             settings = try store.settings()
             schedulerError = await core.lastError
+            usage = await core.usage
         } catch { self.error = error.localizedDescription }
     }
     var selectedProject: Project? {

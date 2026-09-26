@@ -47,6 +47,7 @@ struct MainWindow: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("\(model.workers) of \(model.settings.agentsAtOnce) agents busy").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    UsageFooter()
                     Button(model.settings.paused ? "Resume All" : "Pause All", systemImage: model.settings.paused ? "play.fill" : "pause.fill") {
                         model.perform { try model.pauseAll() }
                     }.buttonStyle(.borderless)

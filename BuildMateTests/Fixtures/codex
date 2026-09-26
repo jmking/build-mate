@@ -40,7 +40,9 @@ for line in sys.stdin:
  if method=='initialize':reply(req,{'userAgent':'fake/0.151'})
  elif method=='initialized':pass
  elif method=='model/list':reply(req,{'data':[{'id':'fake-model','isDefault':True}],'nextCursor':None})
- elif method=='account/rateLimits/read':reply(req,{'rateLimits':{'primary':{'usedPercent':10}}})
+ elif method=='account/rateLimits/read':
+  if (root/'usage-error').exists():emit({'id':req['id'],'error':{'code':-32000,'message':'Fixture usage unavailable'}})
+  else:reply(req,json.loads((root/'usage.json').read_text()) if (root/'usage.json').exists() else {'rateLimits':{'primary':{'usedPercent':10}}})
  elif method=='thread/start':
   cwd=p['cwd'];thread='fixture-'+pathlib.Path(cwd).parent.name+'-'+pathlib.Path(cwd).name
   title_mode=p.get('ephemeral',False)

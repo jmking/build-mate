@@ -75,3 +75,7 @@ User-directed scope change ahead of the rest of milestone 4: remove the project-
 ## New local projects follow-up (2026-09-26)
 
 User-directed extension to project setup: Add Existing or Create New. A new project needs no hosting account and can run its first task in an isolated worktree. Multi-repository projects, remote creation/publishing and local merge are not included. The generic folder icon now also represents local projects.
+
+## Queue, cleanup and usage follow-up (2026-09-26)
+
+User-directed additions: remove clean worktrees after confirmed merge (retain task/history/proof/branch; preserve dirty worktrees), reorder Backlog and Todo within each project using drag-and-drop or Move Earlier/Later, and show account usage windows/reset times in the sidebar and popover. Automatic usage holds/settings and menu-bar usage remain milestone 7; this usage UI is informational. Native sheet materials are retained.

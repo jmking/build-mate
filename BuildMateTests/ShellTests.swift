@@ -52,6 +52,35 @@ struct ShellTests {
         try f.cleanup()
     }
 
+    // Catch inverted percentages, selecting a different product's bucket, stale failures and accidental agent starts.
+    @Test func usageReadsAccountWindowsWithoutStartingTasksAndPreservesUnknownValues() async throws {
+        let f = try await CoreTests.Fixture()
+        let model = AppModel(store: f.store, runner: f.runner)
+        let file = f.control.appending(path: "usage.json")
+        try #"{"rateLimits":{"primary":{"usedPercent":99}},"rateLimitsByLimitId":{"codex":{"limitName":"Codex","primary":{"usedPercent":28,"windowDurationMins":300,"resetsAt":1790440000},"secondary":{"usedPercent":81,"windowDurationMins":10080,"resetsAt":1790500000}},"other":{"primary":{"usedPercent":98}}}}"#.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage(); await model.refresh()
+        #expect(model.usage.windows.count == 3)
+        #expect(model.usage.limitingWindow?.remaining == 19)
+        #expect(model.usage.limitingWindow?.duration == "7-day window")
+        #expect(model.usage.windows.first?.resetsAt == Date(timeIntervalSince1970: 1790440000))
+        try f.marker("usage-error")
+        await model.core.refreshUsage(); await model.refresh()
+        #expect(model.usage.error != nil && model.usage.limitingWindow?.remaining == 19)
+        try FileManager.default.removeItem(at: f.control.appending(path: "usage-error"))
+        try #"{"rateLimits":{"primary":{"usedPercent":90},"secondary":null}}"#.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage(); await model.refresh()
+        #expect(model.usage.error == nil && model.usage.limitingWindow?.remaining == 10)
+        #expect(model.usage.limitingWindow?.resetsAt == nil)
+        try #"{"rateLimits":{"primary":null,"secondary":null},"rateLimitsByLimitId":null}"#.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage(); await model.refresh()
+        #expect(model.usage.windows.isEmpty)
+        let calls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
+        #expect(!calls.contains("thread/start") && !calls.contains("turn/start"))
+        #expect(try f.store.all(Session.self).isEmpty)
+        await model.core.shutdown()
+        try f.cleanup()
+    }
+
     @Test func projectDiscoveryAndShellActionsPersistWithoutDispatchingBacklog() async throws {
         let f = try await CoreTests.Fixture()
         _ = try await f.runner.run("git", ["remote", "set-url", "origin", "git@github.com:fixture/repo.git"], cwd: f.repo.path)
@@ -104,7 +133,7 @@ struct ShellTests {
         #expect(started.state == .todo && started.proofRequirement == .checksOnly && started.worktreePath == nil)
         do { try model.reorderTask(task.id, relativeTo: started.id, after: false); Issue.record("Cross-state reorder accepted") } catch {}
         #expect(try await model.core.steer(started.id, text: "For the next run") == .saved)
-        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "calls.jsonl").path))
+        #expect(((try? String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)) ?? "").contains("thread/start") == false)
         try await model.moveToTodo(task)
         #expect(try uiStore.get(WorkTask.self, task.id).state == .todo)
         #expect(try uiStore.get(WorkTask.self, task.id).worktreePath == nil)
