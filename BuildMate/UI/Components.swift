@@ -37,10 +37,17 @@ struct RoadToMerge: View {
     var body: some View {
         Group {
             if vertical {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(names.enumerated()), id: \.offset) { index, name in
-                        Label(name, systemImage: index < completed ? "checkmark.circle.fill" : index == completed ? "circle.inset.filled" : "circle")
-                            .foregroundStyle(index < completed ? Color.green : Color.secondary)
+                        HStack(spacing: 8) {
+                            Image(systemName: index < completed ? "checkmark.circle.fill" : index == completed ? "circle.inset.filled" : "circle")
+                                .foregroundStyle(index < completed ? Color.green : index == completed ? .accentColor : .secondary)
+                                .frame(width: 18)
+                            Text(name).foregroundStyle(index <= completed ? .primary : .secondary)
+                        }.font(.callout)
+                        if index < names.count - 1 {
+                            Rectangle().fill(.separator).frame(width: 1, height: 12).padding(.leading, 8.5)
+                        }
                     }
                 }
             } else {
@@ -54,6 +61,7 @@ struct RoadToMerge: View {
     }
 }
 struct TaskCard: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(AppModel.self) private var model
     let task: WorkTask
     var body: some View {
@@ -67,7 +75,9 @@ struct TaskCard: View {
                 if task.state != .todo && task.state != .backlog { RoadToMerge(task: task) }
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color(nsColor: colorScheme == .dark ? .underPageBackgroundColor : .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.35), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(task.title), task \(task.number), \(task.state.title)")

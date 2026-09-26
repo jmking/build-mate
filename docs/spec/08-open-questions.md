@@ -82,3 +82,7 @@ Completed before milestone 3; see [audit](09-symphony-audit.md). Fixed stale dis
 - Composer copy follows actual delivery: live turn → Send message; no live turn → Save message for next run; unresolved question → Send answer. Queued messages never start/resume work. The core returns the delivery result for accurate confirmation.
 - Added actionable missing-folder/non-git errors, Return to check a repository, and sidebar counts. Extended the existing shell flow to cover missing gh, blocked starts, legacy Todo dispatch, and saved delivery; the lifecycle flow verifies live steering. No extra unit-test suite.
 - Light/dark inspection, keyboard setup/question/navigation, and Reduce Motion/Transparency checks are recorded in [10](10-milestone-3-acceptance.md). Temporary macOS preferences were restored. VoiceOver could be enabled, but the automation could not reliably inspect/control the reader (application inspection timed out); no spoken acceptance claim. Optional UI tests compile, but the previously observed Xcode automation-mode blocker remains.
+
+## Design and motion pass (2026-09-26)
+
+The request to refine the current shell does not expand later-milestone features. Use native inspector presentation and regular glass over scrolling content, rather than trying to reproduce the reference wallpaper's colour inside the app. This is a reversible design decision consistent with Apple's material guidance. No additional appearance preference or dependency was introduced. Detailed changes are in 06.

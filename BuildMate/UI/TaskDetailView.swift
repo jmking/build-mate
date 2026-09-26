@@ -2,11 +2,13 @@ import SwiftUI
 
 struct TaskDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let task: WorkTask
     @State private var message = ""
     @State private var messageStatus: String?
     @State private var sending = false
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
+    private var isPaused: Bool { task.paused || model.settings.paused || model.selectedProject?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
     private var composerTitle: String { openQuestion != nil ? "Answer the question" : activeTurn ? "Message the agent" : "Save a message for the next run" }
     private var actionTitle: String { openQuestion != nil ? "Send answer" : activeTurn ? "Send message" : "Save message" }
@@ -19,89 +21,109 @@ struct TaskDetailView: View {
     private var questions: [Question] { model.snapshot.questions.filter { $0.taskId == task.id } }
     private var proof: Proof? { model.snapshot.proofs.first { $0.taskId == task.id } }
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Task brief").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                            Text(task.title).font(.title3.weight(.semibold))
-                            Text(task.description.isEmpty ? "No additional description." : task.description).textSelection(.enabled)
-                        }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-                        ForEach(messages) { item in
-                            if let question = questions.first(where: { $0.messageId == item.id }) { TaskQuestion(question: question) } else {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(item.role == "agent" ? "Agent" : item.role == "user" ? "You" : "Build Mate").fontWeight(.medium)
-                                        Text(item.createdAt, style: .time)
-                                    }.font(.caption).foregroundStyle(.secondary)
-                                    Text(.init(displayText(item))).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .padding(item.role == "user" ? 14 : 0)
-                                .background(item.role == "user" ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                            }
+        @Bindable var model = model
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Task brief").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    Text(task.title).font(.title3.weight(.semibold))
+                    Text(task.description.isEmpty ? "No additional description." : task.description).textSelection(.enabled).font(.system(size: 14)).lineSpacing(5)
+                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+                ForEach(messages) { item in
+                    if let question = questions.first(where: { $0.messageId == item.id }) { TaskQuestion(question: question) }
+                    else if item.kind == "event" {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.right").accessibilityHidden(true)
+                            Text(displayText(item))
+                            Text(item.createdAt, style: .time).foregroundStyle(.secondary)
+                        }.font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(item.role == "agent" ? "Agent" : item.role == "user" ? "You" : "Build Mate").fontWeight(.medium)
+                                Text(item.createdAt, style: .time)
+                            }.font(.caption).foregroundStyle(.secondary)
+                            Text(.init(displayText(item))).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        if task.state == .building { Label(task.paused ? "Paused" : "Agent is working…", systemImage: task.paused ? "pause.circle" : "play.circle").foregroundStyle(.secondary) }
-                        if let retry = task.retry, model.retryNeedsAttention(task) {
-                            Label(retry.error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
-                            Text("Next retry: \(retry.dueAt.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
+                        .frame(maxWidth: item.role == "user" ? 560 : .infinity, alignment: .leading)
+                        .padding(item.role == "user" ? 14 : 0)
+                        .background(item.role == "user" ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                        .frame(maxWidth: .infinity, alignment: item.role == "user" ? .trailing : .leading)
+                    }
                 }
-                if !task.state.terminal && task.state != .backlog {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(messageStatus ?? composerExplanation).font(.caption).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("message-status")
-                        HStack(alignment: .bottom) {
-                            TextField(composerTitle, text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain)
-                                .accessibilityLabel(composerTitle).accessibilityIdentifier("task-message").onSubmit(send)
-                                .disabled(sending || openQuestion?.allowsFreeText == false)
-                            Button(actionTitle, action: send)
-                                .disabled(sending || openQuestion?.allowsFreeText == false || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                .keyboardShortcut(.return, modifiers: .command)
-                                .accessibilityIdentifier("send-task-message")
-                        }.padding(14).glassEffect(in: RoundedRectangle(cornerRadius: 22))
-                    }.padding(20)
-                    .onChange(of: message) { if !message.isEmpty { messageStatus = nil } }
+                if task.state == .building {
+                    HStack(spacing: 8) {
+                        Image(systemName: isPaused ? "pause.circle" : "circle.fill")
+                            .font(.system(size: 8)).foregroundStyle(isPaused ? Color.secondary : .accentColor)
+                            .symbolEffect(.pulse, options: .repeating, isActive: activeTurn && !isPaused && !reduceMotion)
+                        Text(isPaused ? "Paused" : "Agent is working…").font(.caption).foregroundStyle(.secondary)
+                    }.accessibilityElement(children: .combine)
+                }
+                if let retry = task.retry, model.retryNeedsAttention(task) {
+                    Label(retry.error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+                    Text("Next retry: \(retry.dueAt.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary)
+                }
+            }.padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
+        }
+        .safeAreaBar(edge: .bottom, spacing: 0) {
+            if !task.state.terminal && task.state != .backlog {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(messageStatus ?? composerExplanation).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("message-status")
+                    HStack(alignment: .bottom) {
+                        TextField(composerTitle, text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain).font(.system(size: 14))
+                            .accessibilityLabel(composerTitle).accessibilityIdentifier("task-message").onSubmit(send)
+                            .disabled(sending || openQuestion?.allowsFreeText == false)
+                        Button(action: send) { Label(actionTitle, systemImage: "arrow.up").labelStyle(.iconOnly).frame(width: 18, height: 18) }
+                            .buttonStyle(.borderedProminent).buttonBorderShape(.circle)
+                            .accessibilityLabel(actionTitle).help(actionTitle + " (⌘Return)")
+                            .disabled(sending || openQuestion?.allowsFreeText == false || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .accessibilityIdentifier("send-task-message")
+                    }
+                }.padding(14).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+                    .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16)
+                    .frame(maxWidth: 776)
+                    .frame(maxWidth: .infinity)
+                .onChange(of: message) { if !message.isEmpty { messageStatus = nil } }
 
-                }
-            }
-            if model.showInspector {
-                Divider()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text("Road to merge").font(.headline).accessibilityAddTraits(.isHeader)
-                        RoadToMerge(task: task, vertical: true)
-                        Divider()
-                        Text("Brief").font(.headline)
-                        Text(task.description.isEmpty ? task.title : task.description).foregroundStyle(.secondary)
-                        if let path = task.worktreePath {
-                            Divider()
-                            Text("Worktree").font(.headline)
-                            Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                        }
-                        if let proof {
-                            Divider()
-                            Text("Proof of work").font(.headline)
-                            ForEach(Array(proof.checks.enumerated()), id: \.offset) { _, check in Label(check.name + " · " + check.status, systemImage: check.status == "passed" ? "checkmark.circle" : "xmark.circle") }
-                            Text(proof.recordingPath == nil ? "Recording not available" : "Recording captured").foregroundStyle(.secondary)
-                        }
-                        if let pr = task.pr, let url = URL(string: pr.url) { Link("View Pull Request #\(pr.number)", destination: url) }
-                        if task.state == .backlog {
-                            Button("Move to Todo") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
-                                .disabled(model.selectedProject?.runBlockReason != nil)
-                            if let reason = model.selectedProject?.runBlockReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
-                        }
-                        ForEach(model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" }) { approval in
-                            Button("Approve Plan") { model.perform { try await model.core.approvePlan(approval.id) } }.buttonStyle(.borderedProminent)
-                        }
-                        if task.state == .humanReview {
-                            Text("Review playback and preview controls are coming soon.").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(width: 340).background(.background.secondary)
             }
         }
+        .inspector(isPresented: $model.showInspector) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Road to merge").font(.headline).accessibilityAddTraits(.isHeader)
+                    RoadToMerge(task: task, vertical: true)
+                    Divider()
+                    Text("Brief").font(.headline)
+                    Text(task.description.isEmpty ? task.title : task.description).foregroundStyle(.secondary)
+                    if let path = task.worktreePath {
+                        Divider()
+                        Text("Worktree").font(.headline)
+                        Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    if let proof {
+                        Divider()
+                        Text("Proof of work").font(.headline)
+                        ForEach(Array(proof.checks.enumerated()), id: \.offset) { _, check in Label(check.name + " · " + check.status, systemImage: check.status == "passed" ? "checkmark.circle" : "xmark.circle") }
+                        Text(proof.recordingPath == nil ? "Recording not available" : "Recording captured").foregroundStyle(.secondary)
+                    }
+                    if let pr = task.pr, let url = URL(string: pr.url) { Link("View Pull Request #\(pr.number)", destination: url) }
+                    if task.state == .backlog {
+                        Button("Move to Todo") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
+                            .disabled(model.selectedProject?.runBlockReason != nil)
+                        if let reason = model.selectedProject?.runBlockReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    ForEach(model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" }) { approval in
+                        Button("Approve Plan") { model.perform { try await model.core.approvePlan(approval.id) } }.buttonStyle(.borderedProminent)
+                    }
+                    if task.state == .humanReview {
+                        Text("Review playback and preview controls are coming soon.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+            }.inspectorColumnWidth(min: 280, ideal: 340, max: 380)
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
         .toolbar {
             ToolbarItem {
                 Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal).help("Pause or resume task (⌘.)")

@@ -116,7 +116,7 @@ Brand marks: GitHub and Bitbucket marks (`docs/design/assets/github.svg`, `bitbu
 | iOS swipe actions | `.swipeActions` |
 
 ## 7. Motion
-- System transitions only (navigation, sheets, popovers). Card moves between board columns animate with a matched-geometry move (0.35 s, spring). Live status dot pulses gently.
+- Use native sheet/popover/inspector presentation. Sidebar and inspector changes use a short smooth animation (0.25 s); page and board/list changes cross-fade (0.18 s). Card moves between board columns use matched geometry (0.35 s spring, restrained bounce). Only a live, unpaused agent turn pulses its status dot.
 - Reduce Motion: no pulsing, no card fly-overs (cross-fade instead).
 
 ## 8. Accessibility
@@ -125,3 +125,13 @@ Brand marks: GitHub and Bitbucket marks (`docs/design/assets/github.svg`, `bitbu
 - Contrast ≥ 4.5:1 for text in both appearances.
 - Full keyboard navigation on Mac (Tab through regions, arrow keys in lists and board, Space to open).
 - VoiceOver rotor headings for sections (Questions, Approvals, …).
+
+## Mac implementation refinements (2026-09-26)
+
+- The composer is a regular Liquid Glass surface in a bottom `safeAreaBar`, allowing the transcript to scroll behind it. Keep the delivery hint inside this surface for legibility. The circular send arrow has an action-specific accessibility label and tooltip. Clear glass is reserved for future media controls.
+- Use the native SwiftUI inspector (340 pt ideal, 280–380 pt resizable), retaining system material and presentation. Do not wrap the sidebar, toolbar or inspector in another glass layer.
+- On this macOS version, control and window background tokens resolve identically in dark mode. Use `underPageBackgroundColor` for dark cards and light board columns; `windowBackgroundColor` for dark columns and `controlBackgroundColor` for light cards. Add a fine semantic separator and restrained card shadow to preserve surface hierarchy. No fixed RGB palette.
+- Transcript events are compact secondary rows; messages use 14 pt system type with 5 pt line spacing. User bubbles are trailing aligned with a maximum width of 560 pt. Progress checklist labels stay in label colours; only glyphs carry state colour.
+- Reduce Motion disables panel movement and pulsing; board updates use opacity instead of geometry travel. Reduced Transparency is handled by native materials.
+
+References checked: [Apple HIG Materials](https://developer.apple.com/design/human-interface-guidelines/materials), [Motion](https://developer.apple.com/design/human-interface-guidelines/motion), [Applying Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views). Apple reserves glass for navigation and functional controls; content cards retain standard surfaces. The reference wallpaper is not an app background, so translucency varies with the actual desktop and system preferences.

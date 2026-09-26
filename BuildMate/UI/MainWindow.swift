@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainWindow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @FocusState private var searchFocused: Bool
     @State private var collapsedProjects: Set<UUID> = []
@@ -38,6 +39,7 @@ struct MainWindow: View {
                 }
             }
             .listStyle(.sidebar)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: collapsedProjects)
             .navigationSplitViewColumnWidth(min: 210, ideal: 232, max: 300)
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -64,8 +66,11 @@ struct MainWindow: View {
                     Label(reason, systemImage: "info.circle").font(.callout).padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
                 }
-                content
+                ZStack { content.transition(.opacity) }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.18), value: model.destination)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.settings.paused)
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .toolbar {
@@ -91,6 +96,7 @@ struct MainWindow: View {
         }
         .searchable(text: $model.search, prompt: "Search tasks")
         .searchFocused($searchFocused)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: columnVisibility)
         .onChange(of: model.findRequested) { searchFocused = true }
         .frame(minWidth: 1100, minHeight: 700)
         .sheet(isPresented: $model.showAddProject) { AddProjectSheet() }
@@ -108,7 +114,7 @@ struct MainWindow: View {
             else { ContentUnavailableView("Task not found", systemImage: "questionmark.folder") }
         case .project(let id, let page):
             switch page {
-            case .tasks: TaskBoard(projectID: id)
+            case .tasks: TaskBoard(projectID: id).id(id)
             case .backlog: TaskList(tasks: model.tasks(id).filter { $0.state == .backlog }, emptyTitle: "Backlog is empty", emptyDescription: "Tasks you add to Backlog wait until you move them to Todo.")
             case .chat: ContentUnavailableView("Project chat", systemImage: "bubble.left", description: Text("Project conversations are coming soon. Create a task with ⌘N."))
             case .instructions:

@@ -36,3 +36,9 @@ This is shell acceptance, not complete v1 visual parity: rich proof/review/previ
 ## Remaining sign-off
 
 Run a human VoiceOver pass in both appearances: add a project, create a Backlog task, traverse board/list and transcript, answer a question and inspect the delivery confirmation. Verify spoken labels, order and focus after sheets close. Do not mark full milestone accessibility acceptance passed until this is observed.
+
+## Design follow-up
+
+Compared the implemented Mac surfaces with the light/dark references and Apple's current material/motion guidance. Refined the floating composer, native inspector, event/message hierarchy, progress checklist, board surfaces and description editor. Added scoped native animations for navigation, panels, project disclosure and board updates; do not animate every database refresh or streaming character.
+
+Interactive checks used populated paused fixture data: light/dark board and transcript, native inspector keyboard close/open, board/list navigation, New Task sheet presentation/dismissal, and the solid composer fallback with Reduce Transparency. Reduce Motion and Reduce Transparency were temporarily enabled and restored to their original off values. This verifies layout and interaction states, not a frame-time/performance benchmark. Spoken VoiceOver sign-off remains as recorded above.

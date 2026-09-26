@@ -2,12 +2,17 @@ import SwiftUI
 
 struct TaskBoard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Namespace private var cardMovement
     let projectID: UUID
     private let columns: [TaskState] = [.todo, .needsClarification, .building, .humanReview, .inPR]
     var body: some View {
+        Group {
         if model.listMode {
             TaskList(tasks: model.tasks(projectID), emptyTitle: "No tasks yet", emptyDescription: "Create a task to start building.")
         } else {
+            GeometryReader { geometry in
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(columns, id: \.self) { state in
@@ -28,17 +33,27 @@ struct TaskBoard: View {
                                         }.buttonStyle(.plain)
                                             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator, style: StrokeStyle(lineWidth: 1, dash: [4])))
                                     }
-                                    ForEach(model.tasks(projectID).filter { $0.state == state }) { task in TaskCard(task: task) }
+                                    ForEach(model.tasks(projectID).filter { $0.state == state }) { task in
+                                        if reduceMotion {
+                                            TaskCard(task: task).transition(.opacity)
+                                        } else {
+                                            TaskCard(task: task)
+                                                .matchedGeometryEffect(id: task.id, in: cardMovement)
+                                                .transition(.opacity)
+                                        }
+                                    }
                                     if model.tasks(projectID).allSatisfy({ $0.state != state }) {
-                                        Text("No tasks").font(.caption).foregroundStyle(.tertiary).frame(maxWidth: .infinity).padding(.top, 24)
+                                        Text("No tasks").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.top, 24)
                                     }
                                 }.padding(1)
                             }
                         }
-                        .padding(8).frame(width: 205)
-                        .background(Color(nsColor: .quaternarySystemFill), in: RoundedRectangle(cornerRadius: 20))
+                        .padding(8).frame(width: max(205, (geometry.size.width - 88) / 5))
+                        .background(Color(nsColor: colorScheme == .dark ? .windowBackgroundColor : .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
                     }
-                }.padding(20)
+                }.frame(height: max(0, geometry.size.height - 40)).padding(20)
+                    .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.35, bounce: 0.1), value: columns.map { state in model.tasks(projectID).filter { $0.state == state }.map(\.id) })
+            }
             }
             .toolbar {
                 ToolbarItem {
@@ -48,6 +63,8 @@ struct TaskBoard: View {
                 }
             }
         }
+        }
+        .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.18), value: model.listMode)
     }
 }
 
@@ -72,7 +89,7 @@ struct TaskList: View {
                                         Text(task.title).foregroundStyle(.primary)
                                         Spacer()
                                         StateLabel(task: task).font(.caption)
-                                    }.padding(.vertical, 8)
+                                    }.padding(.vertical, 8).contentShape(Rectangle())
                                 }.buttonStyle(.plain)
                             }
                         }

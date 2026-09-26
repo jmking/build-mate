@@ -93,8 +93,9 @@ struct NewTaskSheet: View {
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("What should be built").font(.caption).foregroundStyle(.secondary)
-                TextEditor(text: $description).font(.body).frame(height: 165).padding(6)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Task description")
+                TextEditor(text: $description).font(.system(size: 14)).scrollContentBackground(.hidden).frame(height: 165).padding(10)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5)).accessibilityLabel("Task description")
             }
             Text(selectedProject?.runBlockReason ?? "Start Now adds the task to Todo. It runs when the project is resumed and an agent slot is available.")
                 .font(.caption).foregroundStyle(.secondary)
