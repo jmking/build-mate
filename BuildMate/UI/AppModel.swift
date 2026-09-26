@@ -29,6 +29,7 @@ enum ProjectPage: String, CaseIterable, Identifiable {
 
 @MainActor @Observable
 final class AppModel {
+    var settingsTab = "general"
     let store: Store
     let core: Orchestrator
     var snapshot = AppSnapshot()
@@ -227,7 +228,7 @@ final class AppModel {
         try add(discovered)
         await refresh()
     }
-    func createTask(projectID: UUID, title: String, description: String, start: Bool, proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil) async throws {
+    func createTask(projectID: UUID, title: String, description: String, start: Bool, proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) async throws {
         let project = try store.get(Project.self, projectID)
         if start, let reason = project.runBlockReason { throw CoreError.invalid(reason) }
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -237,7 +238,7 @@ final class AppModel {
         let needsTitle = resolvedTitle.isEmpty
         if needsTitle { resolvedTitle = Orchestrator.provisionalTitle(description) }
         try Task.checkCancellation()
-        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild)
+        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files)
         snapshot.tasks.append(task)
         showNewTask = false; destination = .task(task.id)
         if needsTitle { await core.refineTitle(of: task) }

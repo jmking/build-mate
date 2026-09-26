@@ -170,6 +170,7 @@ struct NewTaskSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var projectID: UUID?
+    @State private var files: [URL] = []
     @State private var title = ""
     @State private var description = ""
     @State private var proofRequirement: ProofRequirement = .automatic
@@ -196,6 +197,8 @@ struct NewTaskSheet: View {
                     .accessibilityLabel("Task description").accessibilityIdentifier("task-description")
                 Text("Your task opens immediately. Its title is refined from the brief in the background. You can rename it anytime.").font(.caption).foregroundStyle(.secondary)
             }
+            ChatAttachmentTray(files: $files, root: model.store.root)
+            ChatAttachmentControls(files: $files, root: model.store.root)
             DisclosureGroup("Set a title yourself") {
                 TextField("Task title (optional)", text: $title).textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Task title (optional)").accessibilityIdentifier("task-title").padding(.top, 6)
@@ -234,6 +237,7 @@ struct NewTaskSheet: View {
                     .help("Save this task for later without starting an agent (Return)")
             }
         }.padding(28).frame(width: 670)
+            .modifier(ChatAttachmentDrop(files: $files, root: model.store.root, enabled: creation == nil))
             .onAppear { projectID = model.selectedProject?.id ?? model.snapshot.projects.first?.id; descriptionFocused = true }
             // A successful save closes the sheet before its final refresh finishes.
             .onDisappear { if model.showNewTask { creation?.cancel() } }
@@ -246,7 +250,7 @@ struct NewTaskSheet: View {
         creation = Task {
             defer { creation = nil }
             do {
-                try await model.createTask(projectID: projectID, title: title, description: description, start: start, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild)
+                try await model.createTask(projectID: projectID, title: title, description: description, start: start, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files)
                 await model.refresh()
             } catch is CancellationError { }
             catch { failure = error.localizedDescription }

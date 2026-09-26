@@ -132,6 +132,9 @@ struct BuildMateApp: App {
                     .help("Pause or resume agents across all projects (⌥⌘P)")
             }
         }
+        Settings {
+            if let model { InstructionsView().environment(model).frame(width: 720, height: 560).containerBackground(AppSurface.window, for: .window) }
+        }
         WindowGroup("Proof Recording", id: "recording", for: String.self) { $path in
             if let path { RecordingPlayer(path: path).frame(minWidth: 640, minHeight: 360) }
         }.defaultSize(width: 960, height: 540)

@@ -132,13 +132,7 @@ struct MainWindow: View {
             case .backlog: TaskList(tasks: model.tasks(id).filter { $0.state == .backlog }, emptyTitle: "Backlog is empty", emptyDescription: "Tasks you add to Backlog wait until you move them to Queue.")
             case .chat: ProjectChatView(projectID: id).id(id)
             case .instructions:
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Project instructions").font(.title2)
-                        Text(model.selectedProject?.instructions.isEmpty == false ? model.selectedProject!.instructions : "No project instructions yet.").textSelection(.enabled)
-                        Text("The instructions editor is coming soon. Codex follows your repository’s AGENTS.md.").foregroundStyle(.secondary)
-                    }.frame(maxWidth: 720, alignment: .leading).padding(32)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                InstructionsView(projectID: id).id(id)
             }
         }
     }

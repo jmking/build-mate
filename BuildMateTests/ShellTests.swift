@@ -106,7 +106,7 @@ struct ShellTests {
         await model.refresh()
         #expect(model.selectedProject?.id == discovered.project.id)
         do { try model.add(discovered); Issue.record("Duplicate clone accepted") } catch {}
-        try await model.createTask(projectID: discovered.project.id, title: "  Make output readable  ", description: "Keep it compact", start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "  Make output readable  ", description: "Keep it compact", start: false, files: [f.control.appending(path: "proof.mp4")])
         await model.refresh()
         let task = try #require(model.selectedTask)
         #expect(task.state == .backlog && task.title == "Make output readable")
@@ -118,6 +118,9 @@ struct ShellTests {
         #expect(try uiStore.all(Session.self).isEmpty) // Editing a draft must not create or dispatch an agent session.
         do { try await model.editTask(task.id, title: "  ", description: "Lost draft", proofRequirement: .automatic); Issue.record("Empty title accepted") } catch {}
         #expect(try uiStore.get(WorkTask.self, task.id).description == edited.description)
+        let video = try #require(uiStore.all(Attachment.self).first)
+        #expect(video.kind == "video" && video.frames.count == 6)
+        #expect(JSON.chatInput("Review", attachments: [video]).array.filter { $0["type"].string == "localImage" }.count == 6)
         let other = try uiStore.createTask(projectId: discovered.project.id, title: "Other draft", rank: 10)
         try model.reorderTask(task.id, relativeTo: other.id, after: false)
         await model.refresh()

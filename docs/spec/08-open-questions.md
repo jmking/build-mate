@@ -189,3 +189,9 @@ Use zero-based dependency and selection indices in project tool contracts. If a 
 - Interpret “draw a location” as dragging a capture rectangle, using `/usr/sbin/screencapture -i -s`; window capture uses `-i -w`. Both write PNG directly to an app-owned draft location. No custom screen overlay or helper daemon.
 - Arbitrary regular files may be attached; images are actual Codex `localImage` inputs, other file types are readable local references. Do not claim video understanding through extracted frames/audio yet.
 - User clarified that project-chat references should follow created tasks. Copy the conversation's attachments into created tasks and track source IDs. Delete bytes after all linked tasks merge; retain history/filenames. Unassigned files stay with the project. A proposed 30-day policy was rejected by approval review and is not implemented.
+
+## Milestone 6 completion pass (2026-09-27)
+
+- Project and global instructions autosave after one second, flush when leaving the editor, and apply on the next turn of retained task/project threads. Repository AGENTS.md remains owned by the repository; the app only offers Open.
+- New Task now accepts the same files, screenshots and clipboard images as chat. Import and task creation are atomic. Video attachments supply six evenly spaced, orientation-correct frames; the original remains available to the agent and Quick Look. Audio is explicitly labelled as not transcribed: no speech permission or audio-model capability is assumed. Automatic audio transcription remains an open integration question, not a claimed capability.
+- User corrected the requested sequence to milestones 6 then 7. There is no milestone 8.

@@ -8,6 +8,8 @@ struct ProjectChatTests {
         var f = try await CoreTests.Fixture()
         var settings = try f.store.settings(); settings.agentsAtOnce = 1; try f.store.saveSettings(settings)
         let core = Orchestrator(store: f.store, runner: f.runner)
+        try f.store.saveInstructions("GLOBAL instruction marker", projectID: nil)
+        try f.store.saveInstructions("PROJECT instruction marker", projectID: f.project.id)
         let reference = f.root.appending(path: "requirements.txt")
         try "Show empty states clearly.".write(to: reference, atomically: true, encoding: .utf8)
         try await core.sendProjectMessage(f.project.id, text: "Plan account search", files: [f.control.appending(path: "proof.png"), reference])
@@ -18,6 +20,10 @@ struct ProjectChatTests {
         try await f.wait("project proposal and final response") { try f.store.all(Proposal.self).count == 1 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let session = try f.store.session(for: f.project.id, ownerType: "project")
         let thread = try #require(session.codexThreadId)
+        let requests = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
+        #expect(requests.contains("GLOBAL instruction marker") && requests.contains("PROJECT instruction marker"))
+        try f.store.saveInstructions("UPDATED instruction marker", projectID: f.project.id)
+        #expect(try String(contentsOf: f.store.root.appending(path: "projects/\(f.project.id)/WORKFLOW.md"), encoding: .utf8).contains("UPDATED instruction marker"))
         let proposal = try #require(f.store.all(Proposal.self).first)
         #expect(try f.store.all(WorkTask.self).isEmpty)
         #expect(try f.store.all(Message.self).filter { $0.sessionId == session.id && $0.body.hasPrefix("Here are three") }.count == 1)
@@ -55,6 +61,7 @@ struct ProjectChatTests {
         let routed = try f.store.all(WorkTask.self).sorted { $0.number < $1.number }.suffix(3)
         #expect(routed.map(\.state) == [.todo, .todo, .backlog])
         #expect(routed.dropFirst().first?.dependsOn == [routed.first!.id])
+        #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("UPDATED instruction marker"))
         // Pause prevents both task dispatch and project inference; resume and process failure retain the same thread.
         f.project.paused = true; try f.store.save(f.project)
         try await resumed.sendProjectMessage(f.project.id, text: "Status")

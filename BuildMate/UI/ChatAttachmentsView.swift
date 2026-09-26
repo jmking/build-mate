@@ -101,8 +101,8 @@ struct MessageAttachments: View {
             } else {
             Button { preview = URL(fileURLWithPath: attachment.path) } label: {
                 VStack(alignment: .leading, spacing: 5) {
-                    if attachment.kind == "image" {
-                        AttachmentThumbnail(url: URL(fileURLWithPath: attachment.path))
+                    if attachment.kind == "image" || attachment.kind == "video" {
+                        AttachmentThumbnail(url: URL(fileURLWithPath: attachment.frames.first ?? attachment.path))
                             .frame(maxWidth: 220, maxHeight: 140).clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                     Label(attachment.filename, systemImage: attachment.kind == "image" ? "photo" : "doc")
@@ -145,7 +145,15 @@ struct ChatAttachmentDrop: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay { if targeted && enabled { RoundedRectangle(cornerRadius: 16).strokeBorder(Color.accentColor, lineWidth: 2).allowsHitTesting(false) } }
+            .onPasteCommand(of: [.fileURL, .image]) { providers in _ = receive(providers) }
             .onDrop(of: [UTType.fileURL.identifier, UTType.image.identifier], isTargeted: $targeted) { providers in
+                receive(providers)
+            }
+            .alert("Unable to attach file", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("OK", role: .cancel) { error = nil }
+            } message: { Text(error ?? "") }
+    }
+    private func receive(_ providers: [NSItemProvider]) -> Bool {
                 guard enabled else { return false }
                 for provider in providers {
                     if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -170,9 +178,5 @@ struct ChatAttachmentDrop: ViewModifier {
                     }
                 }
                 return !providers.isEmpty
-            }
-            .alert("Unable to attach file", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-                Button("OK", role: .cancel) { error = nil }
-            } message: { Text(error ?? "") }
     }
 }

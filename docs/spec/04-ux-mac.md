@@ -215,3 +215,7 @@ Drop files or image data anywhere in the chat. Draft attachments show thumbnails
 This implements image/file attachments; video frame extraction and clipboard image paste remain separate from the delivered drag/drop, picker and screenshot entry points.
 
 The ordinary project composer has no explanatory caption (user preference); retain the answer hint only while a clarification question is pending.
+
+### Milestone 6 editor and attachment completion
+
+Instructions are editable in the project sidebar and Settings › Instructions, autosaved after one second and flushed on navigation. New Task includes the shared attachment controls and drop/paste support. Chat and New Task accept clipboard images/files with ⌘V. Videos show a thumbnail and supply six chronological frames to the agent; audio is not automatically transcribed.

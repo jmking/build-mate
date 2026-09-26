@@ -102,14 +102,29 @@ final class Store: Sendable {
         let data = try JSONEncoder().encode(settings)
         try db.write { try $0.execute(sql: "INSERT OR REPLACE INTO appSettings VALUES (1, ?)", arguments: [data]) }
     }
+    func saveInstructions(_ text: String, projectID: UUID?) throws {
+        if let projectID {
+            var project = try get(Project.self, projectID)
+            project.instructions = text
+            try workflow(for: project)
+            try save(project)
+        } else {
+            var value = try settings(); value.instructions = text; try saveSettings(value)
+        }
+    }
     func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .backlog,
-                    rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil) throws -> WorkTask {
+                    rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) throws -> WorkTask {
         guard [.backlog, .todo].contains(state) else { throw CoreError.invalid("New tasks must be Backlog or Queue") }
         return try db.write { db in
             let number = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE projectId = ?", arguments: [projectId])!
             let task = WorkTask(projectId: projectId, number: number, title: title, description: description,
                                 state: state, rank: rank, dependsOn: dependsOn, askBeforeBuild: askBeforeBuild, proofRequirement: proofRequirement)
-            try task.insert(db)
+            guard files.count <= 20 else { throw CoreError.invalid("Attach up to 20 files per task.") }
+            let attachments = try prepareAttachments(files, projectID: projectId, ownerID: task.id, messageID: task.id)
+            do {
+                try task.insert(db)
+                for var attachment in attachments { attachment.ownerType = "task"; attachment.ownerId = task.id; try attachment.insert(db) }
+            } catch { discardPreparedAttachments(attachments); throw error }
             return task
         }
     }

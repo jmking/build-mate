@@ -104,3 +104,10 @@ User-directed additions: remove clean worktrees after confirmed merge (retain ta
 - Process-boundary lifecycle tests now verify image delivery on live steering, persistence after the source is removed, copied task references, corrupt-image rollback, cleanup after merge/restart, and keeping shared chat sources until every linked task merges.
 - Demo: camera → Capture Area → draw a rectangle → preview/remove or send; paperclip → select an image/file → send → accept a task proposal. The task receives the attachments and keeps them until merged.
 - Validation: all ten tests pass in about 41 seconds. Native picker, attachment-only sending, persisted transcript images, capture menu labels and light/dark layouts were checked in an isolated fake-CLI preview. The macOS capture overlay could not be driven through automation; a manual capture check is pending. End-to-end pointer drag/drop, Quick Look interaction and spoken VoiceOver remain unverified; do not infer full acceptance from the build or accessibility tree.
+
+## Milestone 6 completion pass (2026-09-27)
+
+- Project/global instruction editors now autosave, preserve repository files and update resumed agent turns. New Task supports attachments; both composers support clipboard images/files. Video references include six chronological frames (audio transcription remains explicitly unsupported).
+- Demo: Instructions → edit → navigate away/back; ⌘, → global Instructions; ⌘N → attach a video/image → Add to Backlog. Project chat continues to propose, selectively queue, refine and resume tasks.
+- Ten automated tests pass in approximately 42 seconds, including instruction changes on resumed project threads, New Task video ownership/frame delivery and the existing proposal/lifecycle flows.
+- Visual/keyboard reinspection was blocked when Computer Use denied access to the separate preview app. Permission was requested; spoken VoiceOver and native capture confirmation also remain unverified. This is an implementation handoff, not a claim that every manual acceptance check has passed.
