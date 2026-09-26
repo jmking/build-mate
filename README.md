@@ -4,7 +4,7 @@ Build Mate v1 is a native macOS app for managing AI coding work through to merge
 
 ## Status
 
-Milestones 1 (integration spikes) and 2 (core) are implemented. The app currently opens a native startup screen. Project setup, Needs You, the board and transcript UI begin in milestone 3; this is not the complete v1 interface.
+Milestones 1–4 are implemented, with project text chat brought forward from milestone 6. The native app includes project creation, Needs You, Backlog, board/list views, task conversations, proof review, local previews and editor actions. Project chat can inspect code read-only, propose dependent tasks, route them to Backlog or Queue, answer questions and refine Backlog descriptions. Attachments and instruction editing remain later work. See the delivery notes for validation limits.
 
 The core supports durable projects/tasks/sessions, guarded state transitions, rank/dependency dispatch, external worktrees, hooks with timeouts, Codex dynamic tools, clarification and plan approval, proof gates, human review, GitHub PR creation and merge detection, retries and reconciliation. The test suite exercises the complete initial lifecycle with fake CLI processes and a real local bare git remote. It never calls real Codex, GitHub or Bitbucket.
 
@@ -32,7 +32,7 @@ The app uses `~/Library/Application Support/Build Mate/`. Tests supply separate 
 ## Milestone demos
 
 1. Manual scripts in `scripts/spikes/` exercised real Codex thread/turn continuation, steer, interrupt, resume after restart, usage events, persistent dynamic tools and explicit sandbox boundaries. Three local browser recordings produced valid MP4s. These scripts are manual probes, never part of `xcodebuild test`.
-2. `lifecycleKeepsCloneCleanGatesProofAndFinishesOnlyAfterMerge` demonstrates Todo → question → answer → plan approval → build → failed proof → repaired proof → human review → Open Pull Request → merged → Done. It reopens the database at review, checks the original clone is untouched, and deletes app-owned worktrees/data. Two further e2e flows exercise scheduling/restart and failed/timed-out hooks. One unit test covers transition guards.
+2. `lifecycleKeepsCloneCleanGatesProofAndFinishesOnlyAfterMerge` demonstrates Queue → question → answer → plan approval → build → failed proof → repaired proof → human review → Open Pull Request → Merged. It reopens the database at review, checks the original clone is untouched, and deletes app-owned worktrees/data. Two further e2e flows exercise scheduling/restart and failed/timed-out hooks. One unit test covers transition guards.
 
 ## Repository layout
 

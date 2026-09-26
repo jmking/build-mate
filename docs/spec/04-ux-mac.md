@@ -195,3 +195,12 @@ Use task titles, with project names where needed, to identify tasks. Hide intern
 
 
 Editor-icon refinement (2026-09-27): the Open in control shows only a centred 16 pt app icon and dropdown chevron; the editor name remains in its tooltip and accessibility label. Its dropdown uses the real installed app icons for editors, Terminal/iTerm/Ghostty and Finder. Retain the existing Default Editor submenu, with a checkmark on the selected editor; choosing it remains scoped to the current project. Use the native AppKit split button to explicitly preserve identifying menu images on macOS 27; macOS 26 uses its normal menu images. Tooltips and keyboard selection remain available.
+
+
+## Project chat delivery brought forward (2026-09-27)
+
+The Chat page now supports persistent text conversations, streamed agent bubbles, expandable inspection output, inline questions/answers, selectable proposals, Add to queue/Add N to Backlog, and live task links in the From this chat inspector. Proposal dependencies are shown by task title. Unselected tasks are not created; dependencies of selected tasks must also be selected. Dismiss makes a proposal inactive. Natural-language routing supports mixed destinations through the project agent. Backlog task details, row context menus and the Task menu expose Refine with Agent, opening project chat without starting coding. Project questions appear in Needs You and the Chat badge.
+
+The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector shows project checkout, branch and model plus live created-task states and dependencies.
+
+This pulls forward text project chat and backlog refinement, not all of milestone 6: image/video attachment entry and instruction editing remain separate remaining work. Proposal Ship as controls remain hidden until the related SCM capability exists. Spoken VoiceOver and reduced-transparency validation are not inferred from accessibility labels alone.

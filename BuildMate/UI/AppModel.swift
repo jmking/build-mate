@@ -10,6 +10,7 @@ struct AppSnapshot: Sendable {
     var questions: [Question] = []
     var approvals: [Approval] = []
     var proofs: [Proof] = []
+    var proposals: [Proposal] = []
 }
 
 enum Destination: Hashable {
@@ -54,6 +55,7 @@ final class AppModel {
     var showInspector = true
     var listMode = false
     var search = ""
+    var chatDrafts: [UUID: String] = [:]
     var error: String?
     var schedulerError: String?
     var usage = UsageSnapshot()
@@ -91,7 +93,7 @@ final class AppModel {
                 AppSnapshot(projects: try Project.order(Column("name")).fetchAll(db),
                             tasks: try WorkTask.order(Column("rank").desc, Column("createdAt")).fetchAll(db),
                             sessions: try Session.fetchAll(db), messages: try Message.order(Column("createdAt")).fetchAll(db),
-                            questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db))
+                            questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db), proposals: try Proposal.fetchAll(db))
             }
             settings = try store.settings()
             schedulerError = await core.lastError
@@ -120,8 +122,16 @@ final class AppModel {
         !task.state.terminal && (task.state == .humanReview || snapshot.questions.contains { $0.taskId == task.id && $0.answer == nil }
             || snapshot.approvals.contains { $0.taskId == task.id && $0.status == "pending" } || retryNeedsAttention(task))
     }
-    var needsCount: Int { snapshot.tasks.filter(needsYou).count }
-    var workers: Int { snapshot.sessions.filter { $0.status == "running" }.count }
+    var projectQuestions: [Message] {
+        let sessions = Set(snapshot.sessions.filter { $0.ownerType == "project" }.map(\.id))
+        return snapshot.messages.filter { sessions.contains($0.sessionId) && $0.kind == "question" && $0.payload["answer"] == .null }
+    }
+    func chatQuestionCount(_ projectID: UUID) -> Int {
+        let sessionID = snapshot.sessions.first { $0.ownerType == "project" && $0.ownerId == projectID }?.id
+        return projectQuestions.filter { $0.sessionId == sessionID }.count
+    }
+    var needsCount: Int { snapshot.tasks.filter(needsYou).count + projectQuestions.count }
+    var workers: Int { snapshot.sessions.filter { ["running", "waiting"].contains($0.status) }.count }
     func projectName(_ id: UUID) -> String { snapshot.projects.first { $0.id == id }?.name ?? "Project" }
     func tasks(_ id: UUID) -> [WorkTask] {
         var tasks = snapshot.tasks.filter { $0.projectId == id }
@@ -234,6 +244,10 @@ final class AppModel {
     func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement) async throws {
         try await core.editTask(id, title: title, description: description, proofRequirement: proofRequirement)
         await refresh()
+    }
+    func refineInChat(_ task: WorkTask) {
+        destination = .project(task.projectId, .chat)
+        perform { try await self.core.sendProjectMessage(task.projectId, text: "Help me refine this Backlog task: \(task.title) (task ID \(task.id)). Ask about unclear requirements, then update its description with refine_task. Keep it in Backlog.") }
     }
     func moveToTodo(_ task: WorkTask) async throws {
         let project = try store.get(Project.self, task.projectId)

@@ -91,7 +91,7 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 
 **RunAttempt** (Symphony): `id, taskId, attempt, phase, startedAt, endedAt, status (succeeded|failed|timedOut|stalled|canceled), error`.
 
-**Proposal** (project chat): `id, projectId, messageId, tasks [{ title, description, dependsOnIndex [int] }], shipAs, status (open|created|dismissed)`.
+**Proposal** (project chat): `id, projectId, messageId, tasks [{ title, description, dependsOnIndex [int] }], shipAs, status (open|created|dismissed), createdTaskIds` (ordered accepted-task links; used for idempotent acceptance).
 
 **Device** (v2): `id, name, kind (mac|iphone), publicKey, lastSeenAt`.
 
@@ -149,7 +149,7 @@ For each task session Build Mate builds the initial prompt from, in order:
 
 The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Mate does not copy it. Instruction changes apply from the next turn of every running session. In Codex 0.151, the fixed developer brief delegates current project/global instructions to the freshly assembled text input each turn; the resume override did not replace existing instructions in the spike (08).
 
-The **project agent** gets 1–3 plus a project brief (repo summary, open tasks and their states) and the `propose_tasks` / `create_tasks` tools. It runs read-only in a dedicated worktree of the default branch, refreshed on each new chat message.
+The **project agent** gets 1–3 plus a project brief (repo summary, open tasks and their states) and the `propose_tasks` / `create_tasks` tools. It runs read-only in a dedicated worktree of the default branch, refreshed from the locally available default-branch commit on each new chat turn. Each message drives one turn, sharing the task-agent concurrency limit and project/global pause. Project questions are durable chat-message payloads (the task Question table retains its task foreign key). Open proposals and created-task links survive restarts.
 
 ## 8. Proof of work
 - **Task-specific evidence**: New Task defaults to Automatic. The agent chooses whether a recording is needed based on visual versus functional work and explicit user instructions, explains the choice in its plan and submits a rationale. The user can override with Checks only or Checks + recording; the app enforces that choice. Existing tasks migrate to Automatic. The former project-wide `recordingRequired` setting is retired.

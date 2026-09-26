@@ -77,23 +77,32 @@ Do not implement a REST credential reader by scraping TWG configuration. Token t
   - Terminal `com.apple.Terminal` (also offer iTerm2 `com.googlecode.iterm2`, Ghostty `com.mitchellh.ghostty` if installed)
 - Icons: `NSWorkspace.shared.icon(forFile:)` on the app URL (the designs use these real icons, see `docs/design/assets/`).
 - Open a folder: `NSWorkspace.shared.open([worktreeURL], withApplicationAt: appURL, configuration:)`. Show in Finder: `NSWorkspace.shared.activateFileViewerSelecting([url])`.
-- Default editor: Settings › General "Open code in". The toolbar button shows the default editor's name and icon; its menu lists every installed editor.
+- Default editor: Settings › General "Open code in". The toolbar button shows the default editor's icon, with its name in the tooltip and accessibility label; its menu lists every installed editor.
 
 ## 5. Build Mate agent tools
 Exposed to task agents (T) and the project agent (P). All calls are validated by Build Mate; Build Mate, not the agent, changes task state.
 
 | Tool | Who | Purpose | Effect |
 |---|---|---|---|
-| `ask_question(prompt, options?, allowsFreeText, blocking, suggestedAnswer?)` | T, P | Ask the user. | Creates a Question; blocking → `needs_clarification` (or "Decisions in PR" when in PR). Returns when answered. An optional explicit suggestion enables the confirmation sheet for Let the Agent Decide; no default is inferred. |
+| `ask_question(prompt, options?, allowsFreeText, blocking?, suggestedAnswer?)` | T, P | Ask the user. | Creates a Question; blocking → `needs_clarification` (or "Decisions in PR" when in PR). Returns when answered. An optional explicit suggestion enables the confirmation sheet for Let the Agent Decide; no default is inferred. |
 | `submit_plan(plan)` | T | Share the build plan. | If plan approval applies, creates an Approval and waits; else logs the plan and continues. |
 | `request_review(summary, needsRecording, rationale, checks, recordingCommand?, screenshotsCommand?)` | T | Declare implementation complete and propose task-specific evidence. `checks` contains `{name, command}` entries. Legacy threads lacking newer fields can encode the full report as JSON in summary. Recording writes to `$BUILD_MATE_RECORDING_PATH`; before/after PNGs write to `$BUILD_MATE_BEFORE_PATH` / `$BUILD_MATE_AFTER_PATH`. | Triggers the proof runner; on success moves to `human_review` (or opens the PR if review is off). |
 | `report_screenshot(path, caption)` | T | Future ad-hoc transcript screenshots. | Not registered in milestone 4: review screenshots are produced by the sandboxed `screenshotsCommand` and saved in media. |
 | `note(text)` | T, P | Short progress note shown as an agent message. | |
-| `propose_tasks(tasks[], shipAs)` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Add to queue / Add to Backlog. |
-| `create_tasks(tasks[], destination: backlog|todo)` | P | Create tasks directly when the user explicitly asked ("go straight to Queue"). | Creates tasks; returns their numbers. |
+| `propose_tasks(tasks[])` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Add to queue / Add to Backlog. |
+| `create_tasks(tasks[]?, proposalId?, queueIndexes[], selectedIndexes[]?)` | P | Create tasks directly when the user explicitly asked ("go straight to Queue"). | Creates tasks atomically; returns their records. Indices are zero-based; selected items in queueIndexes go to Queue, the rest to Backlog. Refer to an existing proposal by proposalId to avoid duplicates. |
 | `add_dependency(task, dependsOn)` | T, P | Record a newly discovered dependency. | Adds it and posts a Needs You notice (the user can remove it). |
+| `refine_task(taskId, description)` | P | Refine an existing Backlog task when requested. | Updates the description only; rejects other states and other projects. |
 | `project_status()` | P | Read tasks, states, open questions and PRs. | Read-only. |
 
 ### Naming latency and cost follow-up (2026-09-26)
 
 Installed Codex `model/list` advertises GPT-5.6 Luna with low reasoning. A manual ephemeral, read-only, structured title turn returned “Compact Verbose CLI Output” in 4.388 seconds. Even the economical model is a network round trip, so this is never on the creation path. This probe is separate from automated tests. The [official model guide](https://learn.chatgpt.com/docs/models) recommends Luna for focused summaries; availability is determined by the installed CLI rather than assumed from the desktop app's picker.
+
+### Project chat brought forward (2026-09-27)
+
+Project threads register only the project tool set above (no build/review tools). `add_dependency` remains outside this increment; dependencies are validated within proposals and must point to earlier selected items. Shared/stacked PR controls remain milestone 5/v1.1.
+
+Each message starts one read-only turn in `worktrees/<project-id>/project-chat`, refreshed from the locally available default-branch commit (no fetch or modifications in the user's working copy). Project/global instructions and current tasks/proposals are assembled on every turn. Both the thread and transcript persist. Responses stream into one durable message per Codex item; completed command output is expandable. Questions from dynamic tools or `item/tool/requestUserInput` appear in chat and Needs You. Unknown server requests are rejected. Read-only turn policy disables network access.
+
+Project responses share the configured agent-slot limit, honour project/global pause, and stop on quit. The composer offers Stop during a response; additional messages wait until it finishes. Failures and interrupted responses expose Retry using the same thread; no automatic replay of task-creation actions. Accepting a proposal is transactional and idempotent. A repeated identical proposal for the same user message reuses the saved proposal. Stale/dismissed proposals and selections missing dependencies are rejected.

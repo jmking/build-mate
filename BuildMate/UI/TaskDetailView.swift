@@ -135,6 +135,7 @@ struct TaskDetailView: View {
                         Link("View Pull Request #\(pr.number)", destination: url).help("Open this pull request in your browser")
                     }
                     if task.state == .backlog {
+                        Button("Refine with Agent", systemImage: "sparkles") { model.refineInChat(task) }.help("Discuss and refine this task in project chat without starting coding")
                         Button("Move to Queue") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
                             .help(model.selectedProject?.runBlockReason ?? "Queue this task to run when an agent slot is available and the project is resumed")
                             .disabled(model.selectedProject?.runBlockReason != nil)

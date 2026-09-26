@@ -227,13 +227,14 @@ struct Attachment: Record {
 }
 struct Proposal: Record {
     static let databaseTableName = "proposal"
-    struct Item: Codable, Sendable { var title: String; var description: String; var dependsOnIndex: [Int] }
+    struct Item: Codable, Sendable, Equatable { var title: String; var description: String; var dependsOnIndex: [Int] }
     var id = UUID()
     var projectId: UUID
     var messageId: UUID
     var tasks: [Item]
     var shipAs = "own"
     var status = "open"
+    var createdTaskIds: [UUID] = []
 }
 
 enum CoreError: Error, LocalizedError, Sendable {
@@ -261,5 +262,15 @@ struct TransitionRules {
             }
         }
         guard permitted else { throw CoreError.invalid("Invalid transition: \(from.rawValue) → \(to.rawValue)") }
+    }
+}
+
+extension Message {
+    // Arbitrary JSON can decode as a plain SQLite string; explicitly decode the stored JSON envelope.
+    init(row: Row) throws {
+        id = row["id"]; sessionId = row["sessionId"]; role = row["role"]; kind = row["kind"]
+        body = row["body"]; createdAt = row["createdAt"]
+        let raw: String? = row["payload"]
+        payload = try raw.map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) } ?? .null
     }
 }

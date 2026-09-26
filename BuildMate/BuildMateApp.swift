@@ -58,6 +58,11 @@ struct BuildMateApp: App {
                     .help("Search tasks in the current view (⌘F)")
             }
             CommandMenu("Task") {
+                Button("Refine Backlog Task in Chat") { if let task = model?.selectedTask { model?.refineInChat(task) } }
+                    .disabled(model?.selectedTask?.state != .backlog).help("Ask the project agent to refine the selected Backlog task")
+                Button("Stop Project Response") { if let model, let project = model.selectedProject { model.perform { await model.core.stopProjectChat(project.id) } } }
+                    .disabled(model?.snapshot.sessions.contains { $0.ownerType == "project" && $0.ownerId == model?.selectedProject?.id && ["queued", "running", "waiting"].contains($0.status) } != true)
+                    .help("Stop the project agent’s current response")
                 Button("Edit Task…") { model?.editingTask = model?.selectedTask }
                     .help("Edit the selected task (⇧⌘E)")
                     .keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model?.selectedTask == nil)

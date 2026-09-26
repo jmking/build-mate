@@ -18,6 +18,8 @@ actor Orchestrator {
     var editingTasks: Set<UUID> = []
     private var ticking = false
     var titleJobs: [UUID: Task<Void, Never>] = [:]
+    var chatJobs: [UUID: Task<Void, Never>] = [:]
+    var chatClients: [UUID: CodexClient] = [:]
     var shuttingDown = false
     private(set) var lastError: String?
     private(set) var rateLimits: JSON = .null
@@ -72,8 +74,8 @@ actor Orchestrator {
             attempt.status = "failed"; attempt.error = "App stopped during attempt; resuming durable thread"; attempt.endedAt = Date()
             try store.save(attempt)
         }
-        for var session in try store.all(Session.self) where session.status == "running" {
-            session.status = "idle"; session.currentTurn = nil; try store.save(session)
+        for var session in try store.all(Session.self) where session.status == "running" || session.status == "waiting" {
+            session.status = session.ownerType == "project" ? "interrupted" : "idle"; session.currentTurn = nil; try store.save(session)
         }
     }
     func shutdown() async {
@@ -86,6 +88,7 @@ actor Orchestrator {
         await usageClient?.stop()
         await usageRefresh?.value
         loop?.cancel(); loop = nil
+        for id in Array(chatJobs.keys) { await stopProjectChat(id) }
         let pending = Array(workers.values)
         for worker in pending { worker.cancel() }
         for client in clients.values { await client.stop() }
@@ -129,10 +132,12 @@ actor Orchestrator {
                 polling.insert(task.id); lastPoll[task.id] = now
                 Task { await pollPR(task.id) }
             }
+            await reconcileProjectChats(settings: settings, projects: projects)
             guard !settings.paused else { return }
             guard settings.agentsAtOnce > 0, settings.heavyStepsAtOnce > 0 else { throw CoreError.invalid("Concurrency limits must be positive") }
             // A waiting worker still owns a process and a slot. Answering cannot overbook the limit.
-            var occupied = workers.count
+            var occupied = workers.count + chatJobs.count
+            occupied = try dispatchProjectChats(occupied: occupied, settings: settings, projects: projects)
             for task in tasks.sorted(by: { $0.rank == $1.rank ? $0.createdAt < $1.createdAt : $0.rank > $1.rank }) {
                 guard occupied < settings.agentsAtOnce else { break }
                 guard workers[task.id] == nil, !editingTasks.contains(task.id), let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
@@ -360,6 +365,13 @@ actor Orchestrator {
         if FileManager.default.fileExists(atPath: media.path) { try FileManager.default.removeItem(at: media) }
     }
     func deleteProject(_ id: UUID) async throws {
+        await stopProjectChat(id)
+        let project = try store.get(Project.self, id)
+        let chatPath = chatWorkspace(project).path
+        if FileManager.default.fileExists(atPath: chatPath) {
+            try Workspace(store: store, runner: runner).ensureOwned(chatPath)
+            _ = try await runner.run("git", ["worktree", "remove", chatPath], cwd: project.repoPath)
+        }
         let tasks = try store.all(WorkTask.self).filter { $0.projectId == id }
         guard tasks.allSatisfy({ workers[$0.id] == nil }) else { throw CoreError.invalid("Pause the project before deleting it") }
         for task in tasks { try await deleteTask(task.id) }

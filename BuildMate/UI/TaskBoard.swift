@@ -86,6 +86,9 @@ struct TaskList: View {
                                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                                     .contextMenu {
                                         Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief and proof requirements")
+                                        if task.state == .backlog {
+                                            Button("Refine with Agent") { model.refineInChat(task) }.help("Refine this task’s description in project chat")
+                                        }
                                         TaskPriorityActions(task: task)
                                     }
                                     .modifier(TaskPriorityDrag(task: task))

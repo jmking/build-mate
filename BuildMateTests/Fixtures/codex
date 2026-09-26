@@ -3,7 +3,7 @@
 import json, os, pathlib, subprocess, sys, time
 root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);root.mkdir(exist_ok=True)
 log=root/'calls.jsonl'
-thread='';cwd='';turn='';pending={};count=0;title_mode=False
+thread='';cwd='';turn='';pending={};count=0;title_mode=False;project_mode=False
 
 def emit(value):print(json.dumps(value),flush=True)
 def event(method,params):emit({'method':method,'params':params})
@@ -17,6 +17,14 @@ def readstate():return json.loads(statepath().read_text()) if statepath().exists
 def save(**values):
  s=readstate();s.update(values);statepath().write_text(json.dumps(s))
 def complete():event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'completed','items':[],'error':None}})
+def project_reply(text):
+ event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'itemId':turn+'-reply','delta':text[:12]})
+ event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':turn+'-reply','type':'agentMessage','text':text}})
+ complete()
+def project_tasks():
+ return [{'title':'Add account search','description':'Search accounts by name with empty-state checks.','dependsOnIndex':[]},
+         {'title':'Show matching accounts','description':'Show results from account search.','dependsOnIndex':[0]},
+         {'title':'Document account search','description':'Explain account search to users.','dependsOnIndex':[]}]
 def review():
  attempt=readstate().get('reviews',0)+1;save(reviews=attempt)
  report={'summary':'Adds the requested feature.','needsRecording':(root/'visual-task').exists(),
@@ -51,14 +59,19 @@ for line in sys.stdin:
  elif method=='thread/start':
   cwd=p['cwd'];thread='fixture-'+pathlib.Path(cwd).parent.name+'-'+pathlib.Path(cwd).name
   title_mode=p.get('ephemeral',False)
+  project_mode=any(t['name']=='project_status' for t in p.get('dynamicTools',[]))
   if title_mode:
    assert p['model']=='gpt-5.6-luna'
    assert p['sandbox']=='read-only' and p['approvalPolicy']=='never' and not p.get('dynamicTools')
    assert pathlib.Path(cwd).parent.name=='title-drafts'
+  elif project_mode:
+   assert p['sandbox']=='read-only' and p['approvalPolicy']=='never'
+   assert pathlib.Path(cwd).name=='project-chat'
+   assert 'request_review' not in [t['name'] for t in p['dynamicTools']]
   else:assert p['dynamicTools'] and p['sandbox']=='workspace-write' and p['approvalPolicy']=='never'
-  save(cwd=cwd);reply(req,{'thread':{'id':thread}})
+  save(cwd=cwd,project_mode=project_mode);reply(req,{'thread':{'id':thread}})
  elif method=='thread/resume':
-  thread=p['threadId'];cwd=readstate()['cwd'];reply(req,{'thread':{'id':thread}})
+  thread=p['threadId'];cwd=readstate()['cwd'];project_mode=readstate().get('project_mode',False);reply(req,{'thread':{'id':thread}})
  elif method=='turn/start':
   thread=p['threadId'];turn='turn-'+str(readstate().get('turns',0)+1);save(turns=readstate().get('turns',0)+1)
   if title_mode:
@@ -69,6 +82,24 @@ for line in sys.stdin:
    text='not JSON' if (root/'title-failure').exists() else json.dumps({'title':'Keep command output compact'})
    event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':'title','type':'agentMessage','text':text}})
    complete();continue
+  if project_mode:
+   assert p['sandboxPolicy']=={'type':'readOnly','networkAccess':False}
+   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
+   text=p['input'][0]['text'];latest=text.split('user:')[-1].strip()
+   if (root/'chat-crash-once').exists():
+    (root/'chat-crash-once').unlink();sys.exit(7)
+   if (root/'chat-stall').exists():continue
+   if latest.startswith('Ask a question'):
+    call('ask_question',{'prompt':'Which accounts?','options':['Active','All'],'allowsFreeText':True})
+   elif latest.startswith('Start the first two'):
+    proposals=json.loads(text.split('Open proposals (zero-based dependency/selection indices): ')[1].split('\nConversation')[0])
+    call('create_tasks',{'proposalId':proposals[-1]['id'],'queueIndexes':[0,1]})
+   elif latest.startswith('Refine task '):
+    call('refine_task',{'taskId':latest.split()[2],'description':'Search active accounts by name; preserve clear empty-state messaging.'})
+   elif latest.startswith('Status'):
+    call('project_status',{})
+   else:call('propose_tasks',{'tasks':project_tasks()})
+   continue
   assert p['sandboxPolicy']['excludeSlashTmp'] and p['sandboxPolicy']['excludeTmpdirEnvVar']
   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
   if (root/'crash-once').exists():
@@ -83,6 +114,15 @@ for line in sys.stdin:
  elif method=='turn/interrupt':reply(req,{});event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'interrupted','items':[]}})
  elif 'id' in req and req['id'] in pending:
   tool=pending.pop(req['id'])
+  if project_mode:
+   if tool=='ask_question':
+    assert req['result']['contentItems'][0]['text']=='Active'
+    project_reply('I will focus on active accounts.')
+   elif tool=='propose_tasks':project_reply('Here are three tasks you can add to Backlog or Queue.')
+   elif tool=='create_tasks':project_reply('The first two tasks are queued; the remaining task is in Backlog.')
+   elif tool=='refine_task':project_reply('I refined the Backlog task without starting coding.')
+   elif tool=='project_status':project_reply('I checked the current project tasks.')
+   continue
   if tool=='ask_question':
    assert req['result']['contentItems'][0]['text']=='Plain';save(answered=True)
    time.sleep(0.05)

@@ -63,6 +63,9 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE proof ADD COLUMN commitSHA TEXT")
             try db.execute(sql: "ALTER TABLE proof ADD COLUMN changes TEXT NOT NULL DEFAULT '[]'")
         }
+        migrator.registerMigration("v4-project-chat") { db in
+            try db.execute(sql: "ALTER TABLE proposal ADD COLUMN createdTaskIds TEXT NOT NULL DEFAULT '[]'")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -106,10 +109,11 @@ final class Store: Sendable {
             return task
         }
     }
-    func session(for taskId: UUID) throws -> Session {
-        try db.write { db in
-            if let session = try Session.filter(Column("ownerType") == "task" && Column("ownerId") == taskId).fetchOne(db) { return session }
-            let session = Session(ownerId: taskId)
+    func session(for taskId: UUID, ownerType: String = "task") throws -> Session {
+        if let session = try db.read({ try Session.filter(Column("ownerType") == ownerType && Column("ownerId") == taskId).fetchOne($0) }) { return session }
+        return try db.write { db in
+            if let session = try Session.filter(Column("ownerType") == ownerType && Column("ownerId") == taskId).fetchOne(db) { return session }
+            let session = Session(ownerType: ownerType, ownerId: taskId)
             try session.insert(db)
             return session
         }
