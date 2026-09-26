@@ -164,3 +164,8 @@ The owner supplied new light/dark chat references: agent bubbles are light grey 
 - Preview “idle” means 30 minutes since Run/Open Preview in Build Mate. External browser activity is not observable. Each running preview holds a heavy-work slot; Stop frees it immediately. Preview commands are explicit per-project configuration and must use the supplied port and local bind address; no automatic dependency installation. CLI/native tasks use Terminal/editor instead of HTTP preview.
 - Preview output is redacted, capped to the latest 64,000 characters in memory, and available while the preview/status exists. Preview processes are ephemeral and are not restored after app restart.
 - Full Settings remains milestone 7; New Task exposes the per-task plan approval override now. Full SCM/stacking/watch/merge remains milestone 5.
+
+
+## Editor menu icon rendering (2026-09-27)
+
+The installed macOS 27 SDK documents that menu images are normally hidden unless `NSMenuItem.preferredImageVisibility` is visible. SwiftUI exposes no equivalent modifier in this SDK. Use a small `NSComboButton` representable with native `NSMenu` rows, 16 pt intrinsic `NSImage` sizes and a guarded macOS 27 image-visibility override. This is a concrete AppKit exception, not a custom-drawn menu. Keep the original Default Editor submenu as requested.

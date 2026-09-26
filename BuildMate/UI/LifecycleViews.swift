@@ -4,36 +4,82 @@ import AVKit
 struct OpenInMenu: View {
     @Environment(AppModel.self) private var model
     var body: some View {
-        Menu {
-            ForEach(model.installedEditors) { app in
-                Button { model.openLocation(appID: app.id) } label: { appLabel(app) }.help("Open code in \(app.name)")
-            }
-            Divider()
-            Button("Terminal", systemImage: "terminal") { model.openLocation(appID: "com.apple.Terminal") }.help("Open a Terminal at this location (⌃⌘T)")
-            ForEach([("iTerm", "com.googlecode.iterm2"), ("Ghostty", "com.mitchellh.ghostty")], id: \.1) { name, id in
-                if NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) != nil {
-                    Button(name) { model.openLocation(appID: id) }.help("Open this location in \(name)")
-                }
-            }
-            Button("Open in Finder", systemImage: "folder") { model.openLocation() }.help("Open this folder in Finder (⌥⌘R)")
-            Divider()
-            Menu("Default Editor") {
-                ForEach(model.installedEditors) { app in
-                    Button { model.perform { try model.setEditor(app.id) } } label: {
-                        Label(app.name, systemImage: model.defaultEditor?.id == app.id ? "checkmark" : "app")
-                    }.help("Use \(app.name) as this project’s default editor")
-                }
-            }.help("Choose the editor used by Open Code (⌘O)")
-        } label: {
-            if let app = model.defaultEditor { appLabel(app, prefix: "Open in ") }
-            else { Label("Open in…", systemImage: "arrow.up.forward.app") }
-        } primaryAction: {
-            model.openLocation(appID: model.defaultEditor?.id)
-        }
-        .help("Open this location in your default editor (⌘O)")
+        EditorComboButton(model: model, editor: model.defaultEditor).fixedSize()
     }
-    private func appLabel(_ app: InstalledApp, prefix: String = "") -> some View {
-        Label { Text(prefix + app.name) } icon: { Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path)).resizable().frame(width: 16, height: 16) }
+}
+
+// SwiftUI Menu does not expose NSMenuItem.preferredImageVisibility on macOS 27.
+// Use the native split button so app-identifying logos remain visible in its menu.
+private struct EditorComboButton: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
+    let model: AppModel
+    let editor: InstalledApp?
+
+    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+    func makeNSView(context: Context) -> NSComboButton {
+        let menu = NSMenu()
+        menu.delegate = context.coordinator
+        context.coordinator.menuNeedsUpdate(menu)
+        let button = NSComboButton(title: "", menu: menu, target: context.coordinator, action: #selector(Coordinator.openDefault))
+        button.style = .split
+        button.controlSize = .regular
+        button.imageScaling = .scaleProportionallyDown
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        return button
+    }
+    func updateNSView(_ button: NSComboButton, context: Context) {
+        context.coordinator.model = model
+        button.title = "Open in " + (editor?.name ?? "Finder")
+        button.image = editor.map { Self.icon($0.url) }
+        button.isEnabled = isEnabled
+        button.toolTip = "Open in \(editor?.name ?? "Finder") (⌘O), or choose another app"
+        button.setAccessibilityLabel(button.title)
+    }
+    static func icon(_ url: URL) -> NSImage {
+        let image = NSWorkspace.shared.icon(forFile: url.path).copy() as! NSImage
+        image.size = NSSize(width: 16, height: 16)
+        return image
+    }
+    @MainActor final class Coordinator: NSObject, NSMenuDelegate {
+        var model: AppModel
+        init(model: AppModel) { self.model = model }
+        @objc func openDefault() { model.openLocation(appID: model.defaultEditor?.id) }
+        @objc func openApp(_ item: NSMenuItem) {
+            guard let id = item.representedObject as? String else { return }
+            model.openLocation(appID: id == "com.apple.finder" ? nil : id)
+        }
+        @objc func chooseDefault(_ item: NSMenuItem) {
+            guard let id = item.representedObject as? String else { return }
+            model.perform { try self.model.setEditor(id) }
+        }
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            for app in model.installedEditors { menu.addItem(item(app, action: #selector(openApp), title: app.name, help: "Open code in \(app.name)")) }
+            menu.addItem(.separator())
+            for (name, id) in [("Terminal", "com.apple.Terminal"), ("iTerm", "com.googlecode.iterm2"), ("Ghostty", "com.mitchellh.ghostty"), ("Finder", "com.apple.finder")] {
+                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
+                    menu.addItem(item(InstalledApp(id: id, name: name, url: url), action: #selector(openApp), title: name, help: "Open this location in \(name)"))
+                }
+            }
+            menu.addItem(.separator())
+            let defaults = NSMenuItem(title: "Default Editor", action: nil, keyEquivalent: "")
+            defaults.toolTip = "Choose the editor used by Open Code (⌘O) for this project"
+            let submenu = NSMenu(title: "Default Editor")
+            for app in model.installedEditors {
+                let choice = item(app, action: #selector(chooseDefault), title: app.name, help: "Use \(app.name) as this project’s default editor")
+                choice.state = app.id == model.defaultEditor?.id ? .on : .off
+                submenu.addItem(choice)
+            }
+            defaults.submenu = submenu
+            menu.addItem(defaults)
+        }
+        private func item(_ app: InstalledApp, action: Selector, title: String, help: String) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self; item.representedObject = app.id; item.toolTip = help
+            item.image = EditorComboButton.icon(app.url)
+            if #available(macOS 27, *) { item.preferredImageVisibility = .visible }
+            return item
+        }
     }
 }
 
