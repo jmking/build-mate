@@ -42,6 +42,7 @@ struct MainWindow: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
             .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: collapsedProjects)
             .navigationSplitViewColumnWidth(min: 210, ideal: 232, max: 300)
             .safeAreaInset(edge: .bottom) {
@@ -53,6 +54,7 @@ struct MainWindow: View {
                     }.buttonStyle(.borderless)
                 }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
+            .background(AppSurface.sidebar)
         } detail: {
             VStack(spacing: 0) {
                 if model.settings.paused {
@@ -60,21 +62,22 @@ struct MainWindow: View {
                         Label("All agents paused", systemImage: "pause.circle")
                         Spacer()
                         Button("Resume All") { model.perform { try model.pauseAll() } }
-                    }.padding(12).background(.regularMaterial)
+                    }.padding(12).background(AppSurface.raised)
                 }
                 if let error = model.schedulerError {
-                    Label(error, systemImage: "exclamationmark.triangle").padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
+                    Label(error, systemImage: "exclamationmark.triangle").padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AppSurface.raised)
                 }
                 if let project = model.selectedProject, let reason = project.runBlockReason,
                    case .project(_, .tasks) = model.destination {
                     Label(reason, systemImage: "info.circle").font(.callout).padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading).background(.regularMaterial)
+                        .frame(maxWidth: .infinity, alignment: .leading).background(AppSurface.raised)
                 }
                 ZStack { content.transition(.opacity) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.18), value: model.destination)
             .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.settings.paused)
+            .background(AppSurface.window)
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .toolbar {
@@ -103,9 +106,9 @@ struct MainWindow: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: columnVisibility)
         .onChange(of: model.findRequested) { searchFocused = true }
         .frame(minWidth: 1100, minHeight: 700)
-        .sheet(isPresented: $model.showAddProject) { AddProjectSheet() }
-        .sheet(isPresented: $model.showNewTask) { NewTaskSheet() }
-        .sheet(item: $model.editingTask) { EditTaskSheet(task: $0) }
+        .sheet(isPresented: $model.showAddProject) { AddProjectSheet().presentationBackground(AppSurface.sheet) }
+        .sheet(isPresented: $model.showNewTask) { NewTaskSheet().presentationBackground(AppSurface.sheet) }
+        .sheet(item: $model.editingTask) { EditTaskSheet(task: $0).presentationBackground(AppSurface.sheet) }
         .alert("Unable to complete the action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }

@@ -49,7 +49,7 @@ struct NeedsYouView: View {
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).frame(width: 12).accessibilityHidden(true)
                         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                            .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain)
                         .accessibilityLabel("\(task.title), \(model.projectName(task.projectId)), task \(task.number). \(detail(task))")

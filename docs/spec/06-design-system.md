@@ -1,6 +1,6 @@
 # 06 · Design system
 
-Build with **system** colours, materials, fonts and SF Symbols so light/dark, accessibility settings and accent colour changes work for free. The hex values below are what the HTML references use; they map to the named system tokens in the first column. Use the system token in code, not the hex.
+Build with **system** colours, materials, fonts and SF Symbols so light/dark, accessibility settings and accent colour changes work for free. Text, accents, status colours and controls use semantic system tokens. Following the owner’s neutral-surface direction (2026-09-26), large Mac backgrounds use the reference light/dark colours through `AppSurface` instead of wallpaper-tinted system backgrounds. This is the explicit exception to the system-colour rule.
 
 ## 1. Colour
 
@@ -36,9 +36,9 @@ Rules: status colour appears on glyphs, dots and bars; **text stays in label col
 Target the Codex-app level: glass is present but quiet.
 | Element | Implementation | HTML reference |
 |---|---|---|
-| Sidebar | `NavigationSplitView` sidebar (system sidebar glass) | rgba(243,243,247,0.86) + blur 50 |
+| Sidebar | Native `NavigationSplitView` sidebar with a neutral opaque backing | rgba(243,243,247,0.86) + blur 50 |
 | Toolbar buttons and groups | system toolbar items (glass capsules); group related items | rgba(255,255,255,0.86) + blur 16, 0.5 pt border, soft shadow |
-| Menu bar popover, menus, sheets | system materials for those containers | same family |
+| Menu bar popover, menus, sheets | Native presentation; app-owned sheets/popovers use a neutral `presentationBackground` | same family |
 | Floating composer | `.glassEffect()` capsule | same family |
 | Play buttons over media | `.glassEffect(.clear)`-style, the one place glass is more transparent | white 40→10 % gradient, blur 5 |
 | Scroll edge under floating toolbars | system scroll edge effect | white 92→0 % fade |
@@ -134,8 +134,8 @@ Brand marks are reserved for repository/service-specific actions and information
 ## Mac implementation refinements (2026-09-26)
 
 - The composer is a regular Liquid Glass surface in a bottom `safeAreaBar`, allowing the transcript to scroll behind it. Keep the delivery hint inside this surface for legibility. The circular send arrow has an action-specific accessibility label and tooltip. Clear glass is reserved for future media controls.
-- Use the native SwiftUI inspector (340 pt ideal, 280–380 pt resizable), retaining system material and presentation. Do not wrap the sidebar, toolbar or inspector in another glass layer.
-- On this macOS version, control and window background tokens resolve identically in dark mode. Use `underPageBackgroundColor` for dark cards and light board columns; `windowBackgroundColor` for dark columns and `controlBackgroundColor` for light cards. Add a fine semantic separator and restrained card shadow to preserve surface hierarchy. No fixed RGB palette.
+- Use the native SwiftUI inspector (340 pt ideal, 280–380 pt resizable), retaining native presentation with the neutral raised-content background. Do not wrap the sidebar, toolbar or inspector in another glass layer.
+- `AppSurface` supplies window (#FFFFFF / #1E1E1E), raised (#FBFBFC / #232325), recessed (#F5F5F7 / #141416), card (#FFFFFF / #2C2C2F), sheet (#F7F7F9 / #2C2C2F) and sidebar (#F3F3F7 / #232325) backgrounds. These opaque light/dark pairs deliberately prevent desktop wallpaper tint from making large surfaces brown. Retain semantic separators, text, accents and card shadows. Toolbar controls and the composer keep native Liquid Glass; no global macOS appearance preferences are changed.
 - Transcript events are compact secondary rows; messages use 14 pt system type with 5 pt line spacing. User bubbles are trailing aligned with a maximum width of 560 pt. Progress checklist labels stay in label colours; only glyphs carry state colour.
 - Reduce Motion disables panel movement and pulsing; board updates use opacity instead of geometry travel. Reduced Transparency is handled by native materials.
 

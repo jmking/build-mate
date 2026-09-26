@@ -134,7 +134,7 @@ struct TaskDetailView: View {
                         }
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-            }.inspectorColumnWidth(min: 280, ideal: 340, max: 380)
+            }.background(AppSurface.raised).inspectorColumnWidth(min: 280, ideal: 340, max: 380)
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
         .toolbar {

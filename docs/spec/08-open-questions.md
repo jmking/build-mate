@@ -129,4 +129,9 @@ Bring Backlog and Todo ordering forward. Persist contiguous descending ranks in 
 
 ## Usage UI brought forward (2026-09-26)
 
-Read account limits even when no agents are running, using a short-lived app-server connection without thread/start or turn/start. Prefer the multi-bucket response; display all reported windows and highlight the most constrained Codex window. Poll once a minute and offer manual refresh. Usage is account-wide. Do not invent missing limits/reset times; preserve stale data with an error label. Only the informational UI is brought forward; no automatic usage hold is enabled yet. Native sheet backgrounds remain unchanged after the owner confirmed the same warm tint in other Apple apps.
+Read account limits even when no agents are running, using a short-lived app-server connection without thread/start or turn/start. Prefer the multi-bucket response; display all reported windows and highlight the most constrained Codex window. Poll once a minute and offer manual refresh. Usage is account-wide. Do not invent missing limits/reset times; preserve stale data with an error label. Only the informational UI is brought forward; no automatic usage hold is enabled yet. The initial decision to retain native sheet tint was superseded by the neutral-surface follow-up below.
+
+
+## Neutral reference surfaces (2026-09-26)
+
+The owner reversed the earlier tint decision and requested a closer reference match. Use reference light/dark surface colours for large app-owned backgrounds, including sheets, sidebar, inspector, board columns/cards and usage popover. This intentionally overrides the earlier system-background-only rule; system text, accents, controls, native presentation/motion and Liquid Glass on toolbar controls/composer remain. Use SwiftUI window/presentation backgrounds; do not change the user's desktop tint, wallpaper or accessibility settings.

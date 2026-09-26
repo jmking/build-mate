@@ -13,6 +13,7 @@ struct BuildMateApp: App {
                 else if let error { ContentUnavailableView("Unable to open Build Mate", systemImage: "exclamationmark.triangle", description: Text(error)).frame(minWidth: 1100, minHeight: 700) }
                 else { ProgressView("Opening workspace…").frame(minWidth: 1100, minHeight: 700) }
             }
+            .containerBackground(AppSurface.window, for: .window)
             .preferredColorScheme(developmentAppearance)
             .task {
                 guard model == nil, error == nil else { return }

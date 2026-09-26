@@ -123,7 +123,7 @@ struct EditTaskSheet: View {
                 Text("What should be built").font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $description).font(.system(size: 14)).scrollContentBackground(.hidden)
                     .frame(height: 165).padding(10)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
                     .accessibilityLabel("Task description").accessibilityIdentifier("edit-task-description")
                     .disabled(saving || scopeLocked)
@@ -179,7 +179,7 @@ struct NewTaskSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("What should be built").font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $description).font(.system(size: 14)).scrollContentBackground(.hidden).frame(height: 165).padding(10)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
                     .focused($descriptionFocused).disabled(creation != nil)
                     .accessibilityLabel("Task description").accessibilityIdentifier("task-description")

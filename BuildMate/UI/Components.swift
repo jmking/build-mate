@@ -62,7 +62,6 @@ struct RoadToMerge: View {
     }
 }
 struct TaskCard: View {
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(AppModel.self) private var model
     let task: WorkTask
     var body: some View {
@@ -76,7 +75,7 @@ struct TaskCard: View {
                 if task.state != .todo && task.state != .backlog { RoadToMerge(task: task) }
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: colorScheme == .dark ? .underPageBackgroundColor : .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.35), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
         }

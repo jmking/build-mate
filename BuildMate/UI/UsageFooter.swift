@@ -59,6 +59,7 @@ struct UsageFooter: View {
                         Button("Refresh") { model.perform { await model.core.refreshUsage() } }.disabled(model.usage.refreshing)
                     }
                 }.padding(20).frame(width: 350)
+                    .presentationBackground(AppSurface.sheet)
             }
     }
 }

@@ -3,7 +3,6 @@ import SwiftUI
 struct TaskBoard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
     @Namespace private var cardMovement
     let projectID: UUID
     private let columns: [TaskState] = [.todo, .needsClarification, .building, .humanReview, .inPR]
@@ -49,7 +48,7 @@ struct TaskBoard: View {
                             }
                         }
                         .padding(8).frame(width: max(205, (geometry.size.width - 88) / 5))
-                        .background(Color(nsColor: colorScheme == .dark ? .windowBackgroundColor : .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
+                        .background(AppSurface.recessed, in: RoundedRectangle(cornerRadius: 20))
                     }
                 }.frame(height: max(0, geometry.size.height - 40)).padding(20)
                     .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.35, bounce: 0.1), value: columns.map { state in model.tasks(projectID).filter { $0.state == state }.map(\.id) })
@@ -101,7 +100,7 @@ struct TaskList: View {
                         }
                     }
                 }
-            }
+            }.scrollContentBackground(.hidden).background(AppSurface.window)
         }
     }
 }
