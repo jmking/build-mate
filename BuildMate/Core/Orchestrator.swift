@@ -13,6 +13,7 @@ actor Orchestrator {
     private var openingPRs: Set<UUID> = []
     private var editingTasks: Set<UUID> = []
     private var ticking = false
+    var titleJobs: [UUID: Task<Void, Never>] = [:]
     private var shuttingDown = false
     private(set) var lastError: String?
     private(set) var rateLimits: JSON = .null
@@ -23,6 +24,19 @@ actor Orchestrator {
 
     init(store: Store, runner: ProcessRunner = ProcessRunner()) {
         self.store = store; self.runner = runner
+    }
+    func refineTitle(of task: WorkTask) {
+        guard !shuttingDown else { return }
+        titleJobs[task.id] = Task {
+            defer { titleJobs[task.id] = nil }
+            let title = await generateTitle(for: task.description)
+            guard !Task.isCancelled else { return }
+            // Only replace the original provisional title; preserve concurrent lifecycle changes.
+            try? await store.db.write { db in
+                try db.execute(sql: "UPDATE task SET title = ? WHERE id = ? AND title = ? AND description = ?",
+                               arguments: [title, task.id, task.title, task.description])
+            }
+        }
     }
     func refreshUsage() async {
         guard !usage.refreshing, !shuttingDown else { return }
@@ -60,6 +74,9 @@ actor Orchestrator {
     }
     func shutdown() async {
         shuttingDown = true
+        let naming = Array(titleJobs.values)
+        for job in naming { job.cancel() }
+        for job in naming { await job.value }
         usageRefresh?.cancel()
         await usageClient?.stop()
         await usageRefresh?.value
@@ -165,6 +182,7 @@ actor Orchestrator {
         guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
         guard editingTasks.insert(id).inserted else { throw CoreError.invalid("This task is already being edited.") }
         defer { editingTasks.remove(id) }
+        titleJobs[id]?.cancel()
         var task = try store.get(WorkTask.self, id)
         let scopeChanged = task.description != description || task.proofRequirement != proofRequirement
         guard scopeChanged || task.title != title else { return }

@@ -122,19 +122,22 @@ actor CodexClient {
 
 extension Orchestrator {
     /// Naming is independent of task execution: no worktree, lifecycle tools or durable session.
-    func generateTitle(for description: String, model: String?) async -> String {
+    func generateTitle(for description: String) async -> String {
         let client = CodexClient()
         let directory = store.root.appending(path: "title-drafts/\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try await client.start(runner: runner, cwd: directory.path, timeout: 5)
-            var model = model
-            if model == nil {
-                let models = try await client.request("model/list", [:])["data"].array
-                model = models.first(where: { $0["isDefault"].bool == true })?["id"].string ?? models.first?["id"].string
-            }
-            guard let model else { throw CoreError.invalid("No Codex model available") }
+            let models = try await client.request("model/list", [:])["data"].array
+            // Never spend the project's coding-model budget on a label.
+            let economicalModels = ["gpt-6-luna", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.1-codex-mini"]
+            let lightEfforts: [String] = ["none", "minimal", "low"]
+            guard let choice = economicalModels.compactMap({ name in models.first { $0["id"].string == name } }).first,
+                  let model = choice["id"].string,
+                  let effort = lightEfforts.first(where: { level in
+                      choice["supportedReasoningEfforts"].array.contains { $0["reasoningEffort"].string == level }
+                  }) else { throw CoreError.invalid("No economical naming model available") }
             let thread = try await client.request("thread/start", [
                 "cwd": .string(directory.path), "model": .string(model), "ephemeral": .bool(true),
                 "sandbox": .string("read-only"), "approvalPolicy": .string("never"),
@@ -143,7 +146,7 @@ extension Orchestrator {
             ])["thread"]["id"]
             guard thread.string != nil else { throw CoreError.invalid("Missing title thread") }
             _ = try await client.request("turn/start", [
-                "threadId": thread, "input": .textInput(description),
+                "threadId": thread, "input": .textInput(description), "effort": .string(effort),
                 "sandboxPolicy": .object(["type": .string("readOnly"), "networkAccess": .bool(false)]),
                 "outputSchema": .object([
                     "type": .string("object"), "properties": .object(["title": .object(["type": .string("string")])]),
@@ -169,14 +172,18 @@ extension Orchestrator {
                     return Self.shortTitle(title)
                 }
             }
-        } catch { /* Naming failure must not prevent saving a task. Cancellation is checked by the caller. */ }
+        } catch { /* Keep the already-saved provisional title on failure. */ }
         await client.stop()
+        return Self.provisionalTitle(description)
+    }
+
+    nonisolated static func provisionalTitle(_ description: String) -> String {
         let firstLine = description.split(whereSeparator: \.isNewline).first.map(String.init) ?? description
         let firstSentence = firstLine.components(separatedBy: ". ").first ?? firstLine
         return Self.shortTitle(firstSentence)
     }
 
-    private static func shortTitle(_ text: String) -> String {
+    nonisolated private static func shortTitle(_ text: String) -> String {
         let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
         let normalized = words.joined(separator: " ")
         if normalized.count <= 80 { return normalized }

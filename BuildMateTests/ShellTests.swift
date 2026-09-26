@@ -151,34 +151,60 @@ struct ShellTests {
         observer.cancel(); await observer.value; await restored.core.shutdown()
         #expect(restored.snapshot.messages.contains { $0.body == "A persisted transcript" })
         #expect(restored.selectedTask?.description == edited.description && restored.selectedTask?.proofRequirement == .checksOnly)
-        // Description-only creation gets a model title; failures and cancellation must not lose the brief or start work.
+        // A stalled model must not hold creation open; later naming must never undo a manual edit.
+        func waitForNaming() async throws {
+            let deadline = Date().addingTimeInterval(5)
+            while !(await model.core.titleJobs.isEmpty) && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+            #expect(await model.core.titleJobs.isEmpty)
+        }
         let brief = "Please improve our CLI so verbose output is compact and easy to scan. Keep errors visible."
         try await model.createTask(projectID: discovered.project.id, title: "  ", description: brief, start: false)
-        await model.refresh()
         let generated = try #require(model.selectedTask)
-        #expect(generated.title == "Keep command output compact" && generated.description == brief)
-        #expect(generated.state == .backlog && generated.worktreePath == nil)
+        #expect(generated.title == Orchestrator.provisionalTitle(brief) && generated.description == brief)
+        #expect(!model.showNewTask && generated.state == .backlog && generated.worktreePath == nil)
+        try await waitForNaming()
+        #expect(try uiStore.get(WorkTask.self, generated.id).title == "Keep command output compact")
         #expect(try uiStore.all(Session.self).allSatisfy { $0.ownerId != generated.id })
         try await model.editTask(generated.id, title: "  Keep errors visible in compact output  ", description: generated.description, proofRequirement: generated.proofRequirement)
         let renamed = try uiStore.get(WorkTask.self, generated.id)
         #expect(renamed.title == "Keep errors visible in compact output" && renamed.description == brief && renamed.state == .backlog)
         try f.marker("title-failure")
         try await model.createTask(projectID: discovered.project.id, title: "", description: "Keep errors visible. More detail here.", start: false)
-        await model.refresh()
-        #expect(model.selectedTask?.title == "Keep errors visible")
+        let fallback = try #require(model.selectedTask)
+        try await waitForNaming()
+        #expect(try uiStore.get(WorkTask.self, fallback.id).title == "Keep errors visible")
         try FileManager.default.removeItem(at: f.control.appending(path: "title-failure"))
-        let count = try uiStore.all(WorkTask.self).count
+        // No economical model means no title inference, never the expensive project/default model.
+        try f.marker("no-cheap-title-model")
+        let callsBefore = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).components(separatedBy: "thread/start").count
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Local title when cheap models are unavailable", start: false)
+        try await waitForNaming()
+        #expect(model.selectedTask?.title == "Local title when cheap models are unavailable")
+        #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).components(separatedBy: "thread/start").count == callsBefore)
+        try FileManager.default.removeItem(at: f.control.appending(path: "no-cheap-title-model"))
         try f.marker("title-stall")
-        let creation = Task { try await model.createTask(projectID: discovered.project.id, title: "", description: "Canceled brief", start: false) }
+        let clock = ContinuousClock()
+        let began = clock.now
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Instant saved brief", start: false)
+        let elapsed = began.duration(to: clock.now)
+        #expect(elapsed < .seconds(1))
+        print("Task creation with stalled naming: \(elapsed)")
+        let instant = try #require(model.selectedTask)
+        #expect(instant.title == "Instant saved brief" && !model.showNewTask)
         let calls = f.control.appending(path: "calls.jsonl")
-        let cancellationDeadline = Date().addingTimeInterval(5)
-        while !(try String(contentsOf: calls, encoding: .utf8)).contains("Canceled brief") && Date() < cancellationDeadline {
+        let titleDeadline = Date().addingTimeInterval(5)
+        while !(try String(contentsOf: calls, encoding: .utf8)).contains("Instant saved brief") && Date() < titleDeadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(try String(contentsOf: calls, encoding: .utf8).contains("Canceled brief"))
-        creation.cancel()
-        do { try await creation.value; Issue.record("Canceled task was created") } catch is CancellationError { }
-        #expect(try uiStore.all(WorkTask.self).count == count)
+        #expect(try String(contentsOf: calls, encoding: .utf8).contains("Instant saved brief"))
+        try await model.editTask(instant.id, title: "My authoritative title", description: instant.description, proofRequirement: instant.proofRequirement)
+        try await waitForNaming()
+        #expect(try uiStore.get(WorkTask.self, instant.id).title == "My authoritative title")
+        // Shutdown cancels naming, but the already-created task survives shutdown.
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Keep this saved task", start: false)
+        let saved = try #require(model.selectedTask)
+        await model.core.shutdown()
+        #expect(try uiStore.get(WorkTask.self, saved.id).title == "Keep this saved task")
         #expect(try FileManager.default.contentsOfDirectory(atPath: uiStore.root.appending(path: "title-drafts").path).isEmpty)
         _ = try await f.runner.run("git", ["remote", "set-url", "origin", "https://bitbucket.org/team/project.git"], cwd: f.repo.path)
         let bitbucket = try await discovery.inspect(path: f.repo.path)

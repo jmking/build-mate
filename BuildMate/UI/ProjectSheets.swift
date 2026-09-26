@@ -183,7 +183,7 @@ struct NewTaskSheet: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
                     .focused($descriptionFocused).disabled(creation != nil)
                     .accessibilityLabel("Task description").accessibilityIdentifier("task-description")
-                Text("A descriptive title will be generated from your brief. You can rename it anytime.").font(.caption).foregroundStyle(.secondary)
+                Text("Your task opens immediately. Its title is refined from the brief in the background. You can rename it anytime.").font(.caption).foregroundStyle(.secondary)
             }
             DisclosureGroup("Set a title yourself") {
                 TextField("Task title (optional)", text: $title).textFieldStyle(.roundedBorder)
@@ -199,7 +199,7 @@ struct NewTaskSheet: View {
             if creation != nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generating a title…" : "Creating task…").foregroundStyle(.secondary)
+                    Text("Creating task…").foregroundStyle(.secondary)
                 }.accessibilityElement(children: .combine)
             }
             if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }

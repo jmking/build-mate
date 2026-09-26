@@ -135,3 +135,7 @@ Read account limits even when no agents are running, using a short-lived app-ser
 ## Neutral reference surfaces (2026-09-26)
 
 The owner reversed the earlier tint decision and requested a closer reference match. Use reference light/dark surface colours for large app-owned backgrounds, including sheets, sidebar, inspector, board columns/cards and usage popover. This intentionally overrides the earlier system-background-only rule; system text, accents, controls, native presentation/motion and Liquid Glass on toolbar controls/composer remain. Use SwiftUI window/presentation backgrounds; do not change the user's desktop tint, wallpaper or accessibility settings.
+
+## Immediate task creation and economical naming (2026-09-26)
+
+User feedback: waiting for automatic naming is too slow, and naming must use a cheap model. Save/open with a local brief-derived title first; refine once asynchronously with an available Luna/mini model at its lowest supported effort. Never fall back to the expensive project/account default. Manual edits cancel refinement; failure, shutdown or unavailable models retain the saved title. Do not restart interrupted naming on app launch or rename existing tasks/branches/PRs. No new setting or API-key dependency.

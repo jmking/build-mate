@@ -178,13 +178,14 @@ final class AppModel {
         guard !resolvedTitle.isEmpty || !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CoreError.invalid("Describe what you would like built.")
         }
-        if resolvedTitle.isEmpty { resolvedTitle = await core.generateTitle(for: description, model: project.settings.model) }
+        let needsTitle = resolvedTitle.isEmpty
+        if needsTitle { resolvedTitle = Orchestrator.provisionalTitle(description) }
         try Task.checkCancellation()
-        // Configuration may have changed while the title was being generated.
-        if start, let reason = try store.get(Project.self, projectID).runBlockReason { throw CoreError.invalid(reason) }
         let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog, proofRequirement: proofRequirement)
+        snapshot.tasks.append(task)
         showNewTask = false; destination = .task(task.id)
-        await core.tick()
+        if needsTitle { await core.refineTitle(of: task) }
+        Task { await core.tick() }
     }
     func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement) async throws {
         try await core.editTask(id, title: title, description: description, proofRequirement: proofRequirement)
