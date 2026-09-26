@@ -59,7 +59,9 @@ struct TaskCard: View {
         Button { model.destination = .task(task.id) } label: {
             VStack(alignment: .leading, spacing: 12) {
                 Text(task.title).font(.body.weight(.medium)).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(3)
-                StateLabel(task: task).font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
+                if task.paused || model.retryNeedsAttention(task) {
+                    StateLabel(task: task).font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
+                }
                 if let id = task.dependsOn.first, let dependency = model.snapshot.tasks.first(where: { $0.id == id }), dependency.state != .done {
                     Label("Waits on \(dependency.title)", systemImage: "link").font(.caption).foregroundStyle(.secondary)
                 }
