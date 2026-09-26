@@ -1,0 +1,191 @@
+# 02 · Architecture
+
+## 1. Components
+
+```
+┌──────────────────────── Build Mate.app (SwiftUI, macOS 26+) ────────────────────────┐
+│  Windows · Menu bar extra · Settings · Notifications                                 │
+└───────────────▲─────────────────────────────────────────────────────────────────────┘
+                │ Local API (XPC in v1; HTTPS + paired devices in v2)
+┌───────────────┴──────────── Build Mate Helper (launchd agent, Swift) ───────────────┐
+│ Orchestrator (Symphony model)   Tracker (built-in, SQLite)   Scheduler & limits      │
+│ Workspace manager (git worktrees)   Hooks runner   Proof runner   Preview manager    │
+│ Agent runner (Codex app-server)     SCM providers (GitHub / Bitbucket)               │
+│ Build Mate MCP server (tools exposed to agents)                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+         │ spawns                         │ shells out                     │ reads/writes
+   codex app-server (per session)     gh · twg · git · hooks        ~/Library/Application Support/Build Mate/
+```
+
+- **Build Mate.app**: all UI. Stateless apart from view state; reads and writes through the local API. Quitting the app does not stop agents.
+- **Build Mate Helper**: a login item (`SMAppService` agent) that owns orchestration, storage and all child processes. Keeps running when the window is closed. The app starts it on first launch.
+- **Local API**: typed request/response plus an event stream (task, message, proof, usage and agent-status changes). v1 transport is XPC. v2 adds the same API over HTTPS for paired devices (section 13).
+
+Language: Swift 6, SwiftUI (macOS 26 / iOS 26 SDKs), structured concurrency. Persistence: SQLite through GRDB (recommended) in WAL mode.
+
+## 2. Relationship to Symphony
+Build Mate implements Symphony's orchestration model (`openai/symphony` `SPEC.md`) in Swift. It does not ship the Elixir reference implementation.
+
+| Symphony concept | Build Mate |
+|---|---|
+| Tracker adapter (`tracker.kind`) | Built-in tracker backed by SQLite. Linear/Jira adapters are v3. |
+| `WORKFLOW.md` (front matter + prompt body) | Generated per project into Build Mate storage from the project's settings and instructions, never committed. Kept so the configuration stays portable and could later be exported to the repo (v3). |
+| Active / terminal states | Active: `todo` (dispatch candidates), `building`, `in_pr` (watch mode). Waiting on a human: `backlog`, `needs_clarification`, `human_review`. Terminal: `done`, `canceled`. |
+| `blocked_by`, `dispatchable` | Task dependencies and the pause flag. A task is dispatchable only if not paused, its project is not paused, all dependencies are merged (or its stack base PR exists, see 9), and no approval is pending. |
+| Workspace per issue, hooks (`after_create`, `before_run`, `after_run`, `before_remove`) | Git worktree per task plus the same four hooks, configured per project. |
+| Run attempt, retry with backoff (`min(10000·2^(n-1), max_retry_backoff_ms)`), continuation retry (1 s) | Same semantics and defaults. |
+| `max_concurrent_agents`, per-state limits | "Agents at once" (default 4) plus a heavy-step limit (default 2) for proof recording and previews. |
+| Reconciliation (stop sessions whose issue left an active state) | Same. Used for pause, moving tasks back to backlog, cancel. |
+| Codex app-server as the agent | Same. The runner is behind an `AgentRunner` protocol so a Claude runner can be added in v3. |
+| Status API | Replaced by the local API. |
+
+Extensions beyond Symphony (all implemented in the helper): clarification questions, plan approval, proof of work, human review, PR watch mode, project chat and task creation, stacked PRs, pause, previews, remote control.
+
+## 3. Storage (nothing in the repo)
+Root: `~/Library/Application Support/Build Mate/`
+
+| Path | Contents |
+|---|---|
+| `buildmate.sqlite` | All projects, tasks, sessions, messages, questions, approvals, proof metadata, settings. |
+| `projects/<project-id>/WORKFLOW.md` | Generated Symphony-style workflow for the project (front matter from settings, body from instructions). Regenerated on every settings or instructions change. |
+| `projects/<project-id>/media/` | Attachments, recordings, screenshots, extracted video frames. Location overridable per project (large files). |
+| `worktrees/<project-slug>/<task-number>/` | Task worktrees created with `git worktree add` from the user's clone. |
+| `logs/` | Helper and per-session logs (rotated, 14 days). |
+
+Rules:
+- Build Mate MUST NOT create, modify or commit files in the user's clone other than through git operations on task branches. It MUST NOT add `.gitignore` entries or config files.
+- Worktree bookkeeping lives in the clone's `.git/worktrees/` (local, never pushed). Removing a task removes its worktree (`git worktree remove`, after `before_remove`).
+- Deleting a project removes its data and worktrees, never the user's clone.
+
+## 4. Data model
+All IDs are UUIDs unless stated. Timestamps are UTC.
+
+**Project**: `id, name (display, e.g. acme/web), repoPath, host (github|bitbucket), remoteSlug (owner/repo or workspace/repo), defaultBranch, instructions (markdown), settings (Settings), paused (bool), createdAt`.
+
+**Settings** (per project; global defaults in app settings):
+- `agentsAtOnce` (global, default 4), `heavyStepsAtOnce` (global, default 2), `maxTurnsPerTask` (default 20), `retryBackoffMaxMs` (300000), timeouts (turn 3 600 000 ms, stall 300 000 ms, read 5 000 ms).
+- `askBefore`: `{ build: false, openPR: true, merge: false }`.
+- `prStrategy`: `separateStacked` (default) | `onePR` (v1.1).
+- `branchPrefix` (default empty, meaning `<number>-<slug>`; e.g. `427-report-permissions`).
+- `editor` (bundle id, default the first installed of Cursor, VS Code, Xcode).
+- `hooks`: `{ afterCreate, beforeRun, afterRun, beforeRemove }` shell strings, timeout 60 s each.
+- `proof`: `{ checks: [{ name, command, required }], recording: { command | agentDriven, required }, screenshotsForUI: bool }`.
+- `preview`: `{ command, portEnvVar (default PORT), readyPath (default /) }`.
+- `sandbox`: `{ network: true }`.
+- `model`: Codex model id and reasoning effort for task agents and the project agent.
+
+**Task**: `id, projectId, number (int, unique per project), title, description (markdown), state (see 5), paused (bool), rank (float, ordering within backlog/todo), dependsOn [taskId], shipAs (own | stackOn(taskId) | featureBranch(name) v1.1), askBeforeBuild (inherit|on|off), origin (chat|sheet|phone|backlog), branchName, worktreePath, pr { number, url, baseBranch } ?, retry { attempt, dueAt, error } ?, createdAt, updatedAt, doneAt`.
+
+**Attachment**: `id, ownerType (task|message), ownerId, kind (image|video), path, filename, byteSize, durationSec?, frames [path]?, transcript?`.
+
+**Session**: `id, ownerType (task|project), ownerId, codexThreadId, status (idle|running|waiting|stalled|failed|ended), currentTurn, turnCount, tokensIn, tokensOut, startedAt, lastEventAt`.
+
+**Message** (the chat log for tasks and projects): `id, sessionId, role (user|agent|system), kind (text|question|plan|proposal|activity|event|proof), body (markdown), payload (JSON per kind), createdAt`.
+- `activity` groups tool calls into one collapsible row ("Worked for 12 min · 18 commands · 3 files edited") with the raw events kept for the expanded view.
+- `event` is a state change or system note ("Moved to Human review").
+
+**Question**: `id, taskId, messageId, prompt, options [string], allowsFreeText, blocking (bool), answer?, answeredBy (user|agentDefault), answeredAt?`.
+
+**Approval**: `id, taskId, kind (plan|openPR|merge), status (pending|approved|rejected), planText?, createdAt, resolvedAt?`.
+
+**Proof**: `taskId, recording { path, durationSec }?, screenshots [path], checks [{ name, status (passed|failed|skipped), durationSec, logPath }], changes { files, additions, deletions, summary }, complete (bool), producedAt`.
+
+**RunAttempt** (Symphony): `id, taskId, attempt, phase, startedAt, endedAt, status (succeeded|failed|timedOut|stalled|canceled), error`.
+
+**Proposal** (project chat): `id, projectId, messageId, tasks [{ title, description, dependsOnIndex [int] }], shipAs, status (open|created|dismissed)`.
+
+**Device** (v2): `id, name, kind (mac|iphone), publicKey, lastSeenAt`.
+
+## 5. Task lifecycle
+
+### States
+`backlog → todo → needs_clarification ↔ building → human_review → in_pr → done` (plus `canceled`). `paused` and `retrying` are flags, not states.
+
+### Transitions
+| From | To | Trigger | Guard / notes |
+|---|---|---|---|
+| (new) | backlog | Created from project chat (default), New Task sheet "Add to Backlog", phone | |
+| (new) | todo | Chat "start now" / "go straight to Todo", sheet "Start Now", proposal "Start Now" | |
+| backlog | todo | User: Move to Todo, swipe Start, chat instruction | |
+| todo | (dispatched) | Scheduler | Dispatchable (section 2) and a slot is free. Highest rank first. |
+| dispatched | needs_clarification | Agent calls `ask_question` with `blocking: true` during its first ("understand") turn | |
+| dispatched | todo + pending plan approval | `askBeforeBuild` effective and agent calls `submit_plan` | Task stays in Todo; appears in Needs You › Approvals. |
+| todo (plan approved) / dispatched | building | Plan approved, or no approval needed and no blocking questions | |
+| needs_clarification | building | All blocking questions answered, or user presses **Let the agent decide** (agent proceeds with stated defaults) | Dependencies must still be satisfied; otherwise it waits in Todo showing "Waits on #n". |
+| building | needs_clarification | Agent asks a blocking question mid-build | Session paused until answered. |
+| building | human_review | Agent calls `request_review` and proof is complete | If `askBefore.openPR` is off, go straight to opening the PR (in_pr). |
+| building | (proof failed) | Proof runner reports a required check or recording failed | Agent gets the failure and continues building; after 3 consecutive proof failures raise a Needs You item. |
+| human_review | in_pr | User: **Open Pull Request** | Agent pushes the branch and opens the PR (stacked base if needed). |
+| human_review | building | User: **Send back…** with a note | Note is sent as the next user message. |
+| in_pr | in_pr (watching) | CI fails, review comments, merge conflicts | Agent fixes on its own and pushes. Decisions become blocking questions shown under "Decisions in PR". |
+| in_pr | done | PR merged (by the agent if `askBefore.merge` is off and required checks + approvals pass; by the user or anyone on the host) | |
+| in_pr | pending merge approval | `askBefore.merge` on and PR is mergeable | Needs You › Approvals: **Merge**. |
+| any active | canceled | User: Cancel task | Session stopped, worktree kept until the user deletes the task. PR closed only if the user confirms. |
+| any | (paused flag) | Pause task / project / all | See section 10. |
+
+### Road to merge (display)
+Five checkpoints derived from state and data: **Clarified** (no open blocking questions and, if needed, plan approved), **Built** (agent requested review), **Proof of work** (proof complete, with sub-items Recording and Checks), **Human review** (approved, or skipped by settings), **Merged**. Each is `done`, `current`, `needsYou` or `todo`. The 5-segment bar on cards and the vertical checklist in the task inspector are two renderings of the same data.
+
+## 6. Orchestration loop
+Follow Symphony's loop with these specifics:
+- **Tick** every 5 s locally (no external tracker to poll). SCM status (CI, reviews, comments) for tasks in `in_pr` is polled every 60 s per task, with backoff to 5 min when nothing changes for 30 min. Webhooks are out of scope for v1.
+- **Dispatch**: pick dispatchable Todo tasks by rank; respect `agentsAtOnce` across all projects and per-project pause.
+- **Workspace**: on first dispatch, create the branch from `defaultBranch` (or from the stack base branch) and a worktree; run `afterCreate`. Before every run attempt run `beforeRun`; after, `afterRun`.
+- **Session**: one Codex thread per task, resumed across attempts and across human-in-the-loop pauses so the agent keeps its context (verify thread resume in spike, see 08). If resume is not possible, start a new thread and replay the task's message history as context.
+- **Turns**: each turn continues until the agent ends it, then the next turn starts automatically up to `maxTurnsPerTask`, unless the agent is waiting (question, approval, review) or the task is paused.
+- **Stall detection**: no Codex event for `stall` ms marks the attempt stalled and schedules a retry.
+- **Reconciliation** every tick: stop sessions for tasks that are paused, canceled, moved to backlog, or whose project is paused.
+
+## 7. Prompt assembly
+For each task session the helper builds the initial prompt from, in order:
+1. **Build Mate system brief**: the lifecycle, the tools available (03, section 5), the rules (ask, don't guess; stay in scope; proof is required; never write outside the worktree).
+2. **Global instructions** (Settings › Instructions).
+3. **Project instructions** (sidebar › Instructions). Project instructions override global ones on conflict.
+4. **Task**: title, description, attachments (images inline; videos as key frames and transcript, see 03), answers to questions so far, approved plan, dependency context (what the tasks it depends on changed), and the current goal for its state.
+
+The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Mate does not copy it. Instruction changes apply from the next turn of every running session.
+
+The **project agent** gets 1–3 plus a project brief (repo summary, open tasks and their states) and the `propose_tasks` / `create_tasks` tools. It runs read-only in a dedicated worktree of the default branch, refreshed on each new chat message.
+
+## 8. Proof of work
+- **Checks** run by the helper (not trusted to the agent) in the worktree after the agent calls `request_review`: each configured command with its exit code, duration and log. Required checks must pass.
+- **Recording**: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-driven (the agent drives a browser through a browser tool and the helper records). Output: MP4/H.264, max 3 minutes, saved to `media/`.
+- **Screenshots**: for UI changes when enabled, before (default branch) and after (task branch).
+- **Changes summary**: files changed, additions, deletions, and a one-paragraph agent summary.
+- Proof is `complete` when every required item exists and passed. Only then can the task enter Human review.
+- Proof is included in the PR description by default (recording link as an uploaded asset where the host supports it, otherwise a note). Per-project toggle.
+
+## 9. Pull requests and stacking
+- One PR per task by default. Title from the task title; body from the task summary, proof and "Built with Build Mate" footer (per-project toggle, default off to stay invisible).
+- **Stacked**: when task B depends on task A and A's PR is not merged, B's branch is created from A's branch and B's PR targets A's branch. When A merges, the agent rebases B onto the default branch, retargets the PR, force-pushes with lease, and re-runs checks. The In PR inspector shows the stack.
+- **Ship as one PR** (v1.1): tasks merge into a shared feature branch; one PR from it to the default branch with combined proof.
+- **Merging**: squash merge by default, delete branch after merge, never bypass branch protection or required reviews.
+
+## 10. Pause
+| Scope | Control | Behaviour |
+|---|---|---|
+| Task | Task toolbar **Pause** (⌘.) | Agent finishes the current tool call/step, then the session stops; task stays in its column with a Paused marker; nothing dispatches it. **Resume** continues the same thread. |
+| Project | Board toolbar **Pause Project** | No new dispatch in the project; running tasks pause as above. Sidebar shows a pause glyph. Questions still reach Needs You. |
+| Everything | Sidebar footer, menu bar, iPhone (⌥⌘P) | All projects paused. A banner in every window: "All agents paused · Resume". |
+Pause never discards work. Paused time does not count toward timeouts.
+
+## 11. Previews (Run locally / Open Preview)
+- Each task gets a port from a pool (default 4100–4199) when a preview is requested. The helper runs `preview.command` in the worktree with `portEnvVar` set, waits until `readyPath` responds (timeout 90 s), then opens `http://localhost:<port>`. Previews count against the heavy-step limit and stop after 30 minutes idle.
+- v1.1: a local reverse proxy maps `<task-number>.localhost` to the preview port.
+
+## 12. Notifications and usage
+- macOS notifications for every new Needs You item, grouped by project, with actions where possible (answer options, Approve Plan, Open). Respects Focus.
+- **Usage meter**: shows the ChatGPT plan usage window reported by Codex (e.g. "62% of this 5-hour window left · resets 16:40") in the sidebar footer and the menu bar. Setting: "Hold new tasks when usage is below N%" (default 15%). When held, Todo tasks show "Waiting for usage". (Not yet drawn; design it with the sidebar footer and menu bar styles.)
+
+## 13. Remote control (v2)
+- The helper exposes the local API over HTTPS on a private network interface only (for example a Tailscale address). Nothing listens on public interfaces.
+- **Pairing**: Settings › Remote › Pair a Device shows a QR code with a one-time code and the host key; the device stores its key pair in the Keychain. Every request is signed. Devices can be removed.
+- **Keep awake**: when enabled, the helper holds a power assertion while any agent is working.
+- **Push**: the helper writes Needs You events to the user's private CloudKit database; the iPhone app subscribes and receives notifications. No Build Mate server.
+- **Open Preview** on iPhone opens the task's preview through the private network address.
+
+## 14. Security
+- Agents run with Codex's sandbox: writes limited to their worktree; network on by default (package installs), per-project switch.
+- The helper runs hooks and checks as the user. Hooks are shown in Settings › Hooks and changes require confirmation.
+- No tokens are stored by Build Mate for GitHub/Bitbucket; it uses the logged-in `gh` and `twg` CLIs. Codex auth is owned by Codex (ChatGPT sign-in).
+- Logs redact tokens and environment variables matching common secret patterns.

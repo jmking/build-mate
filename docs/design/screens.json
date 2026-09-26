@@ -1,0 +1,302 @@
+[
+ {
+  "slug": "mac-01-needs-you",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-01-needs-you",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-02-project-chat",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-02-project-chat",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-03-backlog",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-03-backlog",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-04-board",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-04-board",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-05-new-task-sheet",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-05-new-task-sheet",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-06-project-instructions",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-06-project-instructions",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-07-task-needs-clarification",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-07-task-needs-clarification",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-08-task-building",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-08-task-building",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-09-task-human-review",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-09-task-human-review",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-10-task-in-pr",
+  "theme": "light",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-10-task-in-pr",
+  "theme": "dark",
+  "width": 1560,
+  "height": 1000
+ },
+ {
+  "slug": "mac-11-menu-bar-extra",
+  "theme": "light",
+  "width": 460,
+  "height": 530
+ },
+ {
+  "slug": "mac-11-menu-bar-extra",
+  "theme": "dark",
+  "width": 460,
+  "height": 530
+ },
+ {
+  "slug": "mac-12-settings-general",
+  "theme": "light",
+  "width": 760,
+  "height": 800
+ },
+ {
+  "slug": "mac-12-settings-general",
+  "theme": "dark",
+  "width": 760,
+  "height": 800
+ },
+ {
+  "slug": "mac-13-settings-remote",
+  "theme": "light",
+  "width": 760,
+  "height": 640
+ },
+ {
+  "slug": "mac-13-settings-remote",
+  "theme": "dark",
+  "width": 760,
+  "height": 640
+ },
+ {
+  "slug": "iphone-pro-01-needs-you",
+  "theme": "light",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-01-needs-you",
+  "theme": "dark",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-02-projects",
+  "theme": "light",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-02-projects",
+  "theme": "dark",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-03-project-chat",
+  "theme": "light",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-03-project-chat",
+  "theme": "dark",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-04-backlog",
+  "theme": "light",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-04-backlog",
+  "theme": "dark",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-05-instructions",
+  "theme": "light",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-05-instructions",
+  "theme": "dark",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-06-answer-questions",
+  "theme": "light",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-06-answer-questions",
+  "theme": "dark",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-07-human-review",
+  "theme": "light",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-pro-07-human-review",
+  "theme": "dark",
+  "width": 402,
+  "height": 874
+ },
+ {
+  "slug": "iphone-duo-01-closed-needs-you",
+  "theme": "light",
+  "width": 464,
+  "height": 676
+ },
+ {
+  "slug": "iphone-duo-01-closed-needs-you",
+  "theme": "dark",
+  "width": 464,
+  "height": 676
+ },
+ {
+  "slug": "iphone-duo-02-closed-project-chat",
+  "theme": "light",
+  "width": 464,
+  "height": 676
+ },
+ {
+  "slug": "iphone-duo-02-closed-project-chat",
+  "theme": "dark",
+  "width": 464,
+  "height": 676
+ },
+ {
+  "slug": "iphone-duo-03-closed-answer",
+  "theme": "light",
+  "width": 464,
+  "height": 676
+ },
+ {
+  "slug": "iphone-duo-03-closed-answer",
+  "theme": "dark",
+  "width": 464,
+  "height": 676
+ },
+ {
+  "slug": "iphone-duo-04-open-tasks",
+  "theme": "light",
+  "width": 952,
+  "height": 652
+ },
+ {
+  "slug": "iphone-duo-04-open-tasks",
+  "theme": "dark",
+  "width": 952,
+  "height": 652
+ },
+ {
+  "slug": "iphone-duo-05-open-human-review",
+  "theme": "light",
+  "width": 952,
+  "height": 652
+ },
+ {
+  "slug": "iphone-duo-05-open-human-review",
+  "theme": "dark",
+  "width": 952,
+  "height": 652
+ }
+]
