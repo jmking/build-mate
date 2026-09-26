@@ -42,7 +42,6 @@ struct AddProjectSheet: View {
             if let failure { Label(failure, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 8)
             HStack(alignment: .firstTextBaseline) {
-                Text("Nothing is written to the repository.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Add Project") {
