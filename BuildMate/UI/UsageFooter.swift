@@ -57,6 +57,7 @@ struct UsageFooter: View {
                     HStack {
                         Spacer()
                         Button("Refresh") { model.perform { await model.core.refreshUsage() } }.disabled(model.usage.refreshing)
+                            .help("Check your latest Codex usage and reset times")
                     }
                 }.padding(20).frame(width: 350)
                     .presentationBackground(AppSurface.sheet)

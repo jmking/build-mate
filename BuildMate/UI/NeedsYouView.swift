@@ -11,6 +11,7 @@ struct NeedsYouView: View {
                 Text("Add a local repository, describe a task, and keep track of your agents from one workspace.")
             } actions: {
                 Button("Add Project…") { model.showAddProject = true }.buttonStyle(.borderedProminent)
+                    .help("Add an existing repository or create a new project (⇧⌘N)")
             }
         } else if waiting.isEmpty {
             ContentUnavailableView("Nothing needs you", systemImage: "checkmark.circle",
@@ -51,6 +52,7 @@ struct NeedsYouView: View {
                             .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain)
+                        .help("Open \(task.title) to review what needs your attention")
                         .accessibilityLabel("\(task.title), \(model.projectName(task.projectId)). \(detail(task))")
                         .accessibilityHint("Opens the task")
                         .accessibilityIdentifier("needs-you-\(title)-\(task.number)")

@@ -133,14 +133,18 @@ struct TaskDetailView: View {
                         if let rationale = proof.rationale { Text(rationale).foregroundStyle(.secondary) }
                         Text(proof.recordingPath != nil ? "Recording captured" : proof.recordingRequired ? "Required recording not captured" : "Recording not required").foregroundStyle(.secondary)
                     }
-                    if let pr = task.pr, let url = URL(string: pr.url) { Link("View Pull Request #\(pr.number)", destination: url) }
+                    if let pr = task.pr, let url = URL(string: pr.url) {
+                        Link("View Pull Request #\(pr.number)", destination: url).help("Open this pull request in your browser")
+                    }
                     if task.state == .backlog {
                         Button("Move to Queue") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
+                            .help(model.selectedProject?.runBlockReason ?? "Queue this task to run when an agent slot is available and the project is resumed")
                             .disabled(model.selectedProject?.runBlockReason != nil)
                         if let reason = model.selectedProject?.runBlockReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                     }
                     ForEach(model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" }) { approval in
                         Button("Approve Plan") { model.perform { try await model.core.approvePlan(approval.id) } }.buttonStyle(.borderedProminent)
+                            .help("Approve this plan so the agent can continue when work is resumed")
                     }
                     if task.state == .humanReview {
                         Text("Review playback and preview controls are coming soon.").font(.caption).foregroundStyle(.secondary)
@@ -154,7 +158,8 @@ struct TaskDetailView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
         .toolbar {
             ToolbarItem {
-                Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal).help("Pause or resume task (⌘.)")
+                Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal)
+                    .help(task.paused ? "Resume work on this task (⌘.)" : "Pause work on this task (⌘.)")
             }
         }
     }
@@ -209,6 +214,7 @@ private struct FlowOptions: View {
     private var options: some View {
         ForEach(question.options, id: \.self) { option in
             Button(option) { model.perform { try await model.core.answer(question.id, text: option) } }
+                .help("Answer this question with “\(option)”")
                 .buttonStyle(.bordered).accessibilityLabel("\(question.prompt): \(option)")
         }
     }

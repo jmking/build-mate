@@ -54,6 +54,7 @@ struct MainWindow: View {
                     Button(model.settings.paused ? "Resume All" : "Pause All", systemImage: model.settings.paused ? "play.fill" : "pause.fill") {
                         model.perform { try model.pauseAll() }
                     }.buttonStyle(.borderless)
+                        .help(model.settings.paused ? "Resume eligible tasks across all projects (⌥⌘P)" : "Pause all agents across all projects (⌥⌘P)")
                 }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(AppSurface.sidebar)
@@ -64,6 +65,7 @@ struct MainWindow: View {
                         Label("All agents paused", systemImage: "pause.circle")
                         Spacer()
                         Button("Resume All") { model.perform { try model.pauseAll() } }
+                            .help("Resume eligible tasks across all projects (⌥⌘P)")
                     }.padding(12).background(AppSurface.raised)
                 }
                 if let error = model.schedulerError {
@@ -87,8 +89,8 @@ struct MainWindow: View {
                     ToolbarItemGroup {
                         if case .project(_, .tasks) = model.destination {
                             Picker("Task layout", selection: $model.listMode) {
-                                Image(systemName: "square.grid.2x2").tag(false)
-                                Image(systemName: "list.bullet").tag(true)
+                                Image(systemName: "square.grid.2x2").tag(false).help("Show tasks as a board (⌘L)")
+                                Image(systemName: "list.bullet").tag(true).help("Show tasks as a list (⌘L)")
                             }.pickerStyle(.segmented).frame(width: 78).help("Toggle List/Board (⌘L)")
                         }
                         Button { model.showNewTask = true } label: { Label("New Task", systemImage: "plus") }
@@ -112,7 +114,7 @@ struct MainWindow: View {
         .sheet(isPresented: $model.showNewTask) { NewTaskSheet().presentationBackground(AppSurface.sheet) }
         .sheet(item: $model.editingTask) { EditTaskSheet(task: $0).presentationBackground(AppSurface.sheet) }
         .alert("Unable to complete the action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
+            Button("OK") { model.error = nil }.help("Dismiss this error")
         } message: { Text(model.error ?? "") }
         .task { await model.observe() }
     }

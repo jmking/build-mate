@@ -72,13 +72,15 @@ struct TaskCard: View {
             .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
         }
         .buttonStyle(.plain)
+        .help("Open \(task.title)")
         .accessibilityLabel("\(task.title), \(task.state.title)")
         .accessibilityIdentifier("task-\(task.number)")
         .contextMenu {
-            Button("Open") { model.destination = .task(task.id) }
-            Button("Edit Task…") { model.editingTask = task }
+            Button("Open") { model.destination = .task(task.id) }.help("Open this task")
+            Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief and proof requirements")
             TaskPriorityActions(task: task)
             Button(task.paused ? "Resume" : "Pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }
+                .help(task.paused ? "Resume work on this task" : "Pause work on this task")
         }
         .modifier(TaskPriorityDrag(task: task))
     }
@@ -90,8 +92,10 @@ struct TaskPriorityActions: View {
     var body: some View {
         if [.backlog, .todo].contains(task.state) {
             Button("Move Earlier") { model.perform { try model.movePriority(task, earlier: true) } }
+                .help("Move this task one place earlier in priority")
                 .disabled(model.priorityNeighbor(task, earlier: true) == nil)
             Button("Move Later") { model.perform { try model.movePriority(task, earlier: false) } }
+                .help("Move this task one place later in priority")
                 .disabled(model.priorityNeighbor(task, earlier: false) == nil)
         }
     }
@@ -111,7 +115,7 @@ struct TaskPriorityDrag: ViewModifier {
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(targeted ? Color.accentColor : .clear, lineWidth: 2).allowsHitTesting(false))
                 .accessibilityAction(named: "Move earlier") { model.perform { try model.movePriority(task, earlier: true) } }
                 .accessibilityAction(named: "Move later") { model.perform { try model.movePriority(task, earlier: false) } }
-                .help("Drag above or below another task to change priority")
+                .help("Open \(task.title). Drag above or below another task to change priority.")
         } else { content }
     }
 }

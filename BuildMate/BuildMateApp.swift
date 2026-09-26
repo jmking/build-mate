@@ -29,44 +29,62 @@ struct BuildMateApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Task…") { model?.showNewTask = true }.keyboardShortcut("n").disabled(model?.snapshot.projects.isEmpty != false)
+                    .help("Create a new task (⌘N)")
                 Button("New Project…") { model?.showAddProject = true }.keyboardShortcut("n", modifiers: [.command, .shift])
+                    .help("Add an existing repository or create a new project (⇧⌘N)")
             }
             CommandGroup(after: .sidebar) {
                 Button("Needs You") { model?.destination = .needsYou }.keyboardShortcut("1")
+                    .help("Show tasks that need your attention (⌘1)")
                 Button("Chat") { model?.navigate(.chat) }.keyboardShortcut("2")
+                    .help("Open project chat (⌘2)")
                 Button("Backlog") { model?.navigate(.backlog) }.keyboardShortcut("3")
+                    .help("Show tasks that are not queued to run (⌘3)")
                 Button("Tasks") { model?.navigate(.tasks) }.keyboardShortcut("4")
+                    .help("Show queued, running and completed work (⌘4)")
                 Button("Instructions") { model?.navigate(.instructions) }.keyboardShortcut("5")
+                    .help("Show this project’s instructions (⌘5)")
                 Divider()
                 Button("Toggle List/Board") { model?.listMode.toggle() }.keyboardShortcut("l")
+                    .help("Switch between the task list and board (⌘L)")
                 Button("Toggle Inspector") { model?.showInspector.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
+                    .help("Show or hide task details (⌥⌘I)")
                 Button("Back") { model?.goBack() }.keyboardShortcut("[").disabled(model?.canGoBack != true)
+                    .help("Return to the previous view (⌘[)")
                 Button("Forward") { model?.goForward() }.keyboardShortcut("]").disabled(model?.canGoForward != true)
+                    .help("Go forward in navigation history (⌘])")
                 Button("Find") { model?.findRequested.toggle() }.keyboardShortcut("f")
+                    .help("Search tasks in the current view (⌘F)")
             }
             CommandMenu("Task") {
                 Button("Edit Task…") { model?.editingTask = model?.selectedTask }
+                    .help("Edit the selected task (⇧⌘E)")
                     .keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model?.selectedTask == nil)
                 Divider()
                 Button("Move Earlier") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try model.movePriority(task, earlier: true) }
                 }.keyboardShortcut(.upArrow, modifiers: [.command, .control])
+                    .help("Move the selected task one place earlier in priority (⌃⌘↑)")
                     .disabled(model?.selectedTask.flatMap { model?.priorityNeighbor($0, earlier: true) } == nil)
                 Button("Move Later") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try model.movePriority(task, earlier: false) }
                 }.keyboardShortcut(.downArrow, modifiers: [.command, .control])
+                    .help("Move the selected task one place later in priority (⌃⌘↓)")
                     .disabled(model?.selectedTask.flatMap { model?.priorityNeighbor($0, earlier: false) } == nil)
                 Button("Pause / Resume Task") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.pause(task.id, paused: !task.paused) }
                 }.keyboardShortcut(".").disabled(model?.selectedTask == nil)
+                    .help("Pause or resume work on the selected task (⌘.)")
                 Button("Pause / Resume Project") {
                     guard let model, let project = model.selectedProject else { return }
                     model.perform { try model.pauseProject(project) }
                 }.disabled(model?.selectedProject == nil)
+                    .help("Pause or resume agent work in this project")
                 Button("Pause / Resume All") { guard let model else { return }; model.perform { try model.pauseAll() } }.keyboardShortcut("p", modifiers: [.command, .option])
+                    .help("Pause or resume agents across all projects (⌥⌘P)")
             }
         }
     }

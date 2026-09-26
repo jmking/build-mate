@@ -18,6 +18,7 @@ struct AddProjectSheet: View {
                 Text("Add Existing").tag(false)
                 Text("Create New").tag(true)
             }.pickerStyle(.segmented).disabled(checking).accessibilityIdentifier("project-setup-mode")
+                .help("Add a repository that already exists, or create a new local Git repository")
                 .onChange(of: creatingNew) { discovered = nil; failure = nil }
             Text(creatingNew ? "Choose a new or empty folder for your Git repository." : "Choose a local Git repository on this Mac.").foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
@@ -26,12 +27,14 @@ struct AddProjectSheet: View {
                 }.accessibilityIdentifier("repository-path")
                     .onChange(of: path) { discovered = nil; failure = nil }
                 Button("Choose…") { chooseFolder() }
+                    .help(creatingNew ? "Choose a new or empty folder for this project" : "Choose an existing Git repository")
             }.disabled(checking)
             if creatingNew {
                 Text("Creates a local repository on main, ready for your first task.").font(.caption).foregroundStyle(.secondary)
                 if checking { ProgressView("Creating project…").controlSize(.small) }
             } else { HStack {
                 Button("Check Repository") { inspect() }.disabled(path.isEmpty || checking).accessibilityIdentifier("check-repository")
+                    .help("Check the repository, its default branch and Git hosting sign-in")
                 if checking { ProgressView().controlSize(.small); Text("Checking repository and CLI…").foregroundStyle(.secondary) }
             } }
             if let discovered {
@@ -47,6 +50,7 @@ struct AddProjectSheet: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Run in Terminal: \(command)").font(.caption.monospaced()).textSelection(.enabled)
                         Button("Copy Command") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(command, forType: .string) }
+                            .help("Copy this setup command to the clipboard")
                     }
                 }
             }
@@ -55,10 +59,12 @@ struct AddProjectSheet: View {
             HStack(alignment: .firstTextBaseline) {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(creatingNew && checking)
+                    .help("Close project setup without adding a project (Esc)")
                 Button(creatingNew ? "Create Project" : "Add Project") {
                     if creatingNew { createProject() }
                     else if let discovered { model.perform { try model.add(discovered) } }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    .help(creatingNew ? "Create a local Git repository in the selected folder (Return)" : "Add the checked repository to Build Mate (Return)")
                     .disabled(checking || (creatingNew ? path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : discovered == nil)).accessibilityIdentifier("confirm-add-project")
             }
         }.padding(28).frame(width: 610).frame(minHeight: 370).accessibilityElement(children: .contain).interactiveDismissDisabled(creatingNew && checking).onAppear { pathFocused = true }
@@ -131,6 +137,7 @@ struct EditTaskSheet: View {
             Picker("Proof", selection: $proofRequirement) {
                 ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
             }.fixedSize().disabled(saving || scopeLocked).accessibilityIdentifier("edit-task-proof")
+                .help("Choose the evidence the agent must provide for this task")
             Text(scopeLocked ? "Only the title can be changed once a pull request is open or the task is finished."
                  : "Changes to the brief or proof pause work that has already started. Resume the task when you’re ready for a new plan and fresh proof.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -139,7 +146,9 @@ struct EditTaskSheet: View {
                 if saving { ProgressView().controlSize(.small); Text("Saving changes…").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving)
+                    .help("Discard these edits and close (Esc)")
                 Button("Save Changes", action: save).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    .help("Save your edits to this task (Return)")
                     .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(28).frame(width: 670).interactiveDismissDisabled(saving).onAppear { titleFocused = true }
@@ -175,6 +184,7 @@ struct NewTaskSheet: View {
                 Picker("Project", selection: $projectID) {
                     ForEach(model.snapshot.projects) { Text($0.name).tag(Optional($0.id)) }
                 }.labelsHidden().frame(maxWidth: 230).disabled(creation != nil)
+                    .help("Choose the project for this task")
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("What should be built").font(.caption).foregroundStyle(.secondary)
@@ -189,10 +199,12 @@ struct NewTaskSheet: View {
                 TextField("Task title (optional)", text: $title).textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Task title (optional)").accessibilityIdentifier("task-title").padding(.top, 6)
             }.disabled(creation != nil)
+                .help("Enter your own title instead of generating one from the brief")
             VStack(alignment: .leading, spacing: 6) {
                 Picker("Proof", selection: $proofRequirement) {
                     ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
                 }.fixedSize().disabled(creation != nil).accessibilityIdentifier("task-proof")
+                    .help("Choose the evidence the agent must provide for this task")
                 Text("Automatic lets the agent choose relevant checks and a recording for visual changes. You can also describe the evidence you want in the brief.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
@@ -209,9 +221,11 @@ struct NewTaskSheet: View {
                 Text("Agents only pick up tasks in Queue.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { creation?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
+                    .help("Cancel task creation and close (Esc)")
                 Button("Start Now") { create(start: true) }.disabled(!valid || selectedProject?.runBlockReason != nil)
-                    .help(selectedProject?.runBlockReason ?? "Add to Queue")
+                    .help(selectedProject?.runBlockReason ?? "Queue this task to run when an agent slot is available and the project is resumed")
                 Button("Add to Backlog") { create(start: false) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(!valid)
+                    .help("Save this task for later without starting an agent (Return)")
             }
         }.padding(28).frame(width: 670)
             .onAppear { projectID = model.selectedProject?.id ?? model.snapshot.projects.first?.id; descriptionFocused = true }

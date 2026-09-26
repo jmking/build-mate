@@ -126,7 +126,7 @@ Brand marks are reserved for repository/service-specific actions and information
 - Reduce Motion: no pulsing, no card fly-overs (cross-fade instead).
 
 ## 8. Accessibility
-- Every icon-only control has a label and tooltip; answer chips announce the question.
+- Every app-authored button has a concise, action-specific tooltip, including text buttons, cards/rows, sheet actions, answer chips and menu actions. Include keyboard shortcuts where available; pause/resume help reflects the current action. Navigation cards explain that they open a task, and reorderable cards also explain dragging. Use native `.help` so macOS owns tooltip presentation. Icon-only controls also have an accessible label; answer chips announce the question. Native window and system-dialog controls retain their system help.
 - Status never relies on colour alone: text accompanies every coloured dot.
 - Contrast ≥ 4.5:1 for text in both appearances.
 - Full keyboard navigation on Mac (Tab through regions, arrow keys in lists and board, Space to open).

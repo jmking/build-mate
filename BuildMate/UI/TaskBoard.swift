@@ -21,7 +21,7 @@ struct TaskBoard: View {
                                 Text(state.title).font(.caption.weight(.semibold))
                                 Spacer(minLength: 2)
                                 Text("\(model.tasks(projectID).filter { $0.state == state }.count)").font(.caption).foregroundStyle(.secondary)
-                                if state == .todo { Button { model.showNewTask = true } label: { Image(systemName: "plus").font(.caption).frame(width: 20, height: 20) }.buttonStyle(.plain).accessibilityLabel("New Task") }
+                                if state == .todo { Button { model.showNewTask = true } label: { Image(systemName: "plus").font(.caption).frame(width: 20, height: 20) }.buttonStyle(.plain).accessibilityLabel("New Task").help("Create a new task (⌘N)") }
                             }.frame(height: 20).padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
                             ScrollView {
                                 LazyVStack(spacing: 8) {
@@ -51,6 +51,7 @@ struct TaskBoard: View {
                 ToolbarItem {
                     if let project = model.selectedProject {
                         Button(project.paused ? "Resume Project" : "Pause Project", systemImage: project.paused ? "play" : "pause") { model.perform { try model.pauseProject(project) } }
+                            .help(project.paused ? "Resume eligible tasks in this project" : "Pause all agent work in this project")
                     }
                 }
             }
@@ -80,9 +81,10 @@ struct TaskList: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.vertical, 8).contentShape(Rectangle())
                                 }.buttonStyle(.plain)
+                                    .help("Open \(task.title)")
                                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                                     .contextMenu {
-                                        Button("Edit Task…") { model.editingTask = task }
+                                        Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief and proof requirements")
                                         TaskPriorityActions(task: task)
                                     }
                                     .modifier(TaskPriorityDrag(task: task))
