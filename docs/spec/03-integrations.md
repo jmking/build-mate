@@ -86,7 +86,7 @@ Exposed to task agents (T) and the project agent (P). All calls are validated by
 |---|---|---|---|
 | `ask_question(prompt, options?, allowsFreeText, blocking)` | T, P | Ask the user. | Creates a Question; blocking → `needs_clarification` (or "Decisions in PR" when in PR). Returns when answered. |
 | `submit_plan(plan)` | T | Share the build plan. | If plan approval applies, creates an Approval and waits; else logs the plan and continues. |
-| `request_review(summary)` | T | Declare implementation complete. | Triggers the proof runner; on success moves to `human_review` (or opens the PR if review is off). |
+| `request_review(summary, needsRecording, rationale, checks, recordingCommand?)` | T | Declare implementation complete and propose task-specific evidence. `checks` contains `{name, command}` entries. Legacy threads can encode this report as JSON in their summary-only tool. | Triggers the proof runner; on success moves to `human_review` (or opens the PR if review is off). |
 | `report_screenshot(path, caption)` | T | Attach a screenshot to the chat or proof. | Stored in media. |
 | `note(text)` | T, P | Short progress note shown as an agent message. | |
 | `propose_tasks(tasks[], shipAs)` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Start Now / Add to Backlog. |

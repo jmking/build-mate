@@ -52,7 +52,7 @@ final class WorkspaceTests: XCTestCase {
         let brief = app.textViews["task-description"]
         XCTAssertTrue(brief.waitForExistence(timeout: 5))
         brief.typeText("Please make the CLI output more compact and easier to scan.")
-        XCTAssertFalse(app.buttons["Start Now"].isEnabled)
+        XCTAssertTrue(app.buttons["Start Now"].isEnabled)
         app.buttons["Add to Backlog"].click()
         XCTAssertTrue(visibleText("Keep command output compact").waitForExistence(timeout: 5))
         app.buttons["rename-task"].click()
@@ -62,13 +62,7 @@ final class WorkspaceTests: XCTestCase {
         app.buttons["Save"].click()
         XCTAssertTrue(visibleText("Make output easier to read").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Move to Todo"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Move to Todo"].isEnabled)
-        var project = try XCTUnwrap(store.all(Project.self).first)
-        project.settings.recordingCommand = "true" // Fixture config; proof setup UI is outside this milestone.
-        try store.save(project)
-        let canMove = NSPredicate(format: "enabled == true")
-        let enabled = expectation(for: canMove, evaluatedWith: app.buttons["Move to Todo"])
-        await fulfillment(of: [enabled], timeout: 5)
+        XCTAssertTrue(app.buttons["Move to Todo"].isEnabled)
         app.buttons["Move to Todo"].click()
         app.typeKey("4", modifierFlags: .command)
         XCTAssertTrue(app.buttons["task-1"].waitForExistence(timeout: 5))

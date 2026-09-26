@@ -76,6 +76,7 @@ struct NewTaskSheet: View {
     @State private var projectID: UUID?
     @State private var title = ""
     @State private var description = ""
+    @State private var proofRequirement: ProofRequirement = .automatic
     @State private var creation: Task<Void, Never>?
     @State private var failure: String?
     @FocusState private var descriptionFocused: Bool
@@ -101,6 +102,13 @@ struct NewTaskSheet: View {
                 TextField("Task title (optional)", text: $title).textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Task title (optional)").accessibilityIdentifier("task-title").padding(.top, 6)
             }.disabled(creation != nil)
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Proof", selection: $proofRequirement) {
+                    ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
+                }.fixedSize().disabled(creation != nil).accessibilityIdentifier("task-proof")
+                Text("Automatic lets the agent choose relevant checks and a recording for visual changes. You can also describe the evidence you want in the brief.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if creation != nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -131,7 +139,7 @@ struct NewTaskSheet: View {
         creation = Task {
             defer { creation = nil }
             do {
-                try await model.createTask(projectID: projectID, title: title, description: description, start: start)
+                try await model.createTask(projectID: projectID, title: title, description: description, start: start, proofRequirement: proofRequirement)
                 await model.refresh()
             } catch is CancellationError { }
             catch { failure = error.localizedDescription }

@@ -8,6 +8,17 @@ enum TaskState: String, Codable, CaseIterable, Sendable {
     var terminal: Bool { self == .done || self == .canceled }
 }
 
+enum ProofRequirement: String, Codable, CaseIterable, Sendable {
+    case automatic, checksOnly, checksAndRecording
+    var title: String {
+        switch self {
+        case .automatic: "Automatic"
+        case .checksOnly: "Checks only"
+        case .checksAndRecording: "Checks + recording"
+        }
+    }
+}
+
 struct ProjectSettings: Codable, Sendable {
     var maxTurnsPerTask = 20
     var retryBackoffMaxMs = 300_000
@@ -22,7 +33,6 @@ struct ProjectSettings: Codable, Sendable {
     var hooks = Hooks()
     var checks: [CheckDefinition] = []
     var recordingCommand: String?
-    var recordingRequired = true
     var screenshotsForUI = true
     var previewCommand = ""
     var previewPortEnvVar = "PORT"
@@ -42,9 +52,6 @@ extension ProjectSettings {
 extension Project {
     var runBlockReason: String? {
         if host == .bitbucket { return "Bitbucket task runs are not available yet. You can save tasks to Backlog." }
-        if settings.recordingRequired && (settings.recordingCommand ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Task runs need a proof recording command. Proof setup is not available in this version yet. You can save tasks to Backlog."
-        }
         return nil
     }
 }
@@ -97,6 +104,7 @@ struct WorkTask: Record {
     var dependsOn: [UUID] = []
     var stackOn: UUID?
     var askBeforeBuild: Bool?
+    var proofRequirement: ProofRequirement = .automatic
     var origin = "sheet"
     var branchName: String?
     var worktreePath: String?
@@ -162,6 +170,8 @@ struct Proof: Record {
     var taskId: UUID
     var recordingPath: String?
     var recordingDuration: Double?
+    var recordingRequired = false
+    var rationale: String?
     var screenshots: [String] = []
     var checks: [CheckResult] = []
     var files = 0

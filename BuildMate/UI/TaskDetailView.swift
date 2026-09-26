@@ -105,6 +105,7 @@ struct TaskDetailView: View {
                     Divider()
                     Text("Brief").font(.headline)
                     Text(task.description.isEmpty ? task.title : task.description).foregroundStyle(.secondary)
+                    LabeledContent("Proof", value: task.proofRequirement.title)
                     if let path = task.worktreePath {
                         Divider()
                         Text("Worktree").font(.headline)
@@ -114,7 +115,8 @@ struct TaskDetailView: View {
                         Divider()
                         Text("Proof of work").font(.headline)
                         ForEach(Array(proof.checks.enumerated()), id: \.offset) { _, check in Label(check.name + " · " + check.status, systemImage: check.status == "passed" ? "checkmark.circle" : "xmark.circle") }
-                        Text(proof.recordingPath == nil ? "Recording not available" : "Recording captured").foregroundStyle(.secondary)
+                        if let rationale = proof.rationale { Text(rationale).foregroundStyle(.secondary) }
+                        Text(proof.recordingPath != nil ? "Recording captured" : proof.recordingRequired ? "Required recording not captured" : "Recording not required").foregroundStyle(.secondary)
                     }
                     if let pr = task.pr, let url = URL(string: pr.url) { Link("View Pull Request #\(pr.number)", destination: url) }
                     if task.state == .backlog {

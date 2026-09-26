@@ -367,7 +367,7 @@ actor Orchestrator {
         let answers = try store.all(Question.self).filter { $0.taskId == task.id }.map { "\($0.prompt): \($0.answer ?? "unanswered")" }.joined(separator: "\n")
         let session = try store.session(for: task.id)
         let messages = try store.all(Message.self).filter { $0.sessionId == session.id && $0.role == "user" }.map(\.body).joined(separator: "\n")
-        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nAnswers:\n\(answers)\nAdditional user messages:\n\(messages)\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review."
+        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nAnswers:\n\(answers)\nAdditional user messages:\n\(messages)\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. A recording command writes MP4 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema only accepts summary, encode the complete report as JSON in summary.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {
@@ -429,16 +429,19 @@ actor Orchestrator {
             try await client.respond(requestId, text: "Plan accepted. Build within scope.")
         case "request_review":
             let task = try store.get(WorkTask.self, taskId)
-            guard task.state == .building, let summary = args["summary"].string, !summary.isEmpty else {
+            guard task.state == .building else {
                 try await client.respond(requestId, text: "Submit your plan and resolve questions before review.", success: false); return
             }
+            let submission: ProofSubmission
+            do { submission = try ProofSubmission(args) }
+            catch { try await client.respond(requestId, text: error.localizedDescription, success: false); return }
             let project = try store.get(Project.self, task.projectId)
             while heavySteps >= (try store.settings()).heavyStepsAtOnce {
                 try Task.checkCancellation(); try await Task.sleep(for: .milliseconds(100))
             }
             heavySteps += 1
             let proof: Proof
-            do { proof = try await ProofRunner(store: store, runner: runner).run(task: task, project: project, summary: summary) }
+            do { proof = try await ProofRunner(store: store, runner: runner).run(task: task, project: project, submission: submission) }
             catch { heavySteps -= 1; throw error }
             heavySteps -= 1
             if proof.complete {
@@ -446,10 +449,11 @@ actor Orchestrator {
                 try await client.respond(requestId, text: "Proof passed. Waiting for human review. Stop now.")
                 if !project.settings.askBeforeOpenPR { try await openPullRequest(taskId) }
             } else {
-                try store.save(Message(sessionId: session.id, role: "system", kind: "proof", body: "Required proof failed. Fix checks or provide the configured recording."))
+                let reason = proof.checks.isEmpty ? "Provide at least one relevant executable check." : proof.recordingRequired && proof.recordingPath == nil ? "Provide a playable visual recording using recordingCommand and $BUILD_MATE_RECORDING_PATH." : "Fix the failing checks and commit all implementation changes."
+                try store.save(Message(sessionId: session.id, role: "system", kind: "proof", body: "Required proof failed. " + reason))
                 let failures = try store.all(Message.self).filter { $0.sessionId == session.id && $0.kind == "proof" }.count
                 if failures >= 3 { var paused = task; paused.paused = true; try store.save(paused) }
-                try await client.respond(requestId, text: "Required proof failed. Review check logs under app storage; fix and request review again.", success: false)
+                try await client.respond(requestId, text: "Required proof failed. " + reason + " Review check logs under app storage; fix and request review again.", success: false)
             }
         case "note":
             guard let text = args["text"].string else { try await client.respond(requestId, text: "Text required", success: false); return }

@@ -88,8 +88,27 @@ actor CodexClient {
         tool("ask_question", "Ask the user before making an unclear decision. Blocking questions wait for an answer.",
              ["prompt": "string", "allowsFreeText": "boolean", "blocking": "boolean"], required: ["prompt", "blocking"], options: true),
         tool("submit_plan", "Submit your plan before editing. Wait for approval when required.", ["plan": "string"], required: ["plan"]),
-        tool("request_review", "Request human review after implementation. The app independently runs proof. Do not push or open a PR.", ["summary": "string"], required: ["summary"]),
+        reviewTool,
         tool("note", "Record a short progress note.", ["text": "string"], required: ["text"])
+    ])
+    private static let reviewTool: JSON = .object([
+        "name": .string("request_review"),
+        "description": .string("Request review after committing. Classify visual changes and explain the relevant evidence, respecting the user's proof choice and brief. Supply meaningful check commands; Build Mate runs them independently alongside configured checks. For required visual proof supply a recordingCommand that writes a playable MP4 to $BUILD_MATE_RECORDING_PATH (up to 180 seconds), unless the project has one configured. Commands run in the task worktree. Do not push or open a PR."),
+        "inputSchema": .object([
+            "type": .string("object"), "additionalProperties": .bool(false),
+            "properties": .object([
+                "summary": .object(["type": .string("string")]),
+                "needsRecording": .object(["type": .string("boolean")]),
+                "rationale": .object(["type": .string("string")]),
+                "recordingCommand": .object(["type": .string("string")]),
+                "checks": .object(["type": .string("array"), "items": .object([
+                    "type": .string("object"), "additionalProperties": .bool(false),
+                    "properties": .object(["name": .object(["type": .string("string")]), "command": .object(["type": .string("string")])]),
+                    "required": .array([.string("name"), .string("command")])
+                ])])
+            ]),
+            "required": .array(["summary", "needsRecording", "rationale", "checks"].map(JSON.string))
+        ])
     ])
     private static func tool(_ name: String, _ description: String, _ fields: [String: String], required: [String], options: Bool = false) -> JSON {
         var properties = fields.mapValues { JSON.object(["type": .string($0)]) }

@@ -52,6 +52,12 @@ final class Store: Sendable {
             CREATE TABLE appSettings (id INTEGER PRIMARY KEY CHECK(id = 1), value BLOB NOT NULL);
             """)
         }
+        migrator.registerMigration("v2-task-proof") { db in
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN proofRequirement TEXT NOT NULL DEFAULT 'automatic'")
+            try db.execute(sql: "ALTER TABLE proof ADD COLUMN recordingRequired BOOLEAN NOT NULL DEFAULT 0")
+            try db.execute(sql: "ALTER TABLE proof ADD COLUMN rationale TEXT")
+            try db.execute(sql: "UPDATE proof SET recordingRequired = 1 WHERE recordingPath IS NOT NULL")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -85,12 +91,12 @@ final class Store: Sendable {
         try db.write { try $0.execute(sql: "INSERT OR REPLACE INTO appSettings VALUES (1, ?)", arguments: [data]) }
     }
     func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .backlog,
-                    rank: Double = 0, dependsOn: [UUID] = []) throws -> WorkTask {
+                    rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic) throws -> WorkTask {
         guard [.backlog, .todo].contains(state) else { throw CoreError.invalid("New tasks must be Backlog or Todo") }
         return try db.write { db in
             let number = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE projectId = ?", arguments: [projectId])!
             let task = WorkTask(projectId: projectId, number: number, title: title, description: description,
-                                state: state, rank: rank, dependsOn: dependsOn)
+                                state: state, rank: rank, dependsOn: dependsOn, proofRequirement: proofRequirement)
             try task.insert(db)
             return task
         }

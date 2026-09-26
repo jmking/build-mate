@@ -62,10 +62,11 @@ struct CoreTests {
         var f = try await Fixture()
         f.project.settings.askBeforeBuild = true
         f.project.settings.stallTimeoutMs = 750
+        f.project.settings.recordingCommand = nil
         f.project.settings.checks.append(CheckDefinition(name: "Required proof", command: "test -f \"$BUILD_MATE_FIXTURE/proof-repaired\""))
         try f.store.save(f.project)
         let core = Orchestrator(store: f.store, runner: f.runner)
-        let task = try f.store.createTask(projectId: f.project.id, title: "Add plain output", state: .todo)
+        let task = try f.store.createTask(projectId: f.project.id, title: "Add plain output", state: .todo, proofRequirement: .checksAndRecording)
         #expect(task.state == .todo)
         await core.tick()
         try await f.wait("blocking question") { try f.store.get(WorkTask.self, task.id).state == .needsClarification }
@@ -82,7 +83,8 @@ struct CoreTests {
         #expect(try f.store.session(for: task.id).codexThreadId == thread)
         let proof = try #require(f.store.all(Proof.self).first)
         #expect(proof.complete && proof.checks.allSatisfy { $0.status == "passed" })
-        #expect(proof.recordingDuration != nil)
+        #expect(proof.recordingRequired && proof.recordingDuration != nil)
+        #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == 2) // Missing and invalid video cannot bypass the user's recording requirement.
         #expect(try f.store.all(Message.self).contains { $0.kind == "proof" }) // Failed proof reached the agent before review.
         #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "pr-created").path))
         await core.shutdown()
@@ -112,6 +114,33 @@ struct CoreTests {
         #expect(FileManager.default.fileExists(atPath: f.repo.path))
         await resumed.shutdown()
         try f.cleanup()
+    }
+
+    @Test func taskProofUsesAgentAssessmentAndHonorsChecksOnlyOverride() async throws {
+        for (requirement, visual) in [(ProofRequirement.automatic, false), (.automatic, true), (.checksOnly, true)] {
+            var f = try await Fixture()
+            f.project.settings.checks = []
+            f.project.settings.recordingCommand = nil
+            try f.store.save(f.project)
+            if visual { try f.marker("visual-task") }
+            else { try f.marker("legacy-review"); try f.marker("omit-checks") } // Resumed threads with summary-only tools can submit the same proof report.
+            let task = try f.store.createTask(projectId: f.project.id, title: "Task-specific proof", state: .todo, proofRequirement: requirement)
+            let core = Orchestrator(store: f.store, runner: f.runner)
+            await core.tick()
+            try await f.wait("question") { try !f.store.all(Question.self).isEmpty }
+            try await core.answer(f.store.all(Question.self)[0].id, text: "Plain")
+            try await f.wait("task-specific proof") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
+            let proof = try #require(f.store.all(Proof.self).first)
+            #expect(proof.complete && proof.checks.count == 1 && proof.checks[0].status == "passed")
+            #expect(proof.rationale != nil)
+            #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "forbidden-write").path))
+            let recording = visual && requirement != .checksOnly
+            #expect(proof.recordingRequired == recording)
+            #expect((proof.recordingPath != nil) == recording)
+            #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == (recording ? 2 : visual ? 0 : 1))
+            await core.shutdown()
+            try f.cleanup()
+        }
     }
 
     @Test func schedulerRespectsRankDependenciesPauseAndResumesThreadAfterCrash() async throws {

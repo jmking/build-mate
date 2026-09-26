@@ -7,15 +7,15 @@ Coding agents can now do most of the implementation for well-described work, but
 A Mac app where you **manage work instead of supervising agents**:
 - You talk to a **project chat**. It reads the codebase and proposes a set of **tasks** (with dependencies and how they ship).
 - Tasks wait in a **Backlog** until you move them to **Todo** (or you tell the chat to start now).
-- Each task gets its own **agent** in its own **git worktree**. The agent asks questions when unclear, builds, and produces **proof of work** (recording + checks).
-- You do a **human review** with the recording and a one-click **Run locally**, then the agent opens a **pull request** and looks after it until it is **merged**.
+- Each task gets its own **agent** in its own **git worktree**. The agent asks questions when unclear, builds, and produces **proof of work** (relevant checks and visual evidence when appropriate).
+- You do a **human review** with the evidence and a one-click **Run locally**, then the agent opens a **pull request** and looks after it until it is **merged**.
 - Everything that needs you lands in one place: **Needs You**, on the Mac, in the menu bar and on your iPhone.
 
 ## Principles
 1. **Merged is the finish line.** Every task shows where it is on its road to merge, not how many turns an agent has taken.
 2. **Needs You is home.** The app's job is to minimise and batch the moments a human is needed.
 3. **Ask, don't guess.** Agents ask clarifying questions before building and at decision points, and never silently expand scope.
-4. **Prove it.** A task cannot reach human review without proof (recording and checks as configured).
+4. **Prove it.** A task cannot reach human review without proof (passing checks plus any task-required recording).
 5. **Brakes are always in reach.** Pause a task, a project or everything, from anywhere, instantly.
 6. **Not an editor, one click from one.** Code opens in your editor (Cursor, VS Code, Xcode). Build Mate never becomes an IDE.
 7. **Invisible to the team.** Nothing is written into the repository. The team only sees branches and pull requests.
@@ -40,7 +40,7 @@ A Mac app where you **manage work instead of supervising agents**:
 | **Human review** | Proof is complete; waiting for you to review before a PR opens. |
 | **In PR** | A PR is open. The agent watches it: fixes failing builds, addresses review comments, asks you only for decisions. |
 | **Merged** | Pull request merged. |
-| **Proof of work** | Evidence produced for review: a screen recording of the change, check results, and a change summary. |
+| **Proof of work** | Evidence produced for review: check results, a change summary, and a recording when appropriate to the task or explicitly requested. |
 | **Road to merge** | The five checkpoints every task passes: Clarified → Built → Proof of work → Human review → Merged. |
 | **Approval checkpoint** | A point where the agent must wait for you: before building (plan approval), before opening a PR (human review), before merging. Configurable. |
 | **Needs You** | The cross-project inbox of everything waiting on you: questions, approvals, PR decisions, reviews. |

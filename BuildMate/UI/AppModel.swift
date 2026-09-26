@@ -136,7 +136,7 @@ final class AppModel {
         destination = .project(discovered.project.id, .tasks)
         showAddProject = false
     }
-    func createTask(projectID: UUID, title: String, description: String, start: Bool) async throws {
+    func createTask(projectID: UUID, title: String, description: String, start: Bool, proofRequirement: ProofRequirement = .automatic) async throws {
         let project = try store.get(Project.self, projectID)
         if start, let reason = project.runBlockReason { throw CoreError.invalid(reason) }
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -147,7 +147,7 @@ final class AppModel {
         try Task.checkCancellation()
         // Configuration may have changed while the title was being generated.
         if start, let reason = try store.get(Project.self, projectID).runBlockReason { throw CoreError.invalid(reason) }
-        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog)
+        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog, proofRequirement: proofRequirement)
         showNewTask = false; destination = .task(task.id)
         await core.tick()
     }

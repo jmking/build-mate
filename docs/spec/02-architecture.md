@@ -67,12 +67,12 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 - `branchPrefix` (default empty, meaning `<number>-<slug>`; e.g. `427-report-permissions`).
 - `editor` (bundle id, default the first installed of Cursor, VS Code, Xcode).
 - `hooks`: `{ afterCreate, beforeRun, afterRun, beforeRemove }` shell strings, timeout 60 s each.
-- `proof`: `{ checks: [{ name, command, required }], recording: { command | agentDriven, required }, screenshotsForUI: bool }`.
+- `proof`: `{ checks: [{ name, command, required }], recording: { command | agentDriven }, screenshotsForUI: bool }`.
 - `preview`: `{ command, portEnvVar (default PORT), readyPath (default /) }`.
 - `sandbox`: `{ network: true }`.
 - `model`: Codex model id and reasoning effort for task agents and the project agent.
 
-**Task**: `id, projectId, number (int, unique per project), title, description (markdown), state (see 5), paused (bool), rank (float, ordering within backlog/todo), dependsOn [taskId], shipAs (own | stackOn(taskId) | featureBranch(name) v1.1), askBeforeBuild (inherit|on|off), origin (chat|sheet|phone|backlog), branchName, worktreePath, pr { number, url, baseBranch } ?, retry { attempt, dueAt, error } ?, createdAt, updatedAt, doneAt`.
+**Task**: `id, projectId, number (int, unique per project), title, description (markdown), state (see 5), paused (bool), rank (float, ordering within backlog/todo), dependsOn [taskId], shipAs (own | stackOn(taskId) | featureBranch(name) v1.1), askBeforeBuild (inherit|on|off), proofRequirement (automatic|checksOnly|checksAndRecording), origin (chat|sheet|phone|backlog), branchName, worktreePath, pr { number, url, baseBranch } ?, retry { attempt, dueAt, error } ?, createdAt, updatedAt, doneAt`.
 
 **Attachment**: `id, ownerType (task|message), ownerId, kind (image|video), path, filename, byteSize, durationSec?, frames [path]?, transcript?`.
 
@@ -86,7 +86,7 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 
 **Approval**: `id, taskId, kind (plan|openPR|merge), status (pending|approved|rejected), planText?, createdAt, resolvedAt?`.
 
-**Proof**: `taskId, recording { path, durationSec }?, screenshots [path], checks [{ name, status (passed|failed|skipped), durationSec, logPath }], changes { files, additions, deletions, summary }, complete (bool), producedAt`.
+**Proof**: `taskId, rationale, recordingRequired, recording { path, durationSec }?, screenshots [path], checks [{ name, status (passed|failed|skipped), durationSec, logPath }], changes { files, additions, deletions, summary }, complete (bool), producedAt`.
 
 **RunAttempt** (Symphony): `id, taskId, attempt, phase, startedAt, endedAt, status (succeeded|failed|timedOut|stalled|canceled), error`.
 
@@ -124,7 +124,7 @@ The persisted `done` state is displayed as **Merged** throughout the app. Keep t
 | any | (paused flag) | Pause task / project / all | See section 10. |
 
 ### Road to merge (display)
-Five checkpoints derived from state and data: **Clarified** (no open blocking questions and, if needed, plan approved), **Built** (agent requested review), **Proof of work** (proof complete, with sub-items Recording and Checks), **Human review** (approved, or skipped by settings), **Merged**. Each is `done`, `current`, `needsYou` or `todo`. The 5-segment bar on cards and the vertical checklist in the task inspector are two renderings of the same data.
+Five checkpoints derived from state and data: **Clarified** (no open blocking questions and, if needed, plan approved), **Built** (agent requested review), **Proof of work** (proof complete, with sub-items Checks and, when applicable, Recording), **Human review** (approved, or skipped by settings), **Merged**. Each is `done`, `current`, `needsYou` or `todo`. The 5-segment bar on cards and the vertical checklist in the task inspector are two renderings of the same data.
 
 ## 6. Orchestration loop
 Follow Symphony's loop with these specifics:
@@ -148,11 +148,13 @@ The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Ma
 The **project agent** gets 1–3 plus a project brief (repo summary, open tasks and their states) and the `propose_tasks` / `create_tasks` tools. It runs read-only in a dedicated worktree of the default branch, refreshed on each new chat message.
 
 ## 8. Proof of work
-- **Checks** run by Build Mate (not trusted to the agent) in the worktree after the agent calls `request_review`: each configured command with its exit code, duration and log. Required checks must pass.
-- **Recording**: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-driven (the agent drives a browser through a browser tool and Build Mate records). Output: MP4/H.264, max 3 minutes, saved to `media/`.
+- **Task-specific evidence**: New Task defaults to Automatic. The agent chooses whether a recording is needed based on visual versus functional work and explicit user instructions, explains the choice in its plan and submits a rationale. The user can override with Checks only or Checks + recording; the app enforces that choice. Existing tasks migrate to Automatic. The former project-wide `recordingRequired` setting is retired.
+- **Checks** run by Build Mate in the worktree after `request_review`: project-configured checks plus agent-proposed named commands, with exit code, duration and log. Agent checks are required and at least one required check must exist and pass. No recording setup is needed to start work. A check demonstrates behavior; documentation-only work can use a relevant content/format check.
+- **Command boundary**: proof commands run under the macOS sandbox with writes restricted to the task worktree and its app-owned media directory (including a private TMPDIR). Network follows the project setting. Agent-proposed commands never run as unrestricted shell hooks. Command success is independently measured; the relevance of agent-chosen evidence still needs human review.
+- **Recording**, only when selected by the agent or required by the user: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-driven (the agent drives a browser through a browser tool and Build Mate records). Output: MP4/H.264, max 3 minutes, saved to `media/`.
 - **Screenshots**: for UI changes when enabled, before (default branch) and after (task branch).
 - **Changes summary**: files changed, additions, deletions, and a one-paragraph agent summary.
-- The configured recording command receives an absolute `$BUILD_MATE_RECORDING_PATH` in project media storage and must write MP4/H.264 there. The core verifies a playable video track and duration in (0, 180] seconds. A missing required command or recording fails proof.
+- The configured or agent-proposed recording command receives an absolute `$BUILD_MATE_RECORDING_PATH` in project media storage and must write MP4/H.264 there. The core verifies a playable video track and duration in (0, 180] seconds. A missing required command or recording fails proof.
 - Proof is `complete` when every required item exists and passed and the implementation is committed (a dirty worktree fails proof). Only then can the task enter Human review.
 - Proof stays in Build Mate. It is **not** added to PR descriptions (the team should not see Build Mate artefacts).
 

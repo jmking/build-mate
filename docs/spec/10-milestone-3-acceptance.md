@@ -1,6 +1,6 @@
 # Milestone 3 acceptance — 2026-09-26
 
-Status: implementation and process-boundary tests delivered; spoken VoiceOver acceptance remains outstanding. No milestone 4 implementation was started in this follow-up.
+Status: implementation and process-boundary tests delivered; spoken VoiceOver acceptance remains outstanding. Historical checks below predate the user-directed task-specific proof follow-up in 07/08, which supersedes the recording setup/start gate.
 
 ## Automated evidence
 

@@ -36,7 +36,7 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 **Lifecycle**
 - A task whose agent asks a blocking question moves to Needs Clarification, appears in Needs You, and resumes within 5 s of the last answer, with the same Codex thread (context retained).
 - With "Ask me before starting to build" on (project or task), the task waits in Todo with an Approval in Needs You; Approve Plan starts building.
-- A task cannot enter Human review until required checks pass and the recording exists; failed proof returns to the agent with the failure.
+- A task cannot enter Human review until required checks pass and any task-required recording exists; failed proof returns to the agent with the failure.
 - Run locally starts the preview on a unique port and opens the browser within 90 s, for two tasks at once without port clashes.
 - Open Pull Request creates the PR on the right host; dependent tasks create stacked PRs targeting the base task's branch; after the base merges, the dependent PR is rebased and retargeted to the default branch automatically.
 - In PR, a failing required check triggers the agent to fix and push without user action; a decision question appears under Decisions in PR.
@@ -66,3 +66,7 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 - Scope still pending: review/playback/previews/editor actions (4), full SCM/PR controls (5), project chat/attachments/backlog ordering/instruction editing (6), usage/settings/menu bar/notifications/final accessibility polish (7). Board drag/drop is deferred with backlog ordering. No v2/v3 features were added.
 
 - Follow-up demo: an unconfigured project can save to Backlog but cannot start; a configured fixture answers a question and restores its transcript after relaunch. The composer explicitly confirms whether a message was sent or saved without starting work.
+
+## Task-specific proof follow-up (2026-09-26)
+
+User-directed scope change ahead of the rest of milestone 4: remove the project-wide recording start gate. Automatic task proof selects evidence suited to the work, with user overrides. The app independently executes checks and validates required recordings before Human review. Playback, previews, editor actions and complete review controls still belong to milestone 4. The earlier unconfigured-project handoff describes the superseded behavior.

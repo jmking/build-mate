@@ -33,23 +33,17 @@ struct ShellTests {
         let task = try #require(model.selectedTask)
         #expect(task.state == .backlog && task.title == "Make output readable")
         #expect(task.worktreePath == nil)
-        // A new project's missing recording setup must not consume an agent run through either entry point.
-        do { try await model.createTask(projectID: discovered.project.id, title: "Must not start", description: "", start: true); Issue.record("Unconfigured task started") } catch {}
-        do { try await model.moveToTodo(task); Issue.record("Unconfigured task moved to Todo") } catch {}
-        #expect(try uiStore.all(WorkTask.self).count == 1)
-        let legacy = try uiStore.createTask(projectId: discovered.project.id, title: "Previously queued", state: .todo)
-        settings.paused = false; try uiStore.saveSettings(settings)
-        await model.core.tick()
-        #expect(try uiStore.get(WorkTask.self, legacy.id).worktreePath == nil)
+        // No recording setup is needed to queue functional work; global pause still prevents dispatch.
+        try await model.createTask(projectID: discovered.project.id, title: "Functional work", description: "Verify an API", start: true, proofRequirement: .checksOnly)
+        let started = try #require(uiStore.all(WorkTask.self).first { $0.title == "Functional work" })
+        #expect(started.state == .todo && started.proofRequirement == .checksOnly && started.worktreePath == nil)
+        #expect(try await model.core.steer(started.id, text: "For the next run") == .saved)
         #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "calls.jsonl").path))
-        #expect(try await model.core.steer(legacy.id, text: "For the next run") == .saved)
-        settings.paused = true; try uiStore.saveSettings(settings)
-        var configured = discovered.project; configured.settings.recordingCommand = "true"
-        try uiStore.save(configured)
         try await model.moveToTodo(task)
         #expect(try uiStore.get(WorkTask.self, task.id).state == .todo)
         #expect(try uiStore.get(WorkTask.self, task.id).worktreePath == nil)
-        try await model.core.deleteTask(legacy.id)
+        try await model.core.deleteTask(started.id)
+        model.destination = .task(task.id)
         let session = try uiStore.session(for: task.id)
         try uiStore.save(Message(sessionId: session.id, role: "agent", body: "A persisted transcript"))
         await model.refresh()
@@ -63,7 +57,7 @@ struct ShellTests {
         #expect(restored.snapshot.messages.contains { $0.body == "A persisted transcript" })
         // Description-only creation gets a model title; failures and cancellation must not lose the brief or start work.
         let brief = "Please improve our CLI so verbose output is compact and easy to scan. Keep errors visible."
-        try await model.createTask(projectID: configured.id, title: "  ", description: brief, start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "  ", description: brief, start: false)
         await model.refresh()
         let generated = try #require(model.selectedTask)
         #expect(generated.title == "Keep command output compact" && generated.description == brief)
@@ -73,13 +67,13 @@ struct ShellTests {
         let renamed = try uiStore.get(WorkTask.self, generated.id)
         #expect(renamed.title == "Keep errors visible in compact output" && renamed.description == brief && renamed.state == .backlog)
         try f.marker("title-failure")
-        try await model.createTask(projectID: configured.id, title: "", description: "Keep errors visible. More detail here.", start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Keep errors visible. More detail here.", start: false)
         await model.refresh()
         #expect(model.selectedTask?.title == "Keep errors visible")
         try FileManager.default.removeItem(at: f.control.appending(path: "title-failure"))
         let count = try uiStore.all(WorkTask.self).count
         try f.marker("title-stall")
-        let creation = Task { try await model.createTask(projectID: configured.id, title: "", description: "Canceled brief", start: false) }
+        let creation = Task { try await model.createTask(projectID: discovered.project.id, title: "", description: "Canceled brief", start: false) }
         let calls = f.control.appending(path: "calls.jsonl")
         let cancellationDeadline = Date().addingTimeInterval(5)
         while !(try String(contentsOf: calls, encoding: .utf8)).contains("Canceled brief") && Date() < cancellationDeadline {

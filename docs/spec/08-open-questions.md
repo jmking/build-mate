@@ -98,3 +98,11 @@ Naming is an ephemeral read-only Codex request, independent of paused project ex
 ## Neutral project identity (2026-09-26)
 
 User direction: represent projects with a folder, as in Codex, instead of a GitHub/Bitbucket logo. A project's visual identity must not imply a single repository or hosting service. This change is presentation only: current v1 project discovery and storage still require one local clone with a GitHub or Bitbucket Cloud origin. Multiple repositories, mixed-host projects and local-only repositories need separate functional scope; the neutral icon does not imply they are implemented.
+
+## Task-specific proof (2026-09-26)
+
+User direction supersedes the blanket recording gate above. Default to Automatic per task; the agent decides whether visual evidence is appropriate, takes brief instructions into account and explains the decision. Checks only and Checks + recording are explicit user overrides. At least one executable required check is needed, including a meaningful content/format check for documentation-only changes. All configured required checks remain enforced. Missing recording configuration no longer blocks dispatch; a missing or invalid task-required video blocks Human review and returns to the agent.
+
+Project recording commands remain reusable defaults; the agent can supply a task command when none is configured. Existing tasks migrate to Automatic, existing proofs with videos retain their recording status, and the obsolete project-wide recordingRequired JSON field is ignored. Since durable Codex tools retain their original schema, old summary-only request_review calls can carry the structured proof report as JSON in summary. This avoids discarding existing Codex threads.
+
+Agent-proposed commands use macOS sandbox-exec with writes confined to the worktree and task media directory, and network governed by the project setting. A manual local probe on this Mac confirmed allowed scratch writes and denial outside those roots. This is an OS command sandbox, not a helper process/service. Recording validation and review playback are separate; full playback/preview/editor UI remains milestone 4.
