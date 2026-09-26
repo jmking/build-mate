@@ -176,3 +176,7 @@ Queue ordering: drag Backlog rows or Queue cards/list rows onto the upper/lower 
 Usage UI follow-up: the sidebar shows the most constrained Codex account window, a remaining-percentage bar and reset time. Its popover lists every reported bucket/window, shared-account explanation, last refresh, errors and Refresh. Refresh on startup/every minute and consume live account notifications; an account-only app-server process creates no agent thread. Unknown windows/resets remain unavailable, never zero or invented. Failed refreshes retain clearly labelled last-known values. This delivery is informational: automatic 15% holds, Resume Anyway, threshold settings and menu-bar usage remain milestone 7. The percentage bar turns orange below 25% and red below 15% as a warning only.
 
 The inactive task composer hint reads “Messages are saved for when work resumes.” This describes delivery before sending; the post-send status still confirms the actual result.
+
+## Task identity in the interface (2026-09-26)
+
+Use task titles, with project names where needed, to identify tasks. Hide internal task numbers from board cards, grouped lists, task-window subtitles, Needs You and their spoken accessibility labels; omit the former number column entirely. Dependency labels read “Waits on <task title>”. This supersedes numbered-task examples above. Keep task numbers internally for persistence, agent references, search compatibility and automation identifiers. Preserve real pull request numbers and original conversation text.

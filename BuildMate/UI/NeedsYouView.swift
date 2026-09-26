@@ -42,7 +42,7 @@ struct NeedsYouView: View {
                             Image(systemName: symbol).foregroundStyle(color).frame(width: 20).accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(task.title).fontWeight(.medium)
-                                Text("\(model.projectName(task.projectId)) · #\(task.number)").font(.caption).foregroundStyle(.secondary)
+                                Text(model.projectName(task.projectId)).font(.caption).foregroundStyle(.secondary)
                                 Text(detail(task)).foregroundStyle(.secondary).lineLimit(3)
                             }.multilineTextAlignment(.leading)
                             Spacer()
@@ -51,7 +51,7 @@ struct NeedsYouView: View {
                             .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain)
-                        .accessibilityLabel("\(task.title), \(model.projectName(task.projectId)), task \(task.number). \(detail(task))")
+                        .accessibilityLabel("\(task.title), \(model.projectName(task.projectId)). \(detail(task))")
                         .accessibilityHint("Opens the task")
                         .accessibilityIdentifier("needs-you-\(title)-\(task.number)")
                 }

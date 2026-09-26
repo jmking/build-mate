@@ -59,9 +59,9 @@ struct TaskCard: View {
         Button { model.destination = .task(task.id) } label: {
             VStack(alignment: .leading, spacing: 12) {
                 Text(task.title).font(.body.weight(.medium)).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(3)
-                HStack(alignment: .firstTextBaseline) { Text("#\(task.number)").monospacedDigit(); Spacer(); StateLabel(task: task) }.font(.caption)
+                StateLabel(task: task).font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
                 if let id = task.dependsOn.first, let dependency = model.snapshot.tasks.first(where: { $0.id == id }), dependency.state != .done {
-                    Label("Waits on #\(dependency.number)", systemImage: "link").font(.caption).foregroundStyle(.secondary)
+                    Label("Waits on \(dependency.title)", systemImage: "link").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -70,7 +70,7 @@ struct TaskCard: View {
             .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(task.title), task \(task.number), \(task.state.title)")
+        .accessibilityLabel("\(task.title), \(task.state.title)")
         .accessibilityIdentifier("task-\(task.number)")
         .contextMenu {
             Button("Open") { model.destination = .task(task.id) }

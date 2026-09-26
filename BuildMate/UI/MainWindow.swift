@@ -144,7 +144,7 @@ struct MainWindow: View {
         return "Needs You"
     }
     private var subtitle: String {
-        if let task = model.selectedTask { return "\(model.projectName(task.projectId)) · #\(task.number)" }
+        if let task = model.selectedTask { return model.projectName(task.projectId) }
         if case .project = model.destination { return model.selectedProject?.name ?? "" }
         return "\(model.needsCount) waiting across \(model.snapshot.projects.count) projects"
     }
