@@ -18,12 +18,12 @@ struct TaskBoard: View {
                     ForEach(columns, id: \.self) { state in
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(spacing: 6) {
-                                Image(systemName: state.symbol).foregroundStyle(state.color).accessibilityHidden(true)
+                                Image(systemName: state.symbol).font(.caption).foregroundStyle(state.color).frame(width: 16).accessibilityHidden(true)
                                 Text(state.title).font(.caption.weight(.semibold))
                                 Spacer(minLength: 2)
                                 Text("\(model.tasks(projectID).filter { $0.state == state }.count)").font(.caption).foregroundStyle(.secondary)
-                                if state == .todo { Button { model.showNewTask = true } label: { Image(systemName: "plus") }.buttonStyle(.plain).accessibilityLabel("New Task") }
-                            }.padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
+                                if state == .todo { Button { model.showNewTask = true } label: { Image(systemName: "plus").font(.caption).frame(width: 20, height: 20) }.buttonStyle(.plain).accessibilityLabel("New Task") }
+                            }.frame(height: 20).padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
                             ScrollView {
                                 LazyVStack(spacing: 8) {
                                     if state == .todo {

@@ -63,3 +63,11 @@ Replaced the hosting-service logo with the neutral outline folder SF Symbol. Ver
 Corrected the composer’s short-field/tall-button bottom alignment with optical text insets and matched native control sizing. Applied first-baseline alignment to form rows and footers, setup grid cells, transcript metadata, Needs You cards and task lists. Task lists reserve consistent number space and keep multiline titles leading aligned. The visual pass also found native list separators starting underneath the trailing status label; explicitly aligned them to the row leading edge.
 
 Manually inspected the composer empty and with multiline text, task brief/inspector, long wrapped card/list titles, board, New Task and Add Project (including discovered repository metadata). Checked light and dark appearance in isolated fixtures; the original fixture title was restored afterward. Native controls and accessibility identifiers remain intact. Build and the existing five-test suite pass; no new tests for these layout-only changes. Spoken VoiceOver and the previously documented XCTest UI-host limitation remain unverified.
+
+## Icon and spacing pass — 2026-09-26
+
+Replaced the manually sized project HStack with a native sidebar Label, giving the project folder and Needs You the same icon/title columns and keeping child pages consistently indented. The folder stays in neutral label colour. Normalised small add-control frames, Needs You status/chevron slots, board header glyph widths and header heights, and card metadata baselines. Reviewed the remaining form, transcript, composer and progress rows against the preceding alignment pass; retained their native labels and existing aligned layouts.
+
+Verified the sidebar, board and Needs You in light and dark fixtures, project collapse/expand, navigation shortcuts and exposed accessibility labels. No new layout tests; spoken VoiceOver and XCTest UI-host limitations remain as documented.
+
+Build passed. The restart test reproduced the earlier SQLite lock twice: its thread-ID assertion used `session(for:)`, which opens a get-or-create write transaction through the old Store while the reopened Store is active. Changed that assertion to read existing sessions without a competing write; production storage behavior is unchanged. All five tests then passed twice, in 13.161 and 13.169 seconds.

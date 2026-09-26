@@ -60,6 +60,7 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 
 ## 4. Layout, spacing, radii
 - Spacing scale: 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40.
+- Sidebar rows use native `Label` icon/title columns, including project disclosure labels; let the sidebar set symbol size and hierarchy indentation. Keep project folders in label colour. Repeated Needs You rows reserve 20 pt for status glyphs and 12 pt for chevrons. Board headers use 16 pt glyph slots and a common 20 pt height so the Todo add control cannot shift its header or content down.
 - Align mixed-size text/control rows to their first text baseline: form fields/buttons, footer captions/actions, task number/title/status, transcript metadata, and Needs You glyph/title/chevron. Wrapped titles stay leading aligned; task metadata stays on the first line. List separators start at the row's leading edge, not underneath trailing status labels.
 - Composer: the text field has a minimum 32 pt height with 7 pt optical vertical insets and a large native circular send control. Its single line is vertically centred with the button; when it grows, the last text line remains aligned with the bottom action. Hint and input share a leading edge. Check empty, typed, wrapped and multiline states.
 - **Concentric corners**: inner radius = outer radius − padding. Board column 20 → card 12 (8 padding). Sheet 22 → inner panel 12 (10 padding).

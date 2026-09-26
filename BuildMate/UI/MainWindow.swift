@@ -22,10 +22,13 @@ struct MainWindow: View {
                                     .tag(Destination.project(project.id, page))
                             }
                         } label: {
-                            HStack {
-                                Image(systemName: "folder").symbolVariant(.none).font(.system(size: 16)).foregroundStyle(.primary).frame(width: 16, height: 16).accessibilityHidden(true)
-                                Text(project.name).lineLimit(1)
-                                if project.paused { Image(systemName: "pause.fill").font(.caption).accessibilityLabel("Project paused") }
+                            Label {
+                                HStack(spacing: 6) {
+                                    Text(project.name).lineLimit(1)
+                                    if project.paused { Image(systemName: "pause.fill").font(.caption).foregroundStyle(.secondary).accessibilityLabel("Project paused") }
+                                }
+                            } icon: {
+                                Image(systemName: "folder").symbolVariant(.none).foregroundStyle(Color.primary).accessibilityHidden(true)
                             }
                         }
                     }
@@ -33,7 +36,7 @@ struct MainWindow: View {
                     HStack {
                         Text("Projects")
                         Spacer()
-                        Button { model.showAddProject = true } label: { Image(systemName: "plus") }
+                        Button { model.showAddProject = true } label: { Image(systemName: "plus").frame(width: 20, height: 20) }
                             .buttonStyle(.plain).help("Add Project (⇧⌘N)").accessibilityLabel("Add Project")
                     }
                 }
