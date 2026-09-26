@@ -124,7 +124,11 @@ Standard Settings window with toolbar tabs: **General**, **Hooks**, **Instructio
 - **Remote** (v2): Allow remote control, Keep this Mac awake while agents work, Paired devices (with Remove), Pair a Device… (QR sheet), privacy footnote.
 
 ## 12. Add Project (not drawn — design with the New Task sheet style)
-Sheet: choose a local clone (Open panel filtered to folders containing `.git`), detected host and remote (GitHub or Bitbucket Cloud with mark), default branch, CLI status ("gh signed in as …" / "Set up Bitbucket in TWG…" with a button that opens Terminal with `twg setup bitbucket`), optional quick setup (preview command, checks). Primary: **Add Project**.
+Sheet with native **Add Existing / Create New** segmented choice. Add Existing: choose a local repository (including local-only repositories with an initial commit), detected host and remote (GitHub or Bitbucket Cloud with mark), default branch, CLI status ("gh signed in as …" / "Set up Bitbucket in TWG…" with a button that opens Terminal with `twg setup bitbucket`), optional quick setup (preview command, checks). Primary: **Add Project**.
+
+Create New: choose a new or empty folder, or type its full path (the parent must exist). The native folder panel permits creating a folder. **Create Project** runs `git init` on `main` and makes an empty initial commit so worktrees can branch immediately. Use the folder name as the project name. No starter files or remote are created. Reject nonempty folders and locations inside existing Git repositories before mutation. Failed creation preserves the folder; do not remove user files. The operation shows progress and prevents duplicate submission.
+
+Local-only projects run tasks and collect proof without a hosting CLI. They stop at Human review with changes committed in the app-owned task worktree; publishing, local merge and PR actions are not implemented in this follow-up.
 
 ## 13. States not drawn (build to these rules)
 - **Usage meter** (sidebar footer and menu bar): thin bar + "62% left · resets 16:40"; turns orange under 25 %, red under the hold threshold, with "New tasks on hold" and a Resume Anyway action.

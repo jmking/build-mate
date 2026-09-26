@@ -7,29 +7,40 @@ struct AddProjectSheet: View {
     @State private var path = ""
     @State private var discovered: DiscoveredProject?
     @State private var checking = false
+    @State private var creatingNew = false
     @State private var failure: String?
     @FocusState private var pathFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Add Project").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
-            Text("Choose a local clone on this Mac.").foregroundStyle(.secondary)
+            Text(creatingNew ? "Create Project" : "Add Project").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Picker("Project setup", selection: $creatingNew) {
+                Text("Add Existing").tag(false)
+                Text("Create New").tag(true)
+            }.pickerStyle(.segmented).disabled(checking).accessibilityIdentifier("project-setup-mode")
+                .onChange(of: creatingNew) { discovered = nil; failure = nil }
+            Text(creatingNew ? "Choose a new or empty folder for your Git repository." : "Choose a local Git repository on this Mac.").foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
-                TextField("Repository folder", text: $path).textFieldStyle(.roundedBorder).focused($pathFocused).onSubmit { if !path.isEmpty && !checking { inspect() } }.accessibilityIdentifier("repository-path")
+                TextField(creatingNew ? "Project folder" : "Repository folder", text: $path).textFieldStyle(.roundedBorder).focused($pathFocused).onSubmit {
+                    if !path.isEmpty && !checking { if creatingNew { createProject() } else { inspect() } }
+                }.accessibilityIdentifier("repository-path")
                     .onChange(of: path) { discovered = nil; failure = nil }
                 Button("Choose…") { chooseFolder() }
-            }
-            HStack {
+            }.disabled(checking)
+            if creatingNew {
+                Text("Creates a local repository on main, ready for your first task.").font(.caption).foregroundStyle(.secondary)
+                if checking { ProgressView("Creating project…").controlSize(.small) }
+            } else { HStack {
                 Button("Check Repository") { inspect() }.disabled(path.isEmpty || checking).accessibilityIdentifier("check-repository")
                 if checking { ProgressView().controlSize(.small); Text("Checking repository and CLI…").foregroundStyle(.secondary) }
-            }
+            } }
             if let discovered {
                 GroupBox {
                     Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 12) {
                         GridRow(alignment: .firstTextBaseline) { Text("Project").foregroundStyle(.secondary); Text(discovered.project.name) }
-                        GridRow(alignment: .firstTextBaseline) { Text("Host").foregroundStyle(.secondary); Text(discovered.project.host == .github ? "GitHub" : "Bitbucket Cloud") }
+                        GridRow(alignment: .firstTextBaseline) { Text("Host").foregroundStyle(.secondary); Text(discovered.project.host.title) }
                         GridRow(alignment: .firstTextBaseline) { Text("Default branch").foregroundStyle(.secondary); Text(discovered.project.defaultBranch).font(.body.monospaced()) }
-                        GridRow(alignment: .firstTextBaseline) { Text("CLI status").foregroundStyle(.secondary); Label(discovered.status, systemImage: discovered.authenticated ? "checkmark.circle" : "exclamationmark.circle") }
+                        GridRow(alignment: .firstTextBaseline) { Text(discovered.project.host == .local ? "Repository" : "CLI status").foregroundStyle(.secondary); Label(discovered.status, systemImage: discovered.authenticated ? "checkmark.circle" : "exclamationmark.circle") }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(8)
                 }
                 if let command = discovered.setupCommand {
@@ -43,13 +54,24 @@ struct AddProjectSheet: View {
             Spacer(minLength: 8)
             HStack(alignment: .firstTextBaseline) {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Add Project") {
-                    guard let discovered else { return }
-                    model.perform { try model.add(discovered) }
-                }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(discovered == nil || checking).accessibilityIdentifier("confirm-add-project")
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(creatingNew && checking)
+                Button(creatingNew ? "Create Project" : "Add Project") {
+                    if creatingNew { createProject() }
+                    else if let discovered { model.perform { try model.add(discovered) } }
+                }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                    .disabled(checking || (creatingNew ? path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : discovered == nil)).accessibilityIdentifier("confirm-add-project")
             }
-        }.padding(28).frame(width: 610).frame(minHeight: 370).accessibilityElement(children: .contain).onAppear { pathFocused = true }
+        }.padding(28).frame(width: 610).frame(minHeight: 370).accessibilityElement(children: .contain).interactiveDismissDisabled(creatingNew && checking).onAppear { pathFocused = true }
+    }
+    private func createProject() {
+        guard !checking else { return }
+        let requested = path
+        checking = true; failure = nil
+        Task {
+            defer { checking = false }
+            do { try await model.createProject(path: requested) }
+            catch { failure = error.localizedDescription }
+        }
     }
     private func inspect() {
         let requested = path
@@ -65,8 +87,9 @@ struct AddProjectSheet: View {
     private func chooseFolder() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Repository"
-        if panel.runModal() == .OK, let url = panel.url { path = url.path; inspect() }
+        panel.canCreateDirectories = creatingNew
+        panel.prompt = creatingNew ? "Choose Project Folder" : "Choose Repository"
+        if panel.runModal() == .OK, let url = panel.url { path = url.path; if !creatingNew { inspect() } }
     }
 }
 

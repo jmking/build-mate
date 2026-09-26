@@ -1,7 +1,12 @@
 import Foundation
 import GRDB
 
-enum Host: String, Codable, Sendable { case github, bitbucket }
+enum Host: String, Codable, Sendable {
+    case local, github, bitbucket
+    var title: String {
+        switch self { case .local: "Local Git"; case .github: "GitHub"; case .bitbucket: "Bitbucket Cloud" }
+    }
+}
 enum TaskState: String, Codable, CaseIterable, Sendable {
     case backlog, todo, needsClarification = "needs_clarification", building
     case humanReview = "human_review", inPR = "in_pr", done, canceled

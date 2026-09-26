@@ -58,7 +58,7 @@ Rules:
 ## 4. Data model
 All IDs are UUIDs unless stated. Timestamps are UTC.
 
-**Project**: `id, name (display, e.g. acme/web), repoPath, host (github|bitbucket), remoteSlug (owner/repo or workspace/repo), defaultBranch, instructions (markdown), settings (Settings), paused (bool), createdAt`.
+**Project**: `id, name (display, e.g. acme/web), repoPath, host (local|github|bitbucket), remoteSlug (owner/repo or workspace/repo), defaultBranch, instructions (markdown), settings (Settings), paused (bool), createdAt`.
 
 **Settings** (per project; global defaults in app settings):
 - `agentsAtOnce` (global, default 4), `heavyStepsAtOnce` (global, default 2), `maxTurnsPerTask` (default 20), `retryBackoffMaxMs` (300000), timeouts (turn 3 600 000 ms, stall 300 000 ms, read 5 000 ms).

@@ -3,6 +3,55 @@ import Testing
 
 @MainActor
 struct ShellTests {
+    @Test func newLocalProjectBuildsInWorktreeWithoutPublishingOrOverwritingFolders() async throws {
+        let f = try await CoreTests.Fixture()
+        let discovery = ProjectDiscovery(runner: f.runner)
+        let folder = f.root.appending(path: "New Project")
+        let model = AppModel(store: f.store, runner: f.runner)
+        try await model.createProject(path: folder.path)
+        let project = try #require(model.selectedProject)
+        #expect(project.host == .local && project.name == "New Project" && project.defaultBranch == "main" && !project.paused)
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == Set([".git"]))
+        #expect(try await f.runner.run("git", ["remote"], cwd: folder.path).output.isEmpty)
+        #expect(try await f.runner.run("git", ["rev-list", "--count", "HEAD"], cwd: folder.path).output.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
+        let imported = try await discovery.inspect(path: folder.path)
+        #expect(imported.project.host == .local && imported.setupCommand == nil)
+        do { try model.add(imported); Issue.record("Duplicate local project accepted") } catch {}
+        do { _ = try await discovery.create(path: folder.path); Issue.record("Existing repository reinitialized") } catch {}
+        let occupied = f.root.appending(path: "Existing files")
+        try FileManager.default.createDirectory(at: occupied, withIntermediateDirectories: true)
+        try "Keep this".write(to: occupied.appending(path: "notes.txt"), atomically: true, encoding: .utf8)
+        do { _ = try await discovery.create(path: occupied.path); Issue.record("Nonempty folder accepted") } catch {}
+        #expect(try String(contentsOf: occupied.appending(path: "notes.txt"), encoding: .utf8) == "Keep this")
+        #expect(!FileManager.default.fileExists(atPath: occupied.appending(path: ".git").path))
+        let nested = f.repo.appending(path: "nested-project")
+        do { _ = try await discovery.create(path: nested.path); Issue.record("Nested repository created") } catch {}
+        #expect(!FileManager.default.fileExists(atPath: nested.path))
+        let empty = f.root.appending(path: "Empty folder")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        #expect(try await discovery.create(path: empty.path).project.host == .local)
+        try model.pauseProject(project)
+        #expect(try f.store.get(Project.self, project.id).paused)
+        try model.pauseProject(project)
+        try await model.createTask(projectID: project.id, title: "First local feature", description: "Implement and check a functional change", start: true)
+        await model.refresh()
+        let task = try #require(model.selectedTask)
+        let store = f.store
+        try await f.wait("local project question") { @Sendable in try !store.all(Question.self).isEmpty }
+        try await model.core.answer(f.store.all(Question.self)[0].id, text: "Plain")
+        try await f.wait("local project proof") { @Sendable in try store.get(WorkTask.self, task.id).state == .humanReview }
+        let built = try f.store.get(WorkTask.self, task.id)
+        #expect(built.worktreePath?.hasPrefix(f.store.root.path) == true)
+        #expect(FileManager.default.fileExists(atPath: built.worktreePath! + "/feature.txt"))
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == Set([".git"]))
+        #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: folder.path).output.isEmpty)
+        do { try await model.core.openPullRequest(task.id); Issue.record("Local project tried to publish") } catch {}
+        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "pr-created").path))
+        await model.core.shutdown()
+        try f.store.db.close()
+        try f.cleanup()
+    }
+
     @Test func projectDiscoveryAndShellActionsPersistWithoutDispatchingBacklog() async throws {
         let f = try await CoreTests.Fixture()
         _ = try await f.runner.run("git", ["remote", "set-url", "origin", "git@github.com:fixture/repo.git"], cwd: f.repo.path)

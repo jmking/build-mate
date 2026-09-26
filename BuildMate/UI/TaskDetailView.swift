@@ -129,6 +129,9 @@ struct TaskDetailView: View {
                     }
                     if task.state == .humanReview {
                         Text("Review playback and preview controls are coming soon.").font(.caption).foregroundStyle(.secondary)
+                        if model.selectedProject?.host == .local {
+                            Text("Changes are committed in the task worktree. Publishing and pull requests are not available for local projects yet.").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
             }.inspectorColumnWidth(min: 280, ideal: 340, max: 380)

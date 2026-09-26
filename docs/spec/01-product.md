@@ -28,7 +28,7 @@ A Mac app where you **manage work instead of supervising agents**:
 ## Core concepts and glossary
 | Term | Meaning |
 |---|---|
-| **Project** | One local git repository (a clone on this Mac) with its settings, instructions, chat and tasks. Host: GitHub or Bitbucket Cloud. |
+| **Project** | One local Git repository (created here or an existing clone) with its settings, instructions, chat and tasks. Local-only, GitHub or Bitbucket Cloud. |
 | **Project chat** | A long-running conversation with the **project agent**, which can read the repo (not write) and create tasks. One per project. |
 | **Task** | A unit of work with a title, description, attachments, dependencies and a lifecycle state. Numbered per project (`#427`). |
 | **Task agent** | The Codex session that works on one task inside that task's worktree. |

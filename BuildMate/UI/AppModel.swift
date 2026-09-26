@@ -136,6 +136,11 @@ final class AppModel {
         destination = .project(discovered.project.id, .tasks)
         showAddProject = false
     }
+    func createProject(path: String) async throws {
+        let discovered = try await ProjectDiscovery(runner: core.runner).create(path: path)
+        try add(discovered)
+        await refresh()
+    }
     func createTask(projectID: UUID, title: String, description: String, start: Bool, proofRequirement: ProofRequirement = .automatic) async throws {
         let project = try store.get(Project.self, projectID)
         if start, let reason = project.runBlockReason { throw CoreError.invalid(reason) }
@@ -166,7 +171,7 @@ final class AppModel {
     }
     func pauseAll() throws { var value = try store.settings(); value.paused.toggle(); try store.saveSettings(value); Task { await core.tick() } }
     func pauseProject(_ project: Project) throws {
-        guard project.host == .github else { throw CoreError.invalid("Bitbucket task runs remain paused until its integration is verified.") }
+        guard project.host != .bitbucket else { throw CoreError.invalid("Bitbucket task runs remain paused until its integration is verified.") }
         var current = try store.get(Project.self, project.id); current.paused.toggle(); try store.save(current); Task { await core.tick() }
     }
     private var selectionURL: URL { store.root.appending(path: "selection.json") }

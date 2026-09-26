@@ -170,6 +170,7 @@ actor Orchestrator {
         guard task.state == .humanReview, !task.paused else { throw CoreError.invalid("Task is not ready for a PR") }
         guard let proof = try store.all(Proof.self).first(where: { $0.taskId == id && $0.complete }) else { throw CoreError.invalid("Proof is incomplete") }
         let project = try store.get(Project.self, task.projectId)
+        guard project.host != .local else { throw CoreError.invalid("This project is local. Publishing and pull requests require a hosting service.") }
         var base = project.defaultBranch
         if let parentId = task.stackOn {
             let parent = try store.get(WorkTask.self, parentId)
@@ -447,7 +448,7 @@ actor Orchestrator {
             if proof.complete {
                 try transition(taskId, to: .humanReview)
                 try await client.respond(requestId, text: "Proof passed. Waiting for human review. Stop now.")
-                if !project.settings.askBeforeOpenPR { try await openPullRequest(taskId) }
+                if !project.settings.askBeforeOpenPR && project.host != .local { try await openPullRequest(taskId) }
             } else {
                 let reason = proof.checks.isEmpty ? "Provide at least one relevant executable check." : proof.recordingRequired && proof.recordingPath == nil ? "Provide a playable visual recording using recordingCommand and $BUILD_MATE_RECORDING_PATH." : "Fix the failing checks and commit all implementation changes."
                 try store.save(Message(sessionId: session.id, role: "system", kind: "proof", body: "Required proof failed. " + reason))

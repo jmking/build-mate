@@ -3,7 +3,7 @@
 ## Versions
 | Version | Scope |
 |---|---|
-| **v1 — Mac** | Single app process; projects on **GitHub and Bitbucket Cloud**; Codex app-server runner; built-in tracker; Needs You; project chat with proposals; Backlog; board (+ list view); New Task; task views for every state; clarification questions; plan/PR/merge approvals; proof of work (checks + recording); Run locally previews; Open in editor/Terminal/Finder; stacked PRs; PR watch mode; pause (task/project/all); project and global instructions; Settings (General, Hooks, Instructions); menu bar extra; notifications; usage meter and hold; light and dark mode. |
+| **v1 — Mac** | Single app process; local Git projects plus projects on **GitHub and Bitbucket Cloud**; Codex app-server runner; built-in tracker; Needs You; project chat with proposals; Backlog; board (+ list view); New Task; task views for every state; clarification questions; plan/PR/merge approvals; proof of work (checks + recording); Run locally previews; Open in editor/Terminal/Finder; stacked PRs; PR watch mode; pause (task/project/all); project and global instructions; Settings (General, Hooks, Instructions); menu bar extra; notifications; usage meter and hold; light and dark mode. |
 | **v1.1** | Ship as one PR (feature branch); `<n>.localhost` preview proxy; per-task model picker; list-view polish. |
 | **v2 — Remote** | Settings › Remote, device pairing, private-network API, CloudKit push, iPhone Pro app, iPhone Duo layouts. |
 | **v3** | Claude agent runner; Linear/Jira tracker adapters; Export to repository (`WORKFLOW.md`). |
@@ -23,6 +23,7 @@ Each milestone ends with a demo and its acceptance criteria passing.
 Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency and Reduce Motion on.
 
 **Projects and storage**
+- Create New initialises a new or empty local folder on main, seeds an empty commit and adds it as a local project. Reject nonempty and nested-repository folders; no remote is created. Local tasks run in app storage and stop at Human review until publishing/local merge support is added.
 - Adding a project from a local clone detects GitHub or Bitbucket Cloud, remote slug and default branch, and shows CLI sign-in status with a fix action.
 - After a full task lifecycle, `git status` in the user's clone shows no new or modified files, and no files exist in the repo that Build Mate created.
 - Removing a project deletes its data and worktrees and leaves the clone untouched.
@@ -70,3 +71,7 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 ## Task-specific proof follow-up (2026-09-26)
 
 User-directed scope change ahead of the rest of milestone 4: remove the project-wide recording start gate. Automatic task proof selects evidence suited to the work, with user overrides. The app independently executes checks and validates required recordings before Human review. Playback, previews, editor actions and complete review controls still belong to milestone 4. The earlier unconfigured-project handoff describes the superseded behavior.
+
+## New local projects follow-up (2026-09-26)
+
+User-directed extension to project setup: Add Existing or Create New. A new project needs no hosting account and can run its first task in an isolated worktree. Multi-repository projects, remote creation/publishing and local merge are not included. The generic folder icon now also represents local projects.
