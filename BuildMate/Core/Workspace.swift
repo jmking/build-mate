@@ -32,6 +32,7 @@ struct Workspace: Sendable {
         guard branch.output.trimmingCharacters(in: .whitespacesAndNewlines) == task.branchName else { throw CoreError.invalid("Worktree branch changed; review before resuming") }
         if !task.workspaceReady {
             try await runner.hook(project.settings.hooks.afterCreate, cwd: path, timeout: project.settings.hooks.timeoutSeconds)
+            try ensureOwned(path)
             task = try store.get(WorkTask.self, task.id)
             task.workspaceReady = true
             try store.save(task)
@@ -42,11 +43,26 @@ struct Workspace: Sendable {
         guard let path = task.worktreePath else { return }
         try ensureOwned(path)
         try await runner.hook(project.settings.hooks.beforeRemove, cwd: path, timeout: project.settings.hooks.timeoutSeconds)
+        try ensureOwned(path)
         // No --force: uncommitted work must never disappear during cleanup.
         _ = try await runner.run("git", ["worktree", "remove", path], cwd: project.repoPath)
     }
     func ensureOwned(_ path: String) throws {
-        let base = store.root.appending(path: "worktrees").resolvingSymlinksInPath().path + "/"
-        guard URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix(base) else { throw CoreError.invalid("Worktree is outside Build Mate storage") }
+        let root = store.root.resolvingSymlinksInPath()
+        let supplied = URL(fileURLWithPath: path).standardizedFileURL.path
+        let originalRoot = store.root.standardizedFileURL.path + "/"
+        let candidate = supplied.hasPrefix(originalRoot)
+            ? root.appending(path: String(supplied.dropFirst(originalRoot.count)))
+            : URL(fileURLWithPath: supplied)
+        let base = root.appending(path: "worktrees").path + "/"
+        // Check each parent: Foundation may leave a nonexistent leaf's symlinks unresolved.
+        guard candidate.path.hasPrefix(base) else { throw CoreError.invalid("Worktree is outside Build Mate storage") }
+        var cursor = root
+        for component in candidate.path.dropFirst(root.path.count + 1).split(separator: "/") {
+            cursor.append(path: String(component))
+            if (try? FileManager.default.destinationOfSymbolicLink(atPath: cursor.path)) != nil {
+                throw CoreError.invalid("Worktree is outside Build Mate storage: symbolic-link parent")
+            }
+        }
     }
 }

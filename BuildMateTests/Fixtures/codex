@@ -43,6 +43,9 @@ for line in sys.stdin:
   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
   if (root/'crash-once').exists():
    (root/'crash-once').unlink();sys.exit(7)
+  if (root/'flood').exists():
+   while True:
+    event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'delta':'working '});time.sleep(0.005)
   if (root/'stall').exists():continue
   if not readstate().get('answered'):call('ask_question',{'prompt':'Which output?','options':['Plain','Rich'],'allowsFreeText':True,'blocking':True})
   else:call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})

@@ -153,6 +153,10 @@ struct CoreTests {
         let third = Orchestrator(store: f.store, runner: f.runner)
         await third.tick(now: second.retry!.dueAt.addingTimeInterval(1))
         try await f.wait("question on resumed thread") { try f.store.get(WorkTask.self, high.id).state == .needsClarification }
+        // A question waiting in a live process still reserves the sole concurrency slot.
+        var available = try f.store.get(WorkTask.self, low.id); available.paused = false; try f.store.save(available)
+        await third.tick()
+        #expect(try f.store.get(WorkTask.self, low.id).worktreePath == nil)
         try await third.pause(high.id, paused: true)
         await third.shutdown()
         #expect(try f.store.get(WorkTask.self, high.id).paused)
@@ -193,6 +197,30 @@ struct CoreTests {
         #expect(try f.store.get(WorkTask.self, task.id).worktreePath == first.worktreePath)
         #expect(try f.store.all(RunAttempt.self).contains { $0.status == "timedOut" })
         await retry.shutdown()
+        f.project.settings.hooks.beforeRun = ""
+        f.project.settings.turnTimeoutMs = 250
+        f.project.settings.stallTimeoutMs = 0 // Explicitly disabled, not an instant stall.
+        try f.store.save(f.project)
+        try f.marker("flood")
+        let flood = Orchestrator(store: f.store, runner: f.runner)
+        let due = try f.store.get(WorkTask.self, task.id).retry!.dueAt
+        await flood.tick(now: due.addingTimeInterval(1))
+        try await f.wait("turn deadline despite continuous events") {
+            try f.store.get(WorkTask.self, task.id).retry?.attempt == 3 && f.store.all(RunAttempt.self).allSatisfy { $0.endedAt != nil }
+        }
+        #expect(try f.store.get(WorkTask.self, task.id).retry!.error.contains("turn timed out"))
+        await flood.shutdown()
+        let worktrees = f.store.root.appending(path: "worktrees")
+        try FileManager.default.moveItem(at: worktrees, to: f.store.root.appending(path: "retained-worktrees"))
+        try FileManager.default.createSymbolicLink(at: worktrees, withDestinationURL: f.repo)
+        let escaped = Orchestrator(store: f.store, runner: f.runner)
+        await escaped.tick(now: Date().addingTimeInterval(400))
+        try await f.wait("reject escaped root before any hook or git mutation") {
+            try f.store.get(WorkTask.self, task.id).retry?.attempt == 4 && f.store.all(RunAttempt.self).allSatisfy { $0.endedAt != nil }
+        }
+        #expect(try f.store.get(WorkTask.self, task.id).retry!.error.contains("outside Build Mate storage"))
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
+        await escaped.shutdown()
         try f.cleanup()
     }
 

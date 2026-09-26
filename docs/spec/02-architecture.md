@@ -20,7 +20,7 @@ Build Mate v1 is **one macOS app process**. No separate helper, no XPC, no local
 Language: Swift 6, SwiftUI (AppKit where SwiftUI lacks a control), structured concurrency. Persistence: SQLite through GRDB in WAL mode (the only third-party dependency planned for v1).
 
 ## 2. Relationship to Symphony
-Build Mate implements Symphony's orchestration model (`openai/symphony` `SPEC.md`) in Swift. It does not ship the Elixir reference implementation.
+Build Mate adapts Symphony's orchestration model (`openai/symphony` `SPEC.md`) in Swift. It does not ship the Elixir reference implementation.
 
 | Symphony concept | Build Mate |
 |---|---|
@@ -34,6 +34,8 @@ Build Mate implements Symphony's orchestration model (`openai/symphony` `SPEC.md
 | Reconciliation (stop sessions whose issue left an active state) | Same. Used for pause, moving tasks back to backlog, cancel. |
 | Codex app-server as the agent | Same. Codex is the only runner in v1; introduce an abstraction only when a second runner (Claude, v3) is actually built. |
 | Status API | Not needed; the UI reads the core directly. |
+
+The targeted audit and deliberate deviations are recorded in [09-symphony-audit.md](09-symphony-audit.md). Live workers waiting for an answer or approval still reserve a concurrency slot. `afterRun` failures are diagnostic; `beforeRemove` failures abort removal to preserve work.
 
 Extensions beyond Symphony: clarification questions, plan approval, proof of work, human review, PR watch mode, project chat and task creation, stacked PRs, pause, previews, remote control.
 

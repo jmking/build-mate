@@ -60,3 +60,7 @@ Sources: [Codex app-server](https://developers.openai.com/codex/app-server), [TW
 - Core defaults remain four agents, two heavy steps, `<number>-<slug>`, logs retained for 14 days, media until task deletion. Nothing costly needs an owner decision now.
 - A waiting question keeps its dynamic call pending while the process is alive. On app restart, resume the durable thread and provide all persisted answers in the next input. An unanswered question prevents dispatch. Turn-limit exhaustion pauses the task for human attention instead of spinning retries.
 - Required recording without a configured command fails proof. Recording must be a playable video with positive duration no greater than 180 seconds. Failed proof returns to the agent; after three failures the core pauses it for attention. Rich Needs You presentation follows in milestone 4.
+
+## Targeted Symphony audit — 2026-09-26
+
+Completed before milestone 3; see [audit](09-symphony-audit.md). Fixed stale dispatch after awaited reconciliation, serialized pause handling, human-wait concurrency accounting, continuous-event timeout enforcement, configuration validation and escaped worktree-root symlinks. `afterRun` failure is now diagnostic only; it does not retry successful work. A live question/approval reserves an agent slot until answered or paused. These choices need no owner decision.

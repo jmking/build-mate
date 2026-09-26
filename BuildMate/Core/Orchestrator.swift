@@ -12,6 +12,7 @@ actor Orchestrator {
     private var heavySteps = 0
     private var openingPRs: Set<UUID> = []
     private var ticking = false
+    private var shuttingDown = false
     private(set) var lastError: String?
     private(set) var rateLimits: JSON = .null
 
@@ -20,7 +21,8 @@ actor Orchestrator {
     }
     func start() async {
         guard loop == nil else { return }
-        do { try recover() } catch { lastError = error.localizedDescription }
+        shuttingDown = false
+        do { try recover() } catch { lastError = error.localizedDescription; return }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
@@ -38,6 +40,7 @@ actor Orchestrator {
         }
     }
     func shutdown() async {
+        shuttingDown = true
         loop?.cancel(); loop = nil
         let pending = Array(workers.values)
         for worker in pending { worker.cancel() }
@@ -45,37 +48,50 @@ actor Orchestrator {
         for worker in pending { await worker.value }
     }
     func tick(now: Date = Date()) async {
-        guard !ticking else { return }
+        guard !ticking, !shuttingDown else { return }
         ticking = true; defer { ticking = false }
         do {
+            let initialSettings = try store.settings()
+            let initialTasks = try store.all(WorkTask.self)
+            let initialProjects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
+            await withTaskGroup(of: Void.self) { group in
+                for task in initialTasks {
+                    guard let worker = workers[task.id], let project = initialProjects[task.projectId] else { continue }
+                    let unroutable = (try? dependenciesReady(task)) != true
+                    if initialSettings.paused || project.paused || task.paused || task.state == .backlog || task.state.terminal || unroutable {
+                        let client = clients[task.id]
+                        let session = try? store.session(for: task.id)
+                        group.addTask {
+                            if let client, let thread = session?.codexThreadId, let turn = session?.currentTurn {
+                                await client.interrupt(thread: thread, turn: turn)
+                            }
+                            worker.cancel()
+                            await client?.stop()
+                            await worker.value
+                        }
+                    }
+                }
+            }
+            // Actor reentrancy permits edits while interruption waits. Never dispatch an old snapshot.
+            guard !shuttingDown else { return }
             let settings = try store.settings()
             let tasks = try store.all(WorkTask.self)
             let projects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
-            for task in tasks {
-                guard let project = projects[task.projectId] else { continue }
-                if settings.paused || project.paused || task.paused || task.state == .backlog || task.state.terminal {
-                    if let client = clients[task.id], let session = try? store.session(for: task.id),
-                       let thread = session.codexThreadId, let turn = session.currentTurn {
-                        await client.interrupt(thread: thread, turn: turn)
-                    }
-                    workers[task.id]?.cancel()
-                    if let client = clients[task.id] { await client.stop() }
-                }
-                if task.state == .inPR && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
-                    polling.insert(task.id); lastPoll[task.id] = now
-                    Task { await pollPR(task.id) }
-                }
+            for task in tasks where task.state == .inPR && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
+                polling.insert(task.id); lastPoll[task.id] = now
+                Task { await pollPR(task.id) }
             }
             guard !settings.paused else { return }
-            var occupied = 0
-            for task in tasks where workers[task.id] != nil && [.todo, .building].contains(task.state) {
-                if try !pendingPlan(task.id) { occupied += 1 }
-            }
+            guard settings.agentsAtOnce > 0, settings.heavyStepsAtOnce > 0 else { throw CoreError.invalid("Concurrency limits must be positive") }
+            // A waiting worker still owns a process and a slot. Answering cannot overbook the limit.
+            var occupied = workers.count
             for task in tasks.sorted(by: { $0.rank == $1.rank ? $0.createdAt < $1.createdAt : $0.rank > $1.rank }) {
                 guard occupied < settings.agentsAtOnce else { break }
                 guard workers[task.id] == nil, let project = projects[task.projectId], !project.paused, !task.paused,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
-                      try dependenciesReady(task), !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
+                      (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
+                do { try project.settings.validate() }
+                catch { lastError = error.localizedDescription; continue }
                 occupied += 1
                 workers[task.id] = Task { await run(task.id) }
             }
@@ -83,7 +99,7 @@ actor Orchestrator {
     }
     private func dependenciesReady(_ task: WorkTask) throws -> Bool {
         for id in Set(task.dependsOn + (task.stackOn.map { [$0] } ?? [])) {
-            let dependency = try store.get(WorkTask.self, id)
+            guard let dependency = try? store.get(WorkTask.self, id) else { return false }
             guard dependency.projectId == task.projectId else { return false }
             if dependency.state != .done && !(task.stackOn == id && dependency.state == .inPR && dependency.pr != nil) { return false }
         }
@@ -210,7 +226,9 @@ actor Orchestrator {
         clients[id] = client
         do {
             let task = try store.get(WorkTask.self, id)
+            try requireRunnable(task)
             let p = try store.get(Project.self, task.projectId); project = p
+            try p.settings.validate()
             let count = try store.all(RunAttempt.self).filter { $0.taskId == id }.count + 1
             attempt = RunAttempt(taskId: id, attempt: count); try store.save(attempt!)
             try store.workflow(for: p)
@@ -218,6 +236,8 @@ actor Orchestrator {
             cwd = prepared.worktreePath!
             try await runner.hook(p.settings.hooks.beforeRun, cwd: cwd!, timeout: p.settings.hooks.timeoutSeconds)
             try Task.checkCancellation()
+            try requireRunnable(store.get(WorkTask.self, id))
+            try Workspace(store: store, runner: runner).ensureOwned(cwd!)
             try await client.start(runner: runner, cwd: cwd!, timeout: Double(p.settings.readTimeoutMs) / 1000)
             var session = try store.session(for: id)
             let instructions = try prompt(task: prepared, project: p)
@@ -244,14 +264,16 @@ actor Orchestrator {
             while true {
                 try Task.checkCancellation()
                 let current = try store.get(WorkTask.self, id)
-                guard [.todo, .building].contains(current.state), !current.paused else { break }
+                guard [.todo, .building].contains(current.state) else { break }
+                try requireRunnable(current)
+                try Workspace(store: store, runner: runner).ensureOwned(cwd!)
                 session = try store.session(for: id)
                 if session.turnCount >= p.settings.maxTurnsPerTask {
                     var paused = current; paused.paused = true; try store.save(paused)
                     throw CoreError.invalid("Turn limit reached; review and resume with an increased limit")
                 }
                 let response = try await client.request("turn/start", [
-                    "threadId": .string(session.codexThreadId!), "input": .textInput(input),
+                    "threadId": .string(session.codexThreadId!), "cwd": .string(cwd!), "input": .textInput(input),
                     "effort": p.settings.effort.map(JSON.string) ?? .null,
                     "sandboxPolicy": .object(["type": .string("workspaceWrite"), "writableRoots": .array([.string(cwd!)]),
                                               "networkAccess": .bool(p.settings.network), "excludeTmpdirEnvVar": .bool(true), "excludeSlashTmp": .bool(true)])
@@ -262,9 +284,10 @@ actor Orchestrator {
                 var complete = false
                 while !complete {
                     try Task.checkCancellation()
+                    guard Date().timeIntervalSince(started) - waitingDuration < Double(p.settings.turnTimeoutMs) / 1000 else { throw CoreError.invalid("Codex turn timed out") }
                     guard let event = try await client.nextEvent() else {
                         let last = await client.lastEventAt
-                        guard Date().timeIntervalSince(last) < Double(p.settings.stallTimeoutMs) / 1000 else { throw CoreError.invalid("Codex stalled") }
+                        guard p.settings.stallTimeoutMs <= 0 || Date().timeIntervalSince(last) < Double(p.settings.stallTimeoutMs) / 1000 else { throw CoreError.invalid("Codex stalled") }
                         guard Date().timeIntervalSince(started) - waitingDuration < Double(p.settings.turnTimeoutMs) / 1000 else { throw CoreError.invalid("Codex turn timed out") }
                         continue
                     }
@@ -323,19 +346,18 @@ actor Orchestrator {
                 do { try await runner.hook(p.settings.hooks.afterRun, cwd: cwd, timeout: p.settings.hooks.timeoutSeconds); return nil }
                 catch { return runner.redacted(error.localizedDescription) }
             }.value
-            if let result {
-                lastError = result; attempt?.status = "failed"; attempt?.error = result
-                if var task = try? store.get(WorkTask.self, id), [.todo, .building].contains(task.state), !task.paused {
-                    let number = (task.retry?.attempt ?? 0) + 1
-                    let delay = min(10 * pow(2, Double(min(number - 1, 20))), Double(p.settings.retryBackoffMaxMs) / 1000)
-                    task.retry = Retry(attempt: number, dueAt: Date().addingTimeInterval(delay), error: result)
-                    try? store.save(task)
-                }
-            }
+            // Cleanup diagnostics must not rerun an already successful coding attempt.
+            if let result { lastError = "After run: " + result }
         }
         if var attempt { attempt.endedAt = Date(); try? store.save(attempt) }
         if var session = try? store.session(for: id) { session.status = "idle"; session.currentTurn = nil; try? store.save(session) }
         clients.removeValue(forKey: id); workers.removeValue(forKey: id)
+    }
+
+    private func requireRunnable(_ task: WorkTask) throws {
+        let project = try store.get(Project.self, task.projectId)
+        guard !shuttingDown, !task.paused, !project.paused, !(try store.settings()).paused,
+              !task.state.terminal, task.state != .backlog, try dependenciesReady(task) else { throw CancellationError() }
     }
 
     private func prompt(task: WorkTask, project: Project) throws -> String {

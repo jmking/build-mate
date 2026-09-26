@@ -31,6 +31,14 @@ struct ProjectSettings: Codable, Sendable {
     var model: String?
     var effort: String?
 }
+extension ProjectSettings {
+    func validate() throws {
+        guard maxTurnsPerTask > 0, retryBackoffMaxMs > 0, turnTimeoutMs > 0, readTimeoutMs > 0,
+              hooks.timeoutSeconds.isFinite, hooks.timeoutSeconds > 0 else {
+            throw CoreError.invalid("Turns, retry limits and timeouts must be positive")
+        }
+    }
+}
 struct AppSettings: Codable, Sendable {
     var agentsAtOnce = 4
     var heavyStepsAtOnce = 2
