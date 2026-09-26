@@ -127,6 +127,8 @@ Automatically remove clean worktrees after confirmed merge, with no live worker.
 
 Bring Backlog and Todo ordering forward. Persist contiguous descending ranks in a single transaction; retain task states and dependencies. Dragging changes priority only within the same project/state; cross-column movement is not implied. An already-running worker is never preempted.
 
+Drag interaction refinement: preview the order in memory while hovering, and write ranks only on a valid drop. Escape or an outside drop cancels the preview. Use macOS 26 native SwiftUI drag-session callbacks and a lifted preview; do not use macOS 27-only reorder containers. The existing shell regression flow now covers preview isolation, refresh during dragging, cancellation, committed order and cross-state rejection. Pointer automation is not delivering native drags on this Mac; the fixture build is prepared for a manual row/card motion check, which remains pending.
+
 ## Usage UI brought forward (2026-09-26)
 
 Read account limits even when no agents are running, using a short-lived app-server connection without thread/start or turn/start. Prefer the multi-bucket response; display all reported windows and highlight the most constrained Codex window. Poll once a minute and offer manual refresh. Usage is account-wide. Do not invent missing limits/reset times; preserve stale data with an error label. Only the informational UI is brought forward; no automatic usage hold is enabled yet. The initial decision to retain native sheet tint was superseded by the neutral-surface follow-up below.

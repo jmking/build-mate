@@ -44,7 +44,7 @@ struct TaskBoard: View {
                         .background(AppSurface.recessed, in: RoundedRectangle(cornerRadius: 20))
                     }
                 }.frame(height: max(0, geometry.size.height - 40)).padding(20)
-                    .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.35, bounce: 0.1), value: columns.map { state in model.tasks(projectID).filter { $0.state == state }.map(\.id) })
+                    .animation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0), value: columns.map { state in model.tasks(projectID).filter { $0.state == state }.map(\.id) })
             }
             }
             .toolbar {
@@ -63,6 +63,7 @@ struct TaskBoard: View {
 
 struct TaskList: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let tasks: [WorkTask]
     let emptyTitle: String
     let emptyDescription: String
@@ -99,6 +100,7 @@ struct TaskList: View {
                     }
                 }
             }.scrollContentBackground(.hidden).background(AppSurface.window)
+                .animation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0), value: tasks.map(\.id))
         }
     }
 }

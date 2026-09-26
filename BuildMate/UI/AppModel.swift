@@ -34,6 +34,7 @@ final class AppModel {
     var destination: Destination? = .needsYou {
         didSet {
             guard destination != oldValue else { return }
+            priorityDrag = nil
             if !traversingHistory, let oldValue { backHistory.append(oldValue); forwardHistory.removeAll() }
             if case .project(let id, _) = destination { lastProjectID = id }
             if case .task(let id) = destination { lastProjectID = snapshot.tasks.first { $0.id == id }?.projectId ?? lastProjectID }
@@ -56,7 +57,16 @@ final class AppModel {
     var error: String?
     var schedulerError: String?
     var usage = UsageSnapshot()
+    var priorityDrag: PriorityDrag?
     private var observing = false
+
+    struct PriorityDrag {
+        let taskID: UUID
+        let projectID: UUID
+        let state: TaskState
+        var targetID: UUID?
+        var after = false
+    }
 
     init(store: Store, runner: ProcessRunner = ProcessRunner()) { self.store = store; core = Orchestrator(store: store, runner: runner) }
 
@@ -111,7 +121,36 @@ final class AppModel {
     var workers: Int { snapshot.sessions.filter { $0.status == "running" }.count }
     func projectName(_ id: UUID) -> String { snapshot.projects.first { $0.id == id }?.name ?? "Project" }
     func tasks(_ id: UUID) -> [WorkTask] {
-        snapshot.tasks.filter { $0.projectId == id && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || String($0.number).contains(search)) }
+        var tasks = snapshot.tasks.filter { $0.projectId == id }
+        if let drag = priorityDrag, drag.projectID == id,
+           let source = tasks.firstIndex(where: { $0.id == drag.taskID && $0.state == drag.state }),
+           let targetID = drag.targetID, tasks.contains(where: { $0.id == targetID && $0.state == drag.state }) {
+            let task = tasks.remove(at: source)
+            if let target = tasks.firstIndex(where: { $0.id == targetID }) {
+                tasks.insert(task, at: target + (drag.after ? 1 : 0))
+            }
+        }
+        return tasks.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || String($0.number).contains(search) }
+    }
+    func beginPriorityDrag(_ task: WorkTask) {
+        guard [.backlog, .todo].contains(task.state) else { return }
+        priorityDrag = PriorityDrag(taskID: task.id, projectID: task.projectId, state: task.state)
+    }
+    func canDropPriority(on task: WorkTask) -> Bool {
+        guard let drag = priorityDrag else { return false }
+        return task.projectId == drag.projectID && task.state == drag.state
+            && snapshot.tasks.contains { $0.id == drag.taskID && $0.projectId == drag.projectID && $0.state == drag.state }
+    }
+    func previewPriorityDrag(over task: WorkTask, after: Bool) {
+        guard canDropPriority(on: task), priorityDrag?.taskID != task.id else { return }
+        priorityDrag?.targetID = task.id
+        priorityDrag?.after = after
+    }
+    func finishPriorityDrag(commit: Bool) {
+        defer { priorityDrag = nil }
+        guard commit, let drag = priorityDrag, let targetID = drag.targetID else { return }
+        do { try reorderTask(drag.taskID, relativeTo: targetID, after: drag.after) }
+        catch { self.error = error.localizedDescription }
     }
     func navigate(_ page: ProjectPage) {
         if let project = selectedProject ?? snapshot.projects.first { destination = .project(project.id, page) }
@@ -132,6 +171,8 @@ final class AppModel {
                 try db.execute(sql: "UPDATE task SET rank = ?, updatedAt = ? WHERE id = ?", arguments: [group.count - index, Date(), taskID])
             }
         }
+        // Publish the saved order immediately so dropping never flashes the old order.
+        snapshot.tasks = try store.db.read { try WorkTask.order(Column("rank").desc, Column("createdAt")).fetchAll($0) }
     }
     func priorityNeighbor(_ task: WorkTask, earlier: Bool) -> WorkTask? {
         guard [.backlog, .todo].contains(task.state) else { return nil }

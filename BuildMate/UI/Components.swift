@@ -103,16 +103,31 @@ struct TaskPriorityActions: View {
 
 struct TaskPriorityDrag: ViewModifier {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var height: CGFloat = 1
-    @State private var targeted = false
     let task: WorkTask
     func body(content: Content) -> some View {
         if [.backlog, .todo].contains(task.state) {
             content
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-                .onDrag { NSItemProvider(object: ("build-mate-task:" + task.id.uuidString) as NSString) }
-                .onDrop(of: [UTType.text], delegate: TaskPriorityDrop(model: model, task: task, height: height, targeted: $targeted))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(targeted ? Color.accentColor : .clear, lineWidth: 2).allowsHitTesting(false))
+                .opacity(model.priorityDrag?.taskID == task.id ? 0.25 : 1)
+                .draggable("build-mate-task:" + task.id.uuidString) {
+                    content
+                        .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
+                        .scaleEffect(reduceMotion ? 1 : 1.025)
+                        .padding(16)
+                }
+                .dragConfiguration(DragConfiguration(operationsWithinApp: .init(allowCopy: false, allowMove: true), operationsOutsideApp: .init(allowCopy: false)))
+                .onDragSessionUpdated { session in
+                    switch session.phase {
+                    case .initial: model.beginPriorityDrag(task)
+                    case .ended: model.finishPriorityDrag(commit: false)
+                    default: break
+                    }
+                }
+                .onDrop(of: [UTType.text], delegate: TaskPriorityDrop(model: model, task: task, height: height, reduceMotion: reduceMotion))
                 .accessibilityAction(named: "Move earlier") { model.perform { try model.movePriority(task, earlier: true) } }
                 .accessibilityAction(named: "Move later") { model.perform { try model.movePriority(task, earlier: false) } }
                 .help("Open \(task.title). Drag above or below another task to change priority.")
@@ -124,22 +139,28 @@ private struct TaskPriorityDrop: DropDelegate {
     let model: AppModel
     let task: WorkTask
     let height: CGFloat
-    @Binding var targeted: Bool
-    func dropEntered(info: DropInfo) { targeted = true }
-    func dropExited(info: DropInfo) { targeted = false }
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-    func performDrop(info: DropInfo) -> Bool {
-        targeted = false
-        guard let provider = info.itemProviders(for: [UTType.text]).first else { return false }
-        let after = info.location.y > height / 2
-        provider.loadObject(ofClass: NSString.self) { value, _ in
-            guard let text = value as? String, text.hasPrefix("build-mate-task:"),
-                  let id = UUID(uuidString: String(text.dropFirst(16))) else { return }
-            Task { @MainActor in
-                guard let source = model.snapshot.tasks.first(where: { $0.id == id }),
-                      source.projectId == task.projectId, source.state == task.state else { return }
-                model.perform { try model.reorderTask(id, relativeTo: task.id, after: after) }
+    let reduceMotion: Bool
+    func validateDrop(info: DropInfo) -> Bool { model.canDropPriority(on: task) }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard model.canDropPriority(on: task), let sourceID = model.priorityDrag?.taskID else { return DropProposal(operation: .forbidden) }
+        let group = model.tasks(task.projectId).filter { $0.state == task.state }
+        if let source = group.firstIndex(where: { $0.id == sourceID }),
+           let target = group.firstIndex(where: { $0.id == task.id }), source != target {
+            // Cross the row midpoint before moving it, so the shifted row cannot
+            // immediately move back under a stationary pointer.
+            let after = source < target
+            if after ? info.location.y > height / 2 : info.location.y < height / 2 {
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0)) {
+                    model.previewPriorityDrag(over: task, after: after)
+                }
             }
+        }
+        return DropProposal(operation: .move)
+    }
+    func performDrop(info: DropInfo) -> Bool {
+        guard model.canDropPriority(on: task) else { return false }
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0)) {
+            model.finishPriorityDrag(commit: true)
         }
         return true
     }

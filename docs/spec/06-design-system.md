@@ -124,6 +124,7 @@ Brand marks are reserved for repository/service-specific actions and information
 ## 7. Motion
 - Use native sheet/popover/inspector presentation. Sidebar and inspector changes use a short smooth animation (0.25 s); page and board/list changes cross-fade (0.18 s). Card moves between board columns use matched geometry (0.35 s spring, restrained bounce). Only a live, unpaused agent turn pulses its status dot.
 - Reduce Motion: no pulsing, no card fly-overs (cross-fade instead).
+- Priority dragging uses a native card/row preview with a restrained shadow and 1.025× lift. Keep a faded placeholder in the proposed position; animate neighbours with a 0.25 s spring without bounce. Reduce Motion removes the lift scaling and reorder movement. Hovering never persists an order; commit on drop and restore on cancellation. Native drag-session callbacks handle completion and cancellation ([Apple API](https://developer.apple.com/documentation/swiftui/view/ondragsessionupdated(_:))).
 
 ## 8. Accessibility
 - Every app-authored button has a concise, action-specific tooltip, including text buttons, cards/rows, sheet actions, answer chips and menu actions. Include keyboard shortcuts where available; pause/resume help reflects the current action. Navigation cards explain that they open a task, and reorderable cards also explain dragging. Use native `.help` so macOS owns tooltip presentation. Icon-only controls also have an accessible label; answer chips announce the question. Native window and system-dialog controls retain their system help.
