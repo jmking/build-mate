@@ -8,7 +8,8 @@ It is built on the ideas in OpenAI's [Symphony](https://github.com/openai/sympho
 
 | Path | What it is |
 |---|---|
-| `AGENTS.md` | Instructions for coding agents working in this repo. Read first. |
+| `AGENTS.md` | Instructions for coding agents (Codex, Claude Code). Read first. `CLAUDE.md` imports it for older Claude Code versions. |
+| `docs/codex-kickoff.md` | The prompt that starts the v1 build in Codex. |
 | `docs/spec/` | The product and engineering specification. Start at `docs/spec/00-index.md`. |
 | `docs/design/` | Every designed screen, light and dark: PNGs, static HTML references, icon assets. See `docs/design/README.md`. |
 

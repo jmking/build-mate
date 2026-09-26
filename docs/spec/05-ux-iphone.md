@@ -1,6 +1,6 @@
 # 05 · iPhone UX (v2)
 
-Designs: `docs/design/png/{light,dark}/iphone-pro-*.png` and `iphone-duo-*.png`. The iPhone app is a remote control for the Mac helper (02 §13). It never runs agents.
+Designs: `docs/design/png/{light,dark}/iphone-pro-*.png` and `iphone-duo-*.png`. The iPhone app is a remote control for the Mac app (02 §13). It never runs agents.
 
 Devices: **iPhone Pro** (6.3-inch class, 402×874 pt) and **iPhone Duo** (foldable: outer display ~464×676 pt portrait, inner ~952×652 pt landscape — sizes are estimates; confirm with Apple's Duo guidance and Xcode device support). Use size classes and the fold/unfold scene updates, not device checks.
 

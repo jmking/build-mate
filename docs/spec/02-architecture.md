@@ -1,27 +1,23 @@
 # 02 · Architecture
 
 ## 1. Components
+Build Mate v1 is **one macOS app process**. No separate helper, no XPC, no local server.
 
 ```
-┌──────────────────────── Build Mate.app (SwiftUI, macOS 26+) ────────────────────────┐
-│  Windows · Menu bar extra · Settings · Notifications                                 │
-└───────────────▲─────────────────────────────────────────────────────────────────────┘
-                │ Local API (XPC in v1; HTTPS + paired devices in v2)
-┌───────────────┴──────────── Build Mate Helper (launchd agent, Swift) ───────────────┐
-│ Orchestrator (Symphony model)   Tracker (built-in, SQLite)   Scheduler & limits      │
-│ Workspace manager (git worktrees)   Hooks runner   Proof runner   Preview manager    │
-│ Agent runner (Codex app-server)     SCM providers (GitHub / Bitbucket)               │
-│ Build Mate MCP server (tools exposed to agents)                                      │
-└──────────────────────────────────────────────────────────────────────────────────────┘
-         │ spawns                         │ shells out                     │ reads/writes
-   codex app-server (per session)     gh · twg · git · hooks        ~/Library/Application Support/Build Mate/
+┌──────────────────────────── Build Mate.app (Swift 6, SwiftUI, macOS 26+) ────────────────────────────┐
+│ UI: main window · menu bar extra · Settings · notifications                                          │
+│ Core: orchestrator (Symphony model) · SQLite store · worktrees · hooks · proof · previews · SCM · Codex │
+└──────────────┬───────────────────────────────┬──────────────────────────────────┬─────────────────────┘
+               │ spawns                        │ shells out                       │ reads/writes
+     codex app-server (one per session)   git · gh · twg · hook commands    ~/Library/Application Support/Build Mate/
 ```
 
-- **Build Mate.app**: all UI. Stateless apart from view state; reads and writes through the local API. Quitting the app does not stop agents.
-- **Build Mate Helper**: a login item (`SMAppService` agent) that owns orchestration, storage and all child processes. Keeps running when the window is closed. The app starts it on first launch.
-- **Local API**: typed request/response plus an event stream (task, message, proof, usage and agent-status changes). v1 transport is XPC. v2 adds the same API over HTTPS for paired devices (section 13).
+- The UI observes the core directly (`@Observable` models on the main actor; orchestration work in actors/tasks).
+- **Keeps working with the window closed**: closing the last window does not quit the app; the menu bar extra stays. A "Open at login" setting (`SMAppService.mainApp`) keeps it running after restarts.
+- **Quitting** with agents working asks: "N agents are working. Pause them and quit?" Pausing is safe; sessions resume on next launch.
+- Add a separate background helper only if a real requirement appears (for example agents must keep running after the user quits). v2 remote access adds an HTTPS listener inside the same app.
 
-Language: Swift 6, SwiftUI (macOS 26 / iOS 26 SDKs), structured concurrency. Persistence: SQLite through GRDB (recommended) in WAL mode.
+Language: Swift 6, SwiftUI (AppKit where SwiftUI lacks a control), structured concurrency. Persistence: SQLite through GRDB in WAL mode (the only third-party dependency planned for v1).
 
 ## 2. Relationship to Symphony
 Build Mate implements Symphony's orchestration model (`openai/symphony` `SPEC.md`) in Swift. It does not ship the Elixir reference implementation.
@@ -36,10 +32,10 @@ Build Mate implements Symphony's orchestration model (`openai/symphony` `SPEC.md
 | Run attempt, retry with backoff (`min(10000·2^(n-1), max_retry_backoff_ms)`), continuation retry (1 s) | Same semantics and defaults. |
 | `max_concurrent_agents`, per-state limits | "Agents at once" (default 4) plus a heavy-step limit (default 2) for proof recording and previews. |
 | Reconciliation (stop sessions whose issue left an active state) | Same. Used for pause, moving tasks back to backlog, cancel. |
-| Codex app-server as the agent | Same. The runner is behind an `AgentRunner` protocol so a Claude runner can be added in v3. |
-| Status API | Replaced by the local API. |
+| Codex app-server as the agent | Same. Codex is the only runner in v1; introduce an abstraction only when a second runner (Claude, v3) is actually built. |
+| Status API | Not needed; the UI reads the core directly. |
 
-Extensions beyond Symphony (all implemented in the helper): clarification questions, plan approval, proof of work, human review, PR watch mode, project chat and task creation, stacked PRs, pause, previews, remote control.
+Extensions beyond Symphony: clarification questions, plan approval, proof of work, human review, PR watch mode, project chat and task creation, stacked PRs, pause, previews, remote control.
 
 ## 3. Storage (nothing in the repo)
 Root: `~/Library/Application Support/Build Mate/`
@@ -50,7 +46,7 @@ Root: `~/Library/Application Support/Build Mate/`
 | `projects/<project-id>/WORKFLOW.md` | Generated Symphony-style workflow for the project (front matter from settings, body from instructions). Regenerated on every settings or instructions change. |
 | `projects/<project-id>/media/` | Attachments, recordings, screenshots, extracted video frames. Location overridable per project (large files). |
 | `worktrees/<project-slug>/<task-number>/` | Task worktrees created with `git worktree add` from the user's clone. |
-| `logs/` | Helper and per-session logs (rotated, 14 days). |
+| `logs/` | App and per-session logs (rotated, 14 days). |
 
 Rules:
 - Build Mate MUST NOT create, modify or commit files in the user's clone other than through git operations on task branches. It MUST NOT add `.gitignore` entries or config files.
@@ -137,7 +133,7 @@ Follow Symphony's loop with these specifics:
 - **Reconciliation** every tick: stop sessions for tasks that are paused, canceled, moved to backlog, or whose project is paused.
 
 ## 7. Prompt assembly
-For each task session the helper builds the initial prompt from, in order:
+For each task session Build Mate builds the initial prompt from, in order:
 1. **Build Mate system brief**: the lifecycle, the tools available (03, section 5), the rules (ask, don't guess; stay in scope; proof is required; never write outside the worktree).
 2. **Global instructions** (Settings › Instructions).
 3. **Project instructions** (sidebar › Instructions). Project instructions override global ones on conflict.
@@ -148,15 +144,15 @@ The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Ma
 The **project agent** gets 1–3 plus a project brief (repo summary, open tasks and their states) and the `propose_tasks` / `create_tasks` tools. It runs read-only in a dedicated worktree of the default branch, refreshed on each new chat message.
 
 ## 8. Proof of work
-- **Checks** run by the helper (not trusted to the agent) in the worktree after the agent calls `request_review`: each configured command with its exit code, duration and log. Required checks must pass.
-- **Recording**: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-driven (the agent drives a browser through a browser tool and the helper records). Output: MP4/H.264, max 3 minutes, saved to `media/`.
+- **Checks** run by Build Mate (not trusted to the agent) in the worktree after the agent calls `request_review`: each configured command with its exit code, duration and log. Required checks must pass.
+- **Recording**: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-driven (the agent drives a browser through a browser tool and Build Mate records). Output: MP4/H.264, max 3 minutes, saved to `media/`.
 - **Screenshots**: for UI changes when enabled, before (default branch) and after (task branch).
 - **Changes summary**: files changed, additions, deletions, and a one-paragraph agent summary.
 - Proof is `complete` when every required item exists and passed. Only then can the task enter Human review.
-- Proof is included in the PR description by default (recording link as an uploaded asset where the host supports it, otherwise a note). Per-project toggle.
+- Proof stays in Build Mate. It is **not** added to PR descriptions (the team should not see Build Mate artefacts).
 
 ## 9. Pull requests and stacking
-- One PR per task by default. Title from the task title; body from the task summary, proof and "Built with Build Mate" footer (per-project toggle, default off to stay invisible).
+- One PR per task by default. Title from the task title; body is the agent's plain change summary only: no proof, no Build Mate footer or branding.
 - **Stacked**: when task B depends on task A and A's PR is not merged, B's branch is created from A's branch and B's PR targets A's branch. When A merges, the agent rebases B onto the default branch, retargets the PR, force-pushes with lease, and re-runs checks. The In PR inspector shows the stack.
 - **Ship as one PR** (v1.1): tasks merge into a shared feature branch; one PR from it to the default branch with combined proof.
 - **Merging**: squash merge by default, delete branch after merge, never bypass branch protection or required reviews.
@@ -170,7 +166,7 @@ The **project agent** gets 1–3 plus a project brief (repo summary, open tasks 
 Pause never discards work. Paused time does not count toward timeouts.
 
 ## 11. Previews (Run locally / Open Preview)
-- Each task gets a port from a pool (default 4100–4199) when a preview is requested. The helper runs `preview.command` in the worktree with `portEnvVar` set, waits until `readyPath` responds (timeout 90 s), then opens `http://localhost:<port>`. Previews count against the heavy-step limit and stop after 30 minutes idle.
+- Each task gets a port from a pool (default 4100–4199) when a preview is requested. Build Mate runs `preview.command` in the worktree with `portEnvVar` set, waits until `readyPath` responds (timeout 90 s), then opens `http://localhost:<port>`. Previews count against the heavy-step limit and stop after 30 minutes idle.
 - v1.1: a local reverse proxy maps `<task-number>.localhost` to the preview port.
 
 ## 12. Notifications and usage
@@ -178,14 +174,14 @@ Pause never discards work. Paused time does not count toward timeouts.
 - **Usage meter**: shows the ChatGPT plan usage window reported by Codex (e.g. "62% of this 5-hour window left · resets 16:40") in the sidebar footer and the menu bar. Setting: "Hold new tasks when usage is below N%" (default 15%). When held, Todo tasks show "Waiting for usage". (Not yet drawn; design it with the sidebar footer and menu bar styles.)
 
 ## 13. Remote control (v2)
-- The helper exposes the local API over HTTPS on a private network interface only (for example a Tailscale address). Nothing listens on public interfaces.
+- The app exposes its API over HTTPS on a private network interface only (for example a Tailscale address). Nothing listens on public interfaces.
 - **Pairing**: Settings › Remote › Pair a Device shows a QR code with a one-time code and the host key; the device stores its key pair in the Keychain. Every request is signed. Devices can be removed.
-- **Keep awake**: when enabled, the helper holds a power assertion while any agent is working.
-- **Push**: the helper writes Needs You events to the user's private CloudKit database; the iPhone app subscribes and receives notifications. No Build Mate server.
+- **Keep awake**: when enabled, the app holds a power assertion while any agent is working.
+- **Push**: the app writes Needs You events to the user's private CloudKit database; the iPhone app subscribes and receives notifications. No Build Mate server.
 - **Open Preview** on iPhone opens the task's preview through the private network address.
 
 ## 14. Security
 - Agents run with Codex's sandbox: writes limited to their worktree; network on by default (package installs), per-project switch.
-- The helper runs hooks and checks as the user. Hooks are shown in Settings › Hooks and changes require confirmation.
+- The app runs hooks and checks as the user. Hooks are shown in Settings › Hooks and changes require confirmation.
 - No tokens are stored by Build Mate for GitHub/Bitbucket; it uses the logged-in `gh` and `twg` CLIs. Codex auth is owned by Codex (ChatGPT sign-in).
 - Logs redact tokens and environment variables matching common secret patterns.

@@ -27,7 +27,7 @@ Build Mate runs agents through `codex app-server` (JSON-RPC over stdio), the sam
 ### Build Mate tools for agents
 Agents need a few Build Mate-specific tools (§5). Two mechanisms, in order of preference:
 1. **Dynamic tools** (client-side): the app-server sends `item/tool/call` (`DynamicToolCallParams`) and Build Mate responds. The schema contains `DynamicToolSpec`, but tool registration is not in the stable `thread/start` params in 0.151; treat as experimental and verify (08).
-2. **MCP server** (fallback, stable): the helper runs a local MCP server (stdio) and registers it per session with `thread/start` `config` override `mcp_servers.buildmate = { command, args }`.
+2. **MCP server** (fallback, stable): Build Mate runs a local MCP server (stdio) and registers it per session with `thread/start` `config` override `mcp_servers.buildmate = { command, args }`.
 Also handle `item/tool/requestUserInput` (Codex's own ask-the-user request) by converting it into a Build Mate Question.
 
 ## 2. GitHub (via `gh`)
@@ -73,7 +73,7 @@ Implementation: both hosts sit behind one `SCMProvider` protocol (`openPR, prSta
 - Default editor: Settings › General "Open code in". The toolbar button shows the default editor's name and icon; its menu lists every installed editor.
 
 ## 5. Build Mate agent tools
-Exposed to task agents (T) and the project agent (P). All calls are validated by the helper; the helper, not the agent, changes task state.
+Exposed to task agents (T) and the project agent (P). All calls are validated by Build Mate; Build Mate, not the agent, changes task state.
 
 | Tool | Who | Purpose | Effect |
 |---|---|---|---|

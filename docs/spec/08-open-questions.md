@@ -8,11 +8,13 @@ Record findings inline (date, what was tested, result) and update the affected s
 3. **Instructions updates mid-thread**: can `developerInstructions` change after `thread/start`? If not, use `thread/inject_items` or restart the thread with history.
 4. **Video attachments**: does the selected model accept `localAudio`? If not, transcribe locally (Speech framework) and send text.
 5. **TWG CLI for Bitbucket Cloud**: map every operation in 03 §3 to exact `twg` commands (Command Catalog), confirm JSON output, token setup UX (`twg setup bitbucket`), and rate limits. Where a command is missing, use the Bitbucket REST fallback with the same token.
-6. **Recording**: choose the default approach: project-provided Playwright command (video on) versus agent-driven browser with helper-side capture. Measure reliability on one web project.
+6. **Recording**: choose the default approach: project-provided Playwright command (video on) versus agent-driven browser with capture by Build Mate. Measure reliability on one web project.
+
+## Decisions
+- **Decided (2026-09-26):** proof (recording, checks) is never added to PR descriptions; PR bodies contain only the change summary, with no Build Mate branding.
 
 ## Decisions to confirm with the owner
 - Default "Agents at once" (spec: 4; designs show 10 as sample data).
-- Whether proof (recording and checks) goes into PR descriptions by default for team visibility, given the "invisible to the team" principle (spec default: include checks summary, omit the Build Mate footer).
 - Branch naming convention (spec: `<number>-<slug>`, optional prefix).
 - Retention for recordings and logs (spec: logs 14 days; recordings kept until the task is deleted).
 

@@ -3,7 +3,7 @@
 ## Versions
 | Version | Scope |
 |---|---|
-| **v1 — Mac** | Helper + app; projects on **GitHub and Bitbucket Cloud**; Codex app-server runner; built-in tracker; Needs You; project chat with proposals; Backlog; board (+ list view); New Task; task views for every state; clarification questions; plan/PR/merge approvals; proof of work (checks + recording); Run locally previews; Open in editor/Terminal/Finder; stacked PRs; PR watch mode; pause (task/project/all); project and global instructions; Settings (General, Hooks, Instructions); menu bar extra; notifications; usage meter and hold; light and dark mode. |
+| **v1 — Mac** | Single app process; projects on **GitHub and Bitbucket Cloud**; Codex app-server runner; built-in tracker; Needs You; project chat with proposals; Backlog; board (+ list view); New Task; task views for every state; clarification questions; plan/PR/merge approvals; proof of work (checks + recording); Run locally previews; Open in editor/Terminal/Finder; stacked PRs; PR watch mode; pause (task/project/all); project and global instructions; Settings (General, Hooks, Instructions); menu bar extra; notifications; usage meter and hold; light and dark mode. |
 | **v1.1** | Ship as one PR (feature branch); `<n>.localhost` preview proxy; per-task model picker; list-view polish. |
 | **v2 — Remote** | Settings › Remote, device pairing, private-network API, CloudKit push, iPhone Pro app, iPhone Duo layouts. |
 | **v3** | Claude agent runner; Linear/Jira tracker adapters; Export to repository (`WORKFLOW.md`). |
@@ -12,7 +12,7 @@
 Each milestone ends with a demo and its acceptance criteria passing.
 
 1. **Spikes** (08): Codex app-server session lifecycle incl. `thread/resume`, `turn/steer`, `turn/interrupt`, tool mechanism; TWG CLI Bitbucket command mapping; recording approach.
-2. **Helper core**: storage, data model, local API (XPC), orchestrator loop, worktrees, hooks, Codex runner, retries, reconciliation. Headless tests with a fake Codex and fake SCM.
+2. **Core**: storage, data model, orchestrator loop, worktrees, hooks, Codex runner, retries, reconciliation, plus the e2e test harness (fake `codex`, `gh`, `twg` executables on `PATH` and a local bare git remote; see `AGENTS.md`).
 3. **App shell**: window, sidebar, projects (Add Project), Needs You skeleton, task view transcript, board.
 4. **Lifecycle**: questions, plan approval, proof runner, human review, previews, open-in-editor.
 5. **PRs**: SCM providers (GitHub, Bitbucket), open PR, stacking, watch mode, merge rules.
