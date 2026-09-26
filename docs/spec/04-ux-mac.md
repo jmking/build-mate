@@ -60,7 +60,7 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 
 ## 5. Backlog — `mac-03-backlog`
 **Purpose:** refine tasks before any agent starts them.
-- Omit the trailing state icon/label on Backlog rows: the page already identifies their state. Keep state labels in the Tasks list.
+- Omit the trailing state icon/label on Backlog rows: the page already identifies their state. The grouped Tasks list also omits these repeated labels because its section headings identify each state.
 - Toolbar: "Backlog" + "4 tasks · agents won't start these until you move them to Queue"; Search, New Task.
 - Left list (420 pt): drag handle, title, one-line description, meta ("From chat · today", "2 attachments", "Waits on #412"), number. Drag to reorder (sets start order). Multi-select with ⇧/⌘; **Move to Queue** acts on the selection (⌘↩).
 - Right editor: "#429 · Backlog · created from Chat at 09:11"; title (large inline field); Description (text editor, markdown); Attachments (tiles + add); settings list: **Depends on** (pull-down, multiple), **Ship as** (Its own PR / stacked / one PR v1.1), **Ask me before building** (Use project setting / On / Off). Footer: **Delete…** (destructive, confirm), **Refine with Agent** (sparkles; the project agent rewrites the description and asks questions in the chat), **Move to Queue** (primary).
