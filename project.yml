@@ -37,12 +37,30 @@ targets:
         type: folder
         buildPhase: resources
       - path: BuildMate/Core
+      - path: BuildMate/UI/AppModel.swift
     dependencies:
       - package: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.buildmate.tests
         GENERATE_INFOPLIST_FILE: YES
+  BuildMateUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: BuildMateUITests
+      - path: BuildMate/Core
+      - path: BuildMateTests/Fixtures
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: BuildMate
+      - package: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.buildmate.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: BuildMate
 schemes:
   BuildMate:
     build:
@@ -50,4 +68,11 @@ schemes:
         BuildMate: all
     test:
       targets: [BuildMateTests]
+      gatherCoverageData: false
+  BuildMateUI:
+    build:
+      targets:
+        BuildMate: all
+    test:
+      targets: [BuildMateUITests]
       gatherCoverageData: false

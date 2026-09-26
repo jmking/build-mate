@@ -150,3 +150,7 @@ Sheet: choose a local clone (Open panel filtered to folders containing `.git`), 
 | Settings | ⌘, |
 
 Menu bar menus: Build Mate, File (New Task, New Project, Close), Edit, View (Needs You, Chat, Backlog, Tasks, Instructions, as List/Board, Show Sidebar/Inspector), Task (Pause, Open in…, Move to Backlog, Cancel Task…), Window, Help. Every toolbar and context-menu action MUST be reachable from the menu bar.
+
+## Milestone 3 implementation boundary
+
+The native shell implements the sidebar, Add Project, Needs You summary, five-column board, grouped task list, persisted task transcript and inspector. A minimal task-entry sheet and question/plan actions are available to exercise the core. Full New Task attachments, backlog ordering (including board drag/drop), editable instructions and project chat remain milestone 6; lifecycle review controls remain milestones 4–5. Native toolbar geometry and sidebar selection follow macOS controls. See 07 for validation status and 08 for setup assumptions.

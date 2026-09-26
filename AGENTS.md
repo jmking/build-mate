@@ -45,6 +45,8 @@ Keep this section current as the project grows.
 - Generate the project: `xcodegen generate`
 - Build: `xcodebuild -scheme BuildMate -destination 'platform=macOS' build`
 - Test: `xcodebuild -scheme BuildMate -destination 'platform=macOS' test`
+- If Xcode stalls before launching tests: `xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build-for-testing && xcrun xctest .build/Build/Products/Debug/BuildMateTests.xctest`
+- Optional native UI automation (requires a working Xcode automation host): `xcodebuild -scheme BuildMateUI -destination 'platform=macOS' test`
 - Build to a predictable run path: `xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build`
 - Run: `open .build/Build/Products/Debug/BuildMate.app`
 
