@@ -4,6 +4,8 @@
 Coding agents can now do most of the implementation for well-described work, but using them means supervising sessions: starting them, watching them, answering them, checking their output, opening PRs, fixing CI, chasing reviews. With several agents running at once, the human becomes the bottleneck and the context-switching cost is high. Tools like Cursor's Agents Window make running parallel agents easy, but they stay session-centric and editor-centric.
 
 ## What Build Mate is
+The app’s macOS display name, including its application menu, is **Build Mate** (with a space).
+
 A Mac app where you **manage work instead of supervising agents**:
 - You talk to a **project chat**. It reads the codebase and proposes a set of **tasks** (with dependencies and how they ship).
 - Tasks wait in a **Backlog** until you move them to **Queue** (or you tell the chat to start now).

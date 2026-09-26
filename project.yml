@@ -19,14 +19,17 @@ targets:
     type: application
     platform: macOS
     sources: [BuildMate]
+    info:
+      path: BuildMate/Info.plist
+      properties:
+        CFBundleName: Build Mate
+        CFBundleDisplayName: Build Mate
+        LSApplicationCategoryType: public.app-category.developer-tools
     dependencies:
       - package: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.buildmate.app
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
-        INFOPLIST_KEY_CFBundleDisplayName: Build Mate
   BuildMateTests:
     type: bundle.unit-test
     platform: macOS
