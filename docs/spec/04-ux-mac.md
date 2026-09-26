@@ -74,7 +74,9 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 - **List view** (not drawn): a table grouped by state with the same columns of data; filter by state including Done.
 
 ## 7. New Task sheet — `mac-05-new-task-sheet`
-- Sheet attached to the main window (⌘N anywhere). Fields: project pull-down (host mark), Title, "What should be built" (multiline), Attachments (tiles + dashed add area; drag-and-drop, paste).
+- Sheet attached to the main window (⌘N anywhere). Fields: project pull-down (host mark), "What should be built" (multiline, initially focused), optional title under **Set a title yourself**, Attachments (tiles + dashed add area; drag-and-drop, paste; milestone 6).
+- A nonblank brief is required. On creation, Codex generates a concise descriptive title from the brief unless the user supplies one. Show progress, prevent duplicate submission and allow Cancel while naming. If generation fails or times out, use the first line/sentence of the brief, shortened to 80 characters; saving must still work. Naming does not start the coding task or create a worktree, including for Backlog. No model requests while typing.
+- The task brief's **Rename task** button opens a native sheet with Save (Return) and Cancel (Escape). Manual titles are never automatically replaced. Renaming does not change the description, state, existing worktree branch or an existing PR title.
 - Footer: "Agents only pick up tasks in Todo." · **Cancel** (esc) · **Start Now** · **Add to Backlog** (primary, ↩).
 
 ## 8. Project instructions — `mac-06-project-instructions`

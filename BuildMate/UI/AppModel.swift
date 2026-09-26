@@ -139,9 +139,24 @@ final class AppModel {
     func createTask(projectID: UUID, title: String, description: String, start: Bool) async throws {
         let project = try store.get(Project.self, projectID)
         if start, let reason = project.runBlockReason { throw CoreError.invalid(reason) }
-        let task = try store.createTask(projectId: projectID, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, state: start ? .todo : .backlog)
+        var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTitle.isEmpty || !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CoreError.invalid("Describe what you would like built.")
+        }
+        if resolvedTitle.isEmpty { resolvedTitle = await core.generateTitle(for: description, model: project.settings.model) }
+        try Task.checkCancellation()
+        // Configuration may have changed while the title was being generated.
+        if start, let reason = try store.get(Project.self, projectID).runBlockReason { throw CoreError.invalid(reason) }
+        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog)
         showNewTask = false; destination = .task(task.id)
         await core.tick()
+    }
+    func renameTask(_ id: UUID, title: String) throws {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
+        try store.db.write { db in
+            try db.execute(sql: "UPDATE task SET title = ?, updatedAt = ? WHERE id = ?", arguments: [title, Date(), id])
+        }
     }
     func moveToTodo(_ task: WorkTask) async throws {
         let project = try store.get(Project.self, task.projectId)

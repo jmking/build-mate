@@ -49,11 +49,18 @@ final class WorkspaceTests: XCTestCase {
         app.buttons["confirm-add-project"].click()
         XCTAssertTrue(app.staticTexts["Todo"].waitForExistence(timeout: 10))
         app.typeKey("n", modifierFlags: .command)
-        let title = app.textFields["task-title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 5))
-        title.typeText("Make output easier to read")
+        let brief = app.textViews["task-description"]
+        XCTAssertTrue(brief.waitForExistence(timeout: 5))
+        brief.typeText("Please make the CLI output more compact and easier to scan.")
         XCTAssertFalse(app.buttons["Start Now"].isEnabled)
         app.buttons["Add to Backlog"].click()
+        XCTAssertTrue(visibleText("Keep command output compact").waitForExistence(timeout: 5))
+        app.buttons["rename-task"].click()
+        let title = app.textFields["rename-task-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.click(); title.typeKey("a", modifierFlags: .command); title.typeText("Make output easier to read")
+        app.buttons["Save"].click()
+        XCTAssertTrue(visibleText("Make output easier to read").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Move to Todo"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Move to Todo"].isEnabled)
         var project = try XCTUnwrap(store.all(Project.self).first)

@@ -77,7 +77,9 @@ struct NewTaskSheet: View {
     @State private var projectID: UUID?
     @State private var title = ""
     @State private var description = ""
-    @FocusState private var titleFocused: Bool
+    @State private var creation: Task<Void, Never>?
+    @State private var failure: String?
+    @FocusState private var descriptionFocused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
@@ -85,34 +87,55 @@ struct NewTaskSheet: View {
                 Spacer()
                 Picker("Project", selection: $projectID) {
                     ForEach(model.snapshot.projects) { Text($0.name).tag(Optional($0.id)) }
-                }.labelsHidden().frame(maxWidth: 230)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Title").font(.caption).foregroundStyle(.secondary)
-                TextField("What needs building?", text: $title).textFieldStyle(.roundedBorder).focused($titleFocused).accessibilityIdentifier("task-title")
+                }.labelsHidden().frame(maxWidth: 230).disabled(creation != nil)
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("What should be built").font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $description).font(.system(size: 14)).scrollContentBackground(.hidden).frame(height: 165).padding(10)
                     .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5)).accessibilityLabel("Task description")
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
+                    .focused($descriptionFocused).disabled(creation != nil)
+                    .accessibilityLabel("Task description").accessibilityIdentifier("task-description")
+                Text("A descriptive title will be generated from your brief. You can rename it anytime.").font(.caption).foregroundStyle(.secondary)
             }
+            DisclosureGroup("Set a title yourself") {
+                TextField("Task title (optional)", text: $title).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Task title (optional)").accessibilityIdentifier("task-title").padding(.top, 6)
+            }.disabled(creation != nil)
+            if creation != nil {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Generating a title…" : "Creating task…").foregroundStyle(.secondary)
+                }.accessibilityElement(children: .combine)
+            }
+            if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             Text(selectedProject?.runBlockReason ?? "Start Now adds the task to Todo. It runs when the project is resumed and an agent slot is available.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("Agents only pick up tasks in Todo.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { creation?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Start Now") { create(start: true) }.disabled(!valid || selectedProject?.runBlockReason != nil)
                     .help(selectedProject?.runBlockReason ?? "Add to Todo")
                 Button("Add to Backlog") { create(start: false) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(!valid)
             }
-        }.padding(28).frame(width: 670).onAppear { projectID = model.selectedProject?.id ?? model.snapshot.projects.first?.id; titleFocused = true }
+        }.padding(28).frame(width: 670)
+            .onAppear { projectID = model.selectedProject?.id ?? model.snapshot.projects.first?.id; descriptionFocused = true }
+            // A successful save closes the sheet before its final refresh finishes.
+            .onDisappear { if model.showNewTask { creation?.cancel() } }
     }
     private var selectedProject: Project? { model.snapshot.projects.first { $0.id == projectID } }
-    private var valid: Bool { projectID != nil && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var valid: Bool { projectID != nil && creation == nil && !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private func create(start: Bool) {
-        guard let projectID else { return }
-        model.perform { try await model.createTask(projectID: projectID, title: title, description: description, start: start) }
+        guard valid, let projectID else { return }
+        failure = nil
+        creation = Task {
+            defer { creation = nil }
+            do {
+                try await model.createTask(projectID: projectID, title: title, description: description, start: start)
+                await model.refresh()
+            } catch is CancellationError { }
+            catch { failure = error.localizedDescription }
+        }
     }
 }

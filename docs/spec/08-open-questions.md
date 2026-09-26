@@ -86,3 +86,10 @@ Completed before milestone 3; see [audit](09-symphony-audit.md). Fixed stale dis
 ## Design and motion pass (2026-09-26)
 
 The request to refine the current shell does not expand later-milestone features. Use native inspector presentation and regular glass over scrolling content, rather than trying to reproduce the reference wallpaper's colour inside the app. This is a reversible design decision consistent with Apple's material guidance. No additional appearance preference or dependency was introduced. Detailed changes are in 06.
+
+
+## Description-first task titles (2026-09-26)
+
+User direction: titles should be generated from content and only optionally edited. Generate once on creation, not on each keystroke; a collapsed optional override keeps the brief primary. Save a locally shortened first sentence/line if Codex is unavailable, produces invalid output or exceeds the deadline. Existing tasks are not retroactively renamed. The task detail's pencil opens Rename Task; manual changes remain authoritative. A renamed task keeps its existing git branch and PR title.
+
+Naming is an ephemeral read-only Codex request, independent of paused project execution. This means Add to Backlog can use Codex to name a task while still never dispatching its implementation. The real installed app-server accepted the output schema and returned “Compact verbose CLI output while preserving errors” for a longer CLI brief in 3.69 s. No tool items were emitted. No account/auth payloads were recorded. The automated suite continues to use fake processes only.

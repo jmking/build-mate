@@ -61,6 +61,35 @@ struct ShellTests {
         #expect(restored.selectedTask?.id == task.id)
         observer.cancel(); await observer.value; await restored.core.shutdown()
         #expect(restored.snapshot.messages.contains { $0.body == "A persisted transcript" })
+        // Description-only creation gets a model title; failures and cancellation must not lose the brief or start work.
+        let brief = "Please improve our CLI so verbose output is compact and easy to scan. Keep errors visible."
+        try await model.createTask(projectID: configured.id, title: "  ", description: brief, start: false)
+        await model.refresh()
+        let generated = try #require(model.selectedTask)
+        #expect(generated.title == "Keep command output compact" && generated.description == brief)
+        #expect(generated.state == .backlog && generated.worktreePath == nil)
+        #expect(try uiStore.all(Session.self).allSatisfy { $0.ownerId != generated.id })
+        try model.renameTask(generated.id, title: "  Keep errors visible in compact output  ")
+        let renamed = try uiStore.get(WorkTask.self, generated.id)
+        #expect(renamed.title == "Keep errors visible in compact output" && renamed.description == brief && renamed.state == .backlog)
+        try f.marker("title-failure")
+        try await model.createTask(projectID: configured.id, title: "", description: "Keep errors visible. More detail here.", start: false)
+        await model.refresh()
+        #expect(model.selectedTask?.title == "Keep errors visible")
+        try FileManager.default.removeItem(at: f.control.appending(path: "title-failure"))
+        let count = try uiStore.all(WorkTask.self).count
+        try f.marker("title-stall")
+        let creation = Task { try await model.createTask(projectID: configured.id, title: "", description: "Canceled brief", start: false) }
+        let calls = f.control.appending(path: "calls.jsonl")
+        let cancellationDeadline = Date().addingTimeInterval(5)
+        while !(try String(contentsOf: calls, encoding: .utf8)).contains("Canceled brief") && Date() < cancellationDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(try String(contentsOf: calls, encoding: .utf8).contains("Canceled brief"))
+        creation.cancel()
+        do { try await creation.value; Issue.record("Canceled task was created") } catch is CancellationError { }
+        #expect(try uiStore.all(WorkTask.self).count == count)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: uiStore.root.appending(path: "title-drafts").path).isEmpty)
         _ = try await f.runner.run("git", ["remote", "set-url", "origin", "https://bitbucket.org/team/project.git"], cwd: f.repo.path)
         let bitbucket = try await discovery.inspect(path: f.repo.path)
         #expect(bitbucket.project.host == .bitbucket && bitbucket.project.paused && !bitbucket.authenticated)

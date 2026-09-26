@@ -7,6 +7,8 @@ struct TaskDetailView: View {
     @State private var message = ""
     @State private var messageStatus: String?
     @State private var sending = false
+    @State private var renaming = false
+    @State private var titleDraft = ""
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || model.selectedProject?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
@@ -26,7 +28,12 @@ struct TaskDetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Task brief").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    Text(task.title).font(.title3.weight(.semibold))
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(task.title).font(.title3.weight(.semibold))
+                        Button("Rename task", systemImage: "pencil") { titleDraft = task.title; renaming = true }
+                            .labelStyle(.iconOnly).buttonStyle(.borderless).help("Rename task")
+                            .accessibilityIdentifier("rename-task")
+                    }
                     Text(task.description.isEmpty ? "No additional description." : task.description).textSelection(.enabled).font(.system(size: 14)).lineSpacing(5)
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
                 ForEach(messages) { item in
@@ -124,11 +131,28 @@ struct TaskDetailView: View {
             }.inspectorColumnWidth(min: 280, ideal: 340, max: 380)
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
+        .sheet(isPresented: $renaming) {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Rename Task").font(.title2.weight(.semibold))
+                TextField("Task title", text: $titleDraft).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Task title").accessibilityIdentifier("rename-task-title").onSubmit(rename)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { renaming = false }.keyboardShortcut(.cancelAction)
+                    Button("Save", action: rename).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .disabled(titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }.padding(28).frame(width: 460)
+        }
         .toolbar {
             ToolbarItem {
                 Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal).help("Pause or resume task (⌘.)")
             }
         }
+    }
+    private func rename() {
+        guard !titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        model.perform { try model.renameTask(task.id, title: titleDraft); renaming = false }
     }
     private func displayText(_ item: Message) -> String {
         if item.kind == "event", item.body.hasPrefix("Moved to "), let state = TaskState(rawValue: String(item.body.dropFirst(9))) { return "Moved to " + state.title }
