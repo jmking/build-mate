@@ -14,7 +14,7 @@ struct TaskDetailView: View {
     private var actionTitle: String { openQuestion != nil ? "Send answer" : activeTurn ? "Send message" : "Save message" }
     private var composerExplanation: String {
         if let question = openQuestion { return question.allowsFreeText ? "Your answer resolves this question. Paused tasks stay paused." : "Choose one of the answer buttons above." }
-        return activeTurn ? "Sent to the current agent turn." : "Saved for the next agent run. This does not start or resume the task."
+        return activeTurn ? "Sent to the current agent turn." : "Messages are saved for when work resumes."
     }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerId == task.id && $0.ownerType == "task" } }
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
@@ -44,6 +44,7 @@ struct TaskDetailView: View {
                             Text(item.createdAt, style: .time).foregroundStyle(.secondary).fixedSize()
                         }.font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                     } else {
+                        let conversation = item.role == "user" || item.role == "agent"
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(item.role == "agent" ? "Agent" : item.role == "user" ? "You" : "Build Mate").fontWeight(.medium)
@@ -51,9 +52,9 @@ struct TaskDetailView: View {
                             }.font(.caption).foregroundStyle(.secondary)
                             Text(.init(displayText(item))).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: item.role == "user" ? 560 : .infinity, alignment: .leading)
-                        .padding(item.role == "user" ? 14 : 0)
-                        .background(item.role == "user" ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                        .frame(maxWidth: conversation ? 560 : .infinity, alignment: .leading)
+                        .padding(conversation ? 14 : 0)
+                        .background(conversation ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
                         .frame(maxWidth: .infinity, alignment: item.role == "user" ? .trailing : .leading)
                     }
                 }

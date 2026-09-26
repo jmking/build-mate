@@ -112,3 +112,9 @@ Creation now saves a local brief-derived title and opens the task before network
 Extended the existing shell process-boundary flow instead of adding another test. It covers immediate provisional title/display, eventual generated title, malformed output, no economical model/no thread creation, a stalled model with creation under one second, manual rename winning over pending generation, and saved-task/scratch cleanup on shutdown. Measured creation at 0.001285 seconds with naming deliberately stalled. Build and all eight tests pass in 26.070 seconds.
 
 Manual UI demo in the isolated dark fixture: entered a brief without a title, clicked Add to Backlog, and immediately reached the persisted task detail while the fake model remained stalled. Existing native sheet, labels and keyboard behavior are preserved; this change introduces no layout or colour changes. Separately verified the real installed GPT-5.6 Luna at low effort: valid structured title in 4.388 seconds, entirely off the creation path. No claim that network refinement itself is instantaneous.
+
+## Conversation bubbles and clearer composer hint — 2026-09-26
+
+Agent messages now share the human message bubble fill, padding, maximum width and corner radius. Agent bubbles align left and human bubbles right, with speaker/time inside; events and interactive questions keep their existing presentation. Replaced the inactive composer hint with the owner-approved “Messages are saved for when work resumes.” Delivery behavior is unchanged.
+
+Verified a populated agent–human–agent exchange and the new hint in both light and dark isolated fixtures; text remains selectable and the accessibility tree preserves message content, speaker/time and composer labels. Bubble regression build and all eight existing tests passed in 25.105 seconds; the final text-only follow-up build also passed. No additional tests for these presentation-only changes.

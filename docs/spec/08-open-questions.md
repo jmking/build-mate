@@ -139,3 +139,8 @@ The owner reversed the earlier tint decision and requested a closer reference ma
 ## Immediate task creation and economical naming (2026-09-26)
 
 User feedback: waiting for automatic naming is too slow, and naming must use a cheap model. Save/open with a local brief-derived title first; refine once asynchronously with an available Luna/mini model at its lowest supported effort. Never fall back to the expensive project/account default. Manual edits cancel refinement; failure, shutdown or unavailable models retain the saved title. Do not restart interrupted naming on app launch or rename existing tasks/branches/PRs. No new setting or API-key dependency.
+
+
+## Conversation bubbles (2026-09-26)
+
+User direction supersedes the reference’s unboxed agent text: show agent messages in the same speech-bubble treatment as human messages, aligned left versus right. Preserve speaker/time labels, selectable Markdown, chronological order, event rows and interactive question cards.

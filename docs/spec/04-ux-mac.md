@@ -49,7 +49,7 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 - Toolbar: "Chat" + project name; **Open in <editor>** (opens the main checkout), Inspector toggle.
 - Transcript (max width 720, centered):
   - User messages: right-aligned grey bubbles with attachments (images/video thumbnails, 220×140).
-  - Project agent messages: left-aligned plain text with "Project agent · time".
+  - Agent messages: left-aligned grey bubbles, matching the user bubble padding and radius, with speaker and time inside.
   - Activity rows: collapsed pill "Read 22 files in reports/ and exports/ · 2 min" with chevron; expands to the raw tool list.
   - Events: centered small grey line with hairlines ("#427 and #428 in Todo · #429 in Backlog").
   - **Proposal card** (from `propose_tasks`): header "3 tasks for acme/web · each gets its own agent and worktree"; one row per task with a checkbox (checked by default), number, title, "after N" dependency chip, one-line plan; footer: **Ship as** pull-down ("3 PRs, #2 stacked on #1" / "One PR (v1.1)"), **Start Now** (secondary), **Add N to Backlog** (primary, default). Unchecking a task excludes it. After creation the card collapses to a summary with links to the tasks.
@@ -172,3 +172,5 @@ Retained retry diagnostics do not appear as a current Fix item while a recovered
 Queue ordering: drag Backlog rows or Todo cards/list rows onto the upper/lower half of another item to place them before/after it. Reordering stays within a project and state; it never moves tasks into execution or interrupts an existing run. Top is highest priority. Context-menu Move Earlier/Later, accessibility actions, and Task menu ⌃⌘↑/↓ provide alternatives. Search preserves the full queue ordering.
 
 Usage UI follow-up: the sidebar shows the most constrained Codex account window, a remaining-percentage bar and reset time. Its popover lists every reported bucket/window, shared-account explanation, last refresh, errors and Refresh. Refresh on startup/every minute and consume live account notifications; an account-only app-server process creates no agent thread. Unknown windows/resets remain unavailable, never zero or invented. Failed refreshes retain clearly labelled last-known values. This delivery is informational: automatic 15% holds, Resume Anyway, threshold settings and menu-bar usage remain milestone 7. The percentage bar turns orange below 25% and red below 15% as a warning only.
+
+The inactive task composer hint reads “Messages are saved for when work resumes.” This describes delivery before sending; the post-send status still confirms the actual result.
