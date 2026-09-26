@@ -144,3 +144,11 @@ User feedback: waiting for automatic naming is too slow, and naming must use a c
 ## Conversation bubbles (2026-09-26)
 
 User direction supersedes the reference’s unboxed agent text: show agent messages in the same speech-bubble treatment as human messages, aligned left versus right. Preserve speaker/time labels, selectable Markdown, chronological order, event rows and interactive question cards.
+
+## Queue naming (2026-09-26)
+
+User-directed rename: the ready-to-start state is displayed as **Queue** throughout the Mac app, including actions, help, accessibility labels and historical state-transition events. Keep the persisted `todo` state and tool enum unchanged so existing tasks and integrations remain compatible. Scheduling behavior is unchanged.
+
+## Conversation bubble contrast (2026-09-26)
+
+The owner supplied new light/dark chat references: agent bubbles are light grey in light mode and charcoal in dark mode; user bubbles are near-black in light mode and medium grey in dark mode, with white text. Apply these opaque neutral fills to the existing conversation layout; retain speaker/time, text selection, questions and event rows. This supersedes the earlier identical low-opacity grey fills.

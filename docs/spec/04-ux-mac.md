@@ -51,26 +51,26 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
   - User messages: right-aligned grey bubbles with attachments (images/video thumbnails, 220×140).
   - Agent messages: left-aligned grey bubbles, matching the user bubble padding and radius, with speaker and time inside.
   - Activity rows: collapsed pill "Read 22 files in reports/ and exports/ · 2 min" with chevron; expands to the raw tool list.
-  - Events: centered small grey line with hairlines ("#427 and #428 in Todo · #429 in Backlog").
+  - Events: centered small grey line with hairlines ("#427 and #428 in Queue · #429 in Backlog").
   - **Proposal card** (from `propose_tasks`): header "3 tasks for acme/web · each gets its own agent and worktree"; one row per task with a checkbox (checked by default), number, title, "after N" dependency chip, one-line plan; footer: **Ship as** pull-down ("3 PRs, #2 stacked on #1" / "One PR (v1.1)"), **Start Now** (secondary), **Add N to Backlog** (primary, default). Unchecking a task excludes it. After creation the card collapses to a summary with links to the tasks.
   - Task chips after creation: glass capsules "● #427 Building" that open the task.
 - Composer (floating glass, bottom): attach (paperclip; also drag-and-drop and paste images/video), text field "Describe what you want built…", send (accent circle, ⌘↩ or ↩).
-- Natural-language routing: "start now", "go straight to Todo" → Start Now; "backlog the rest" etc. The agent echoes the outcome as an event.
+- Natural-language routing: "start now", "go straight to Queue" → Start Now; "backlog the rest" etc. The agent echoes the outcome as an event.
 - Inspector: **From this chat** (tasks created here, live state, "Backlog · waiting for you to refine", "then waits on #427") and **Project** (checkout path, branch, agent/model, host mark + remote slug), footer **Open Tasks**.
 
 ## 5. Backlog — `mac-03-backlog`
 **Purpose:** refine tasks before any agent starts them.
-- Toolbar: "Backlog" + "4 tasks · agents won't start these until you move them to Todo"; Search, New Task.
-- Left list (420 pt): drag handle, title, one-line description, meta ("From chat · today", "2 attachments", "Waits on #412"), number. Drag to reorder (sets start order). Multi-select with ⇧/⌘; **Move to Todo** acts on the selection (⌘↩).
-- Right editor: "#429 · Backlog · created from Chat at 09:11"; title (large inline field); Description (text editor, markdown); Attachments (tiles + add); settings list: **Depends on** (pull-down, multiple), **Ship as** (Its own PR / stacked / one PR v1.1), **Ask me before building** (Use project setting / On / Off). Footer: **Delete…** (destructive, confirm), **Refine with Agent** (sparkles; the project agent rewrites the description and asks questions in the chat), **Move to Todo** (primary).
+- Toolbar: "Backlog" + "4 tasks · agents won't start these until you move them to Queue"; Search, New Task.
+- Left list (420 pt): drag handle, title, one-line description, meta ("From chat · today", "2 attachments", "Waits on #412"), number. Drag to reorder (sets start order). Multi-select with ⇧/⌘; **Move to Queue** acts on the selection (⌘↩).
+- Right editor: "#429 · Backlog · created from Chat at 09:11"; title (large inline field); Description (text editor, markdown); Attachments (tiles + add); settings list: **Depends on** (pull-down, multiple), **Ship as** (Its own PR / stacked / one PR v1.1), **Ask me before building** (Use project setting / On / Off). Footer: **Delete…** (destructive, confirm), **Refine with Agent** (sparkles; the project agent rewrites the description and asks questions in the chat), **Move to Queue** (primary).
 - Empty state: "Backlog is empty" + "Tasks you add from the chat land here."
 
 ## 6. Tasks board — `mac-04-board`
 - Toolbar: "Tasks"; **Pause Project**; List/Board segmented control (⌘L toggles); Search; New Task (⌘N).
-- Columns (left to right): **Todo**, **Needs Clarification**, **Building**, **Human review**, **In PR**. Merged is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Todo header has **+**.
-- Todo column starts with a dashed **Backlog · N** row linking to Backlog.
-- Card (12 pt radius): optional attachment preview (image, or video with glass play button), title (2 lines max), number, attachment count, status on the right (coloured dot + text, e.g. "2 questions", "Approve plan", "Paused", "Retry in 0:31", "Proof complete", "Fixing build", "1 of 2 approvals"), optional "Waits on #427" chip, and the 5-segment **Road to merge** bar (not shown for Todo cards without progress).
-- Drag and drop: Backlog ↔ Todo, and Todo reorder, are allowed; other moves are agent-driven, except dragging a card to the Backlog link (moves it back and stops its session after confirmation).
+- Columns (left to right): **Queue**, **Needs Clarification**, **Building**, **Human review**, **In PR**. Merged is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Queue header has **+**.
+- Queue column starts with a dashed **Backlog · N** row linking to Backlog.
+- Card (12 pt radius): optional attachment preview (image, or video with glass play button), title (2 lines max), number, attachment count, status on the right (coloured dot + text, e.g. "2 questions", "Approve plan", "Paused", "Retry in 0:31", "Proof complete", "Fixing build", "1 of 2 approvals"), optional "Waits on #427" chip, and the 5-segment **Road to merge** bar (not shown for Queue cards without progress).
+- Drag and drop: Backlog ↔ Queue, and Queue reorder, are allowed; other moves are agent-driven, except dragging a card to the Backlog link (moves it back and stops its session after confirmation).
 - Context menu: Open, Open in <editor>, Pause/Resume, Move to Backlog, Cancel Task…, Copy Link.
 - **List view** (not drawn): a table grouped by state with the same columns of data; filter by state including Merged.
 
@@ -78,8 +78,8 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
 - Sheet attached to the main window (⌘N anywhere). Fields: project pull-down (neutral folder when an icon is shown), "What should be built" (multiline, initially focused), optional title under **Set a title yourself**, Attachments (tiles + dashed add area; drag-and-drop, paste; milestone 6).
 - A nonblank brief is required. Save and open the task immediately with the user title or a locally shortened first line/sentence (at most 80 characters). Do not wait for Codex or scheduler work to dismiss the sheet. Refine an automatic title once in the background using an available economical model at its lowest supported reasoning effort; keep the local title if unavailable or unsuccessful. Manual titles/edits take precedence. Naming never starts a coding task or creates its worktree/session; Start Now schedules coding independently. No model requests while typing.
 - The task brief has a visible **Edit** action. **Task › Edit Task…** (⇧⌘E) and board/list context menus open the same native editor for title, brief and proof choice. Save Changes (Return) persists the draft; Cancel (Escape) discards it. Manual titles are never automatically replaced. Title-only changes preserve execution, proof, worktree branch and PR title.
-- Editing the brief/proof before work starts preserves Backlog/Todo and does not dispatch it. For started work, Save pauses and stops the worker, returns it to Todo for replanning (Backlog stays Backlog), supersedes pending questions and old plan approvals, and invalidates previous proof. The user resumes explicitly; the same Codex thread and worktree continue with the updated brief. The editor explains this before saving. In PR, Merged and Canceled tasks allow title-only edits; the core rechecks state on Save.
-- Footer: "Agents only pick up tasks in Todo." · **Cancel** (esc) · **Start Now** · **Add to Backlog** (primary, ↩).
+- Editing the brief/proof before work starts preserves Backlog/Queue and does not dispatch it. For started work, Save pauses and stops the worker, returns it to Queue for replanning (Backlog stays Backlog), supersedes pending questions and old plan approvals, and invalidates previous proof. The user resumes explicitly; the same Codex thread and worktree continue with the updated brief. The editor explains this before saving. In PR, Merged and Canceled tasks allow title-only edits; the core rechecks state on Save.
+- Footer: "Agents only pick up tasks in Queue." · **Cancel** (esc) · **Start Now** · **Add to Backlog** (primary, ↩).
 
 ## 8. Project instructions — `mac-06-project-instructions`
 - Toolbar: "Instructions" + "Every agent in <project> follows these"; More (Export to repository… v3, Reveal data folder).
@@ -163,13 +163,13 @@ Menu bar menus: Build Mate, File (New Task, New Project, Close), Edit, View (Nee
 
 The native shell implements the sidebar, Add Project, Needs You summary, five-column board, grouped task list, persisted task transcript and inspector. A minimal task-entry sheet and question/plan actions are available to exercise the core. Full New Task attachments, editable instructions and project chat remain milestone 6; lifecycle review controls remain milestones 4–5. Native toolbar geometry and sidebar selection follow macOS controls. See 07 for validation status and 08 for setup assumptions.
 
-Task proof: **Automatic** lets the agent choose checks and visual recording as appropriate to the task and brief. New Task also offers **Checks only** and **Checks + recording**; the inspector shows the choice, evidence rationale and whether recording was required. Missing recording configuration does not block Start Now or Move to Todo: evidence is proposed and checked before Human review. Bitbucket starts stay disabled until its provider is verified.
+Task proof: **Automatic** lets the agent choose checks and visual recording as appropriate to the task and brief. New Task also offers **Checks only** and **Checks + recording**; the inspector shows the choice, evidence rationale and whether recording was required. Missing recording configuration does not block Start Now or Move to Queue: evidence is proposed and checked before Human review. Bitbucket starts stay disabled until its provider is verified.
 
 The composer distinguishes **Send answer**, **Send message** (an active Codex turn), and **Save message** (no active turn). Saving persists the message for the next run and never starts or resumes a task. Successful submission confirms whether the message was sent or saved. Return submits; ⌘Return is also available. Draft and delivery status reset when changing tasks.
 
 Retained retry diagnostics do not appear as a current Fix item while a recovered turn is running or waiting for a question/approval.
 
-Queue ordering: drag Backlog rows or Todo cards/list rows onto the upper/lower half of another item to place them before/after it. Reordering stays within a project and state; it never moves tasks into execution or interrupts an existing run. Top is highest priority. Context-menu Move Earlier/Later, accessibility actions, and Task menu ⌃⌘↑/↓ provide alternatives. Search preserves the full queue ordering.
+Queue ordering: drag Backlog rows or Queue cards/list rows onto the upper/lower half of another item to place them before/after it. Reordering stays within a project and state; it never moves tasks into execution or interrupts an existing run. Top is highest priority. Context-menu Move Earlier/Later, accessibility actions, and Task menu ⌃⌘↑/↓ provide alternatives. Search preserves the full queue ordering.
 
 Usage UI follow-up: the sidebar shows the most constrained Codex account window, a remaining-percentage bar and reset time. Its popover lists every reported bucket/window, shared-account explanation, last refresh, errors and Refresh. Refresh on startup/every minute and consume live account notifications; an account-only app-server process creates no agent thread. Unknown windows/resets remain unavailable, never zero or invented. Failed refreshes retain clearly labelled last-known values. This delivery is informational: automatic 15% holds, Resume Anyway, threshold settings and menu-bar usage remain milestone 7. The percentage bar turns orange below 25% and red below 15% as a warning only.
 

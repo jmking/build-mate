@@ -121,7 +121,7 @@ final class AppModel {
         try store.db.write { db in
             guard let task = try WorkTask.fetchOne(db, key: id), let target = try WorkTask.fetchOne(db, key: targetID),
                   task.projectId == target.projectId, task.state == target.state, [.backlog, .todo].contains(task.state) else {
-                throw CoreError.invalid("Reorder tasks within the same project's Backlog or Todo list.")
+                throw CoreError.invalid("Reorder tasks within the same project's Backlog or Queue list.")
             }
             var group = try WorkTask.filter(Column("projectId") == task.projectId && Column("state") == task.state.rawValue)
                 .order(Column("rank").desc, Column("createdAt")).fetchAll(db).map(\.id)

@@ -60,7 +60,7 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 
 ## 4. Layout, spacing, radii
 - Spacing scale: 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40.
-- Sidebar rows use native `Label` icon/title columns, including project disclosure labels; let the sidebar set symbol size and hierarchy indentation. Keep project folders in label colour. Repeated Needs You rows reserve 20 pt for status glyphs and 12 pt for chevrons. Board headers use 16 pt glyph slots and a common 20 pt height so the Todo add control cannot shift its header or content down.
+- Sidebar rows use native `Label` icon/title columns, including project disclosure labels; let the sidebar set symbol size and hierarchy indentation. Keep project folders in label colour. Repeated Needs You rows reserve 20 pt for status glyphs and 12 pt for chevrons. Board headers use 16 pt glyph slots and a common 20 pt height so the Queue add control cannot shift its header or content down.
 - Align mixed-size text/control rows to their first text baseline: form fields/buttons, footer captions/actions, task number/title/status, transcript metadata, and Needs You glyph/title/chevron. Wrapped titles stay leading aligned; task metadata stays on the first line. List separators start at the row's leading edge, not underneath trailing status labels.
 - Composer: the text field has a minimum 32 pt height with 7 pt optical vertical insets and a large native circular send control. Its single line is vertically centred with the button; when it grows, the last text line remains aligned with the bottom action. Hint and input share a leading edge. Check empty, typed, wrapped and multiline states.
 - **Concentric corners**: inner radius = outer radius − padding. Board column 20 → card 12 (8 padding). Sheet 22 → inner panel 12 (10 padding).
@@ -76,7 +76,7 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 | Backlog | `list.bullet.rectangle` (or `tray.2`) |
 | Tasks board | `rectangle.split.3x1` |
 | Instructions | `doc.text` |
-| Todo | `circle.dashed` |
+| Queue | `circle.dashed` |
 | Needs Clarification | `questionmark.circle` |
 | Building | `play.circle` |
 | Human review | `eye` |
@@ -136,7 +136,7 @@ Brand marks are reserved for repository/service-specific actions and information
 - The composer is a regular Liquid Glass surface in a bottom `safeAreaBar`, allowing the transcript to scroll behind it. Keep the delivery hint inside this surface for legibility. The circular send arrow has an action-specific accessibility label and tooltip. Clear glass is reserved for future media controls.
 - Use the native SwiftUI inspector (340 pt ideal, 280–380 pt resizable), retaining native presentation with the neutral raised-content background. Do not wrap the sidebar, toolbar or inspector in another glass layer.
 - `AppSurface` supplies window (#FFFFFF / #1E1E1E), raised (#FBFBFC / #232325), recessed (#F5F5F7 / #141416), card (#FFFFFF / #2C2C2F), sheet (#F7F7F9 / #2C2C2F) and sidebar (#F3F3F7 / #232325) backgrounds. These opaque light/dark pairs deliberately prevent desktop wallpaper tint from making large surfaces brown. Retain semantic separators, text, accents and card shadows. Toolbar controls and the composer keep native Liquid Glass; no global macOS appearance preferences are changed.
-- Transcript events are compact secondary rows; messages use 14 pt system type with 5 pt line spacing. Agent and user messages share grey speech bubbles with 14 pt padding, 12 pt corners and a maximum content width of 560 pt. Agent bubbles align leading; user bubbles align trailing. Keep speaker/time inside each bubble; events remain compact rows and questions retain their interactive cards. Progress checklist labels stay in label colours; only glyphs carry state colour.
+- Transcript events are compact secondary rows; messages use 14 pt system type with 5 pt line spacing. Following the owner’s chat references, agent bubbles use #EEEEEE / #262626 (light/dark), while user bubbles use #080808 / #595959 with white text and 85% white speaker/time labels. Use opaque fills to avoid wallpaper tint. Agent and user messages share speech bubble geometry with 14 pt padding, 12 pt corners and a maximum content width of 560 pt. Agent bubbles align leading; user bubbles align trailing. Keep speaker/time inside each bubble; events remain compact rows and questions retain their interactive cards. Progress checklist labels stay in label colours; only glyphs carry state colour.
 - Reduce Motion disables panel movement and pulsing; board updates use opacity instead of geometry travel. Reduced Transparency is handled by native materials.
 
 References checked: [Apple HIG Materials](https://developer.apple.com/design/human-interface-guidelines/materials), [Motion](https://developer.apple.com/design/human-interface-guidelines/motion), [Applying Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views). Apple reserves glass for navigation and functional controls; content cards retain standard surfaces. The reference wallpaper is not an app background, so translucency varies with the actual desktop and system preferences.

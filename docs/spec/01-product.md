@@ -6,7 +6,7 @@ Coding agents can now do most of the implementation for well-described work, but
 ## What Build Mate is
 A Mac app where you **manage work instead of supervising agents**:
 - You talk to a **project chat**. It reads the codebase and proposes a set of **tasks** (with dependencies and how they ship).
-- Tasks wait in a **Backlog** until you move them to **Todo** (or you tell the chat to start now).
+- Tasks wait in a **Backlog** until you move them to **Queue** (or you tell the chat to start now).
 - Each task gets its own **agent** in its own **git worktree**. The agent asks questions when unclear, builds, and produces **proof of work** (relevant checks and visual evidence when appropriate).
 - You do a **human review** with the evidence and a one-click **Run locally**, then the agent opens a **pull request** and looks after it until it is **merged**.
 - Everything that needs you lands in one place: **Needs You**, on the Mac, in the menu bar and on your iPhone.
@@ -34,7 +34,7 @@ A Mac app where you **manage work instead of supervising agents**:
 | **Task agent** | The Codex session that works on one task inside that task's worktree. |
 | **Worktree** | A `git worktree` for the task's branch, stored in Build Mate's storage, never inside the repo. |
 | **Backlog** | Tasks you are not ready to start. Agents never pick these up. |
-| **Todo** | Tasks ready for an agent. Picked up in order, respecting dependencies and limits. |
+| **Queue** | Tasks ready for an agent. Picked up in order, respecting dependencies and limits. |
 | **Needs Clarification** | The agent has blocking questions for you. |
 | **Building** | The agent is implementing. |
 | **Human review** | Proof is complete; waiting for you to review before a PR opens. |

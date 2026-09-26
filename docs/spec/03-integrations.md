@@ -90,7 +90,7 @@ Exposed to task agents (T) and the project agent (P). All calls are validated by
 | `report_screenshot(path, caption)` | T | Attach a screenshot to the chat or proof. | Stored in media. |
 | `note(text)` | T, P | Short progress note shown as an agent message. | |
 | `propose_tasks(tasks[], shipAs)` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Start Now / Add to Backlog. |
-| `create_tasks(tasks[], destination: backlog|todo)` | P | Create tasks directly when the user explicitly asked ("go straight to Todo"). | Creates tasks; returns their numbers. |
+| `create_tasks(tasks[], destination: backlog|todo)` | P | Create tasks directly when the user explicitly asked ("go straight to Queue"). | Creates tasks; returns their numbers. |
 | `add_dependency(task, dependsOn)` | T, P | Record a newly discovered dependency. | Adds it and posts a Needs You notice (the user can remove it). |
 | `project_status()` | P | Read tasks, states, open questions and PRs. | Read-only. |
 

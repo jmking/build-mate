@@ -106,13 +106,13 @@ The persisted `done` state is displayed as **Merged** throughout the app. Keep t
 | From | To | Trigger | Guard / notes |
 |---|---|---|---|
 | (new) | backlog | Created from project chat (default), New Task sheet "Add to Backlog", phone | |
-| (new) | todo | Chat "start now" / "go straight to Todo", sheet "Start Now", proposal "Start Now" | |
-| backlog | todo | User: Move to Todo, swipe Start, chat instruction | |
+| (new) | todo | Chat "start now" / "go straight to Queue", sheet "Start Now", proposal "Start Now" | |
+| backlog | todo | User: Move to Queue, swipe Start, chat instruction | |
 | todo | (dispatched) | Scheduler | Dispatchable (section 2) and a slot is free. Highest rank first. |
 | dispatched | needs_clarification | Agent calls `ask_question` with `blocking: true` during its first ("understand") turn | |
-| dispatched | todo + pending plan approval | `askBeforeBuild` effective and agent calls `submit_plan` | Task stays in Todo; appears in Needs You › Approvals. |
+| dispatched | todo + pending plan approval | `askBeforeBuild` effective and agent calls `submit_plan` | Task stays in Queue; appears in Needs You › Approvals. |
 | todo (plan approved) / dispatched | building | Plan approved, or no approval needed and no blocking questions | |
-| needs_clarification | building | All blocking questions answered, or user presses **Let the agent decide** (agent proceeds with stated defaults) | Dependencies must still be satisfied; otherwise it waits in Todo showing "Waits on #n". |
+| needs_clarification | building | All blocking questions answered, or user presses **Let the agent decide** (agent proceeds with stated defaults) | Dependencies must still be satisfied; otherwise it waits in Queue showing "Waits on #n". |
 | building | needs_clarification | Agent asks a blocking question mid-build | Session paused until answered. |
 | building | human_review | Agent calls `request_review` and proof is complete | If `askBefore.openPR` is off, go straight to opening the PR (in_pr). |
 | building | (proof failed) | Proof runner reports a required check or recording failed | Agent gets the failure and continues building; after 3 consecutive proof failures raise a Needs You item. |
@@ -125,7 +125,7 @@ The persisted `done` state is displayed as **Merged** throughout the app. Keep t
 | any | (paused flag) | Pause task / project / all | See section 10. |
 
 ### Task edits
-Title-only edits preserve lifecycle and proof. A scope edit (brief or proof preference) is an atomic replan operation: block dispatch/publication during the edit, pause any started task, interrupt and await its worker, then save the new fields, invalidate proof, supersede prior plan approvals and resolve pending questions as superseded. Started tasks return to Todo paused (or stay Backlog); unstarted drafts keep their state and pause flag. Resume reuses the existing thread/worktree with the current task prompt. Old answers remain historical context; superseded unanswered questions are excluded from the new prompt. Scope edits are rejected once a PR is opening/open or the task is terminal. This does not add a general-purpose Building → Todo transition.
+Title-only edits preserve lifecycle and proof. A scope edit (brief or proof preference) is an atomic replan operation: block dispatch/publication during the edit, pause any started task, interrupt and await its worker, then save the new fields, invalidate proof, supersede prior plan approvals and resolve pending questions as superseded. Started tasks return to Queue paused (or stay Backlog); unstarted drafts keep their state and pause flag. Resume reuses the existing thread/worktree with the current task prompt. Old answers remain historical context; superseded unanswered questions are excluded from the new prompt. Scope edits are rejected once a PR is opening/open or the task is terminal. This does not add a general-purpose Building → Queue transition.
 
 ### Road to merge (display)
 Five checkpoints derived from state and data: **Clarified** (no open blocking questions and, if needed, plan approved), **Built** (agent requested review), **Proof of work** (proof complete, with sub-items Checks and, when applicable, Recording), **Human review** (approved, or skipped by settings), **Merged**. Each is `done`, `current`, `needsYou` or `todo`. The 5-segment bar on cards and the vertical checklist in the task inspector are two renderings of the same data.
@@ -133,7 +133,7 @@ Five checkpoints derived from state and data: **Clarified** (no open blocking qu
 ## 6. Orchestration loop
 Follow Symphony's loop with these specifics:
 - **Tick** every 5 s locally (no external tracker to poll). SCM status (CI, reviews, comments) for tasks in `in_pr` is polled every 60 s per task, with backoff to 5 min when nothing changes for 30 min. Webhooks are out of scope for v1.
-- **Dispatch**: pick dispatchable Todo tasks by rank; respect `agentsAtOnce` across all projects and per-project pause.
+- **Dispatch**: pick dispatchable Queue tasks by rank; respect `agentsAtOnce` across all projects and per-project pause.
 - **Workspace**: on first dispatch, create the branch from `defaultBranch` (or from the stack base branch) and a worktree; run `afterCreate`. Before every run attempt run `beforeRun`; after, `afterRun`. Hook subprocesses run in private process groups; timeout/cancellation terminates their descendants too. Failed setup is retried in the existing worktree; `afterCreate` is retried until it succeeds, then never repeated for that worktree.
 - **Session**: one Codex thread per task, resumed across attempts and across human-in-the-loop pauses so the agent keeps its context (verify thread resume in spike, see 08). If resume is not possible, start a new thread and replay the task's message history as context.
 - **Turns**: each turn continues until the agent ends it, then the next turn starts automatically up to `maxTurnsPerTask`, unless the agent is waiting (question, approval, review) or the task is paused.
@@ -182,7 +182,7 @@ Pause never discards work. Paused time does not count toward timeouts.
 
 ## 12. Notifications and usage
 - macOS notifications for every new Needs You item, grouped by project, with actions where possible (answer options, Approve Plan, Open). Respects Focus.
-- **Usage meter**: shows the ChatGPT plan usage window reported by Codex (e.g. "62% of this 5-hour window left · resets 16:40") in the sidebar footer and the menu bar. Setting: "Hold new tasks when usage is below N%" (default 15%). When held, Todo tasks show "Waiting for usage". (Not yet drawn; design it with the sidebar footer and menu bar styles.)
+- **Usage meter**: shows the ChatGPT plan usage window reported by Codex (e.g. "62% of this 5-hour window left · resets 16:40") in the sidebar footer and the menu bar. Setting: "Hold new tasks when usage is below N%" (default 15%). When held, Queue tasks show "Waiting for usage". (Not yet drawn; design it with the sidebar footer and menu bar styles.)
 
 ## 13. Remote control (v2)
 - The app exposes its API over HTTPS on a private network interface only (for example a Tailscale address). Nothing listens on public interfaces.

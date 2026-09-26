@@ -49,12 +49,14 @@ struct TaskDetailView: View {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(item.role == "agent" ? "Agent" : item.role == "user" ? "You" : "Build Mate").fontWeight(.medium)
                                 Text(item.createdAt, style: .time)
-                            }.font(.caption).foregroundStyle(.secondary)
+                            }.font(.caption).foregroundStyle(item.role == "user" ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.secondary))
                             Text(.init(displayText(item))).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .foregroundStyle(item.role == "user" ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
+                        .tint(item.role == "user" ? .white : .accentColor)
                         .frame(maxWidth: conversation ? 560 : .infinity, alignment: .leading)
                         .padding(conversation ? 14 : 0)
-                        .background(conversation ? Color.secondary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                        .background((item.role == "user" ? AppSurface.userBubble : .agentBubble).opacity(conversation ? 1 : 0), in: RoundedRectangle(cornerRadius: 12))
                         .frame(maxWidth: .infinity, alignment: item.role == "user" ? .trailing : .leading)
                     }
                 }
@@ -121,7 +123,7 @@ struct TaskDetailView: View {
                     }
                     if let pr = task.pr, let url = URL(string: pr.url) { Link("View Pull Request #\(pr.number)", destination: url) }
                     if task.state == .backlog {
-                        Button("Move to Todo") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
+                        Button("Move to Queue") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
                             .disabled(model.selectedProject?.runBlockReason != nil)
                         if let reason = model.selectedProject?.runBlockReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                     }

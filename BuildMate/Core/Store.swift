@@ -92,7 +92,7 @@ final class Store: Sendable {
     }
     func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .backlog,
                     rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic) throws -> WorkTask {
-        guard [.backlog, .todo].contains(state) else { throw CoreError.invalid("New tasks must be Backlog or Todo") }
+        guard [.backlog, .todo].contains(state) else { throw CoreError.invalid("New tasks must be Backlog or Queue") }
         return try db.write { db in
             let number = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE projectId = ?", arguments: [projectId])!
             let task = WorkTask(projectId: projectId, number: number, title: title, description: description,

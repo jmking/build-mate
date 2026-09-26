@@ -29,14 +29,14 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 - Removing a project deletes its data and worktrees and leaves the clone untouched.
 
 **Project chat and backlog**
-- Describing work produces a proposal card; **Add N to Backlog** creates tasks in Backlog with dependencies; **Start Now** creates them in Todo.
+- Describing work produces a proposal card; **Add N to Backlog** creates tasks in Backlog with dependencies; **Start Now** creates them in Queue.
 - Typing "start the first two now, backlog the rest" results in exactly that, echoed as an event.
-- Backlog tasks are never dispatched. Moving to Todo dispatches in rank order when a slot is free.
+- Backlog tasks are never dispatched. Moving to Queue dispatches in rank order when a slot is free.
 - Refine with Agent updates the description and any questions appear in the chat.
 
 **Lifecycle**
 - A task whose agent asks a blocking question moves to Needs Clarification, appears in Needs You, and resumes within 5 s of the last answer, with the same Codex thread (context retained).
-- With "Ask me before starting to build" on (project or task), the task waits in Todo with an Approval in Needs You; Approve Plan starts building.
+- With "Ask me before starting to build" on (project or task), the task waits in Queue with an Approval in Needs You; Approve Plan starts building.
 - A task cannot enter Human review until required checks pass and any task-required recording exists; failed proof returns to the agent with the failure.
 - Run locally starts the preview on a unique port and opens the browser within 90 s, for two tasks at once without port clashes.
 - Open Pull Request creates the PR on the right host; dependent tasks create stacked PRs targeting the base task's branch; after the base merges, the dependent PR is rebased and retargeted to the default branch automatically.
@@ -46,7 +46,7 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 **Control**
 - Pause task stops the session after the current step within 30 s, keeps the worktree, and Resume continues the same thread.
 - Pause Project and Pause All stop dispatch and pause running tasks; the sidebar and menu bar show paused state; Needs You still updates.
-- Usage below the hold threshold stops new dispatch and shows "Waiting for usage" on Todo cards.
+- Usage below the hold threshold stops new dispatch and shows "Waiting for usage" on Queue cards.
 
 **UI**
 - Every screen matches its design in `docs/design/png` in both appearances (layout, hierarchy, copy), built with native controls.
@@ -62,7 +62,7 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 
 ## Milestone 3 handoff (2026-09-26)
 
-- **Demo:** launch → Add Project → Check Repository → Add Project → ⌘N → Add to Backlog → Move to Todo → ⌘4. The board reflects durable task state; a blocking question appears in Needs You and opens the persisted transcript. ⌘L toggles board/list, ⌘1–5 navigate, ⌘[/⌘] move through history, ⌥⌘I toggles the inspector, and ⌥⌘P pauses/resumes dispatch. Relaunch restores the selected task. Light/dark task and board layouts were inspected in the running app.
+- **Demo:** launch → Add Project → Check Repository → Add Project → ⌘N → Add to Backlog → Move to Queue → ⌘4. The board reflects durable task state; a blocking question appears in Needs You and opens the persisted transcript. ⌘L toggles board/list, ⌘1–5 navigate, ⌘[/⌘] move through history, ⌥⌘I toggles the inspector, and ⌥⌘P pauses/resumes dispatch. Relaunch restores the selected task. Light/dark task and board layouts were inspected in the running app.
 - Native shell implementation is delivered. Five automated tests pass (four process-boundary flows and the transition-rule unit test). Optional XCTest UI automation is compiled but blocked by the host's automation-mode initialization timeout; see 08. The follow-up acceptance pass checked keyboard flows and both system Reduce Motion/Transparency settings. Spoken VoiceOver verification remains blocked, so full accessibility acceptance is not claimed complete. See [acceptance record](10-milestone-3-acceptance.md).
 - Scope still pending: review/playback/previews/editor actions (4), full SCM/PR controls (5), project chat/attachments/backlog ordering/instruction editing (6), usage/settings/menu bar/notifications/final accessibility polish (7). Board drag/drop is deferred with backlog ordering. No v2/v3 features were added.
 
@@ -78,4 +78,4 @@ User-directed extension to project setup: Add Existing or Create New. A new proj
 
 ## Queue, cleanup and usage follow-up (2026-09-26)
 
-User-directed additions: remove clean worktrees after confirmed merge (retain task/history/proof/branch; preserve dirty worktrees), reorder Backlog and Todo within each project using drag-and-drop or Move Earlier/Later, and show account usage windows/reset times in the sidebar and popover. Automatic usage holds/settings and menu-bar usage remain milestone 7; this usage UI is informational. Native sheet materials are retained.
+User-directed additions: remove clean worktrees after confirmed merge (retain task/history/proof/branch; preserve dirty worktrees), reorder Backlog and Queue within each project using drag-and-drop or Move Earlier/Later, and show account usage windows/reset times in the sidebar and popover. Automatic usage holds/settings and menu-bar usage remain milestone 7; this usage UI is informational. Native sheet materials are retained.

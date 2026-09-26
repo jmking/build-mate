@@ -203,14 +203,14 @@ struct NewTaskSheet: View {
                 }.accessibilityElement(children: .combine)
             }
             if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-            Text(selectedProject?.runBlockReason ?? "Start Now adds the task to Todo. It runs when the project is resumed and an agent slot is available.")
+            Text(selectedProject?.runBlockReason ?? "Start Now adds the task to Queue. It runs when the project is resumed and an agent slot is available.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
-                Text("Agents only pick up tasks in Todo.").font(.caption).foregroundStyle(.secondary)
+                Text("Agents only pick up tasks in Queue.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { creation?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Start Now") { create(start: true) }.disabled(!valid || selectedProject?.runBlockReason != nil)
-                    .help(selectedProject?.runBlockReason ?? "Add to Todo")
+                    .help(selectedProject?.runBlockReason ?? "Add to Queue")
                 Button("Add to Backlog") { create(start: false) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(!valid)
             }
         }.padding(28).frame(width: 670)

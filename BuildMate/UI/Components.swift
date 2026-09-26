@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 extension TaskState {
     var title: String {
         switch self {
-        case .backlog: "Backlog"; case .todo: "Todo"; case .needsClarification: "Needs Clarification"
+        case .backlog: "Backlog"; case .todo: "Queue"; case .needsClarification: "Needs Clarification"
         case .building: "Building"; case .humanReview: "Human review"; case .inPR: "In PR"; case .done: "Merged"; case .canceled: "Canceled"
         }
     }
