@@ -134,6 +134,7 @@ Brand marks are reserved for repository/service-specific actions and information
 
 ## Mac implementation refinements (2026-09-26)
 
+- The app icon is an original structural M formed by two facing beams, with no Codex or OpenAI logo elements. Use the native `BuildMate/BuildMate.icon` document: graphite on a system light tile by default, pearl on a system dark tile for the dark icon appearance. Icon Composer supplies native material and lighting. Source, previews and editing instructions are in `docs/design/app-icon/README.md`.
 - The composer is a regular Liquid Glass surface in a bottom `safeAreaBar`, allowing the transcript to scroll behind it. Keep the delivery hint inside this surface for legibility. The circular send arrow has an action-specific accessibility label and tooltip. Clear glass is reserved for future media controls.
 - Use the native SwiftUI inspector (340 pt ideal, 280–380 pt resizable), retaining native presentation with the neutral raised-content background. Do not wrap the sidebar, toolbar or inspector in another glass layer.
 - `AppSurface` supplies window (#FFFFFF / #1E1E1E), raised (#FBFBFC / #232325), recessed (#F5F5F7 / #141416), card (#FFFFFF / #2C2C2F), sheet (#F7F7F9 / #2C2C2F) and sidebar (#F3F3F7 / #232325) backgrounds. These opaque light/dark pairs deliberately prevent desktop wallpaper tint from making large surfaces brown. Retain semantic separators, text, accents and card shadows. Toolbar controls and the composer keep native Liquid Glass; no global macOS appearance preferences are changed.

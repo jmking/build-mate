@@ -5,6 +5,7 @@ Every designed screen in light and dark mode. PNGs are 2× renders of the HTML r
 - **PNG** (`png/light`, `png/dark`): what the screen should look like.
 - **HTML** (`html/light`, `html/dark`): static references with exact sizes, spacing, radii and colours in inline styles. Open in a browser (Chrome renders the glass materials best). They use sample data.
 - **Assets** (`assets/`): real app icons (Cursor, VS Code, Xcode, Terminal, Finder) exported from the installed apps, and the official GitHub and Bitbucket marks (SVG). At runtime, app icons come from `NSWorkspace`.
+- **Build Mate app icon** ([source and previews](app-icon/README.md)): original structural M, packaged as a native Icon Composer document with light and dark appearances.
 
 Mac screens are drawn as a 1440×900 window on a desktop wallpaper so the sidebar and toolbar glass can be seen; the wallpaper is not part of the app. iPhone screens are drawn at device size in points (Duo sizes are estimates).
 
