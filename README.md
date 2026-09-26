@@ -4,7 +4,7 @@ Build Mate v1 is a native macOS app for managing AI coding work through to merge
 
 ## Status
 
-Milestones 1–4 are implemented, with project text chat brought forward from milestone 6. The native app includes project creation, Needs You, Backlog, board/list views, task conversations, proof review, local previews and editor actions. Project chat can inspect code read-only, propose dependent tasks, route them to Backlog or Queue, answer questions and refine Backlog descriptions. Attachments and instruction editing remain later work. See the delivery notes for validation limits.
+Milestones 1–4 are implemented, with project text chat brought forward from milestone 6. The native app includes project creation, Needs You, Backlog, board/list views, task conversations, proof review, local previews and editor actions. Project chat can inspect code read-only, propose dependent tasks, route them to Backlog or Queue, answer questions and refine Backlog descriptions. Both chats accept screenshots (window or area), dropped files and file-picker attachments. Attached references follow created tasks and are cleaned up after their linked tasks merge. Video frame extraction and instruction editing remain later work. See the delivery notes for validation limits.
 
 The core supports durable projects/tasks/sessions, guarded state transitions, rank/dependency dispatch, external worktrees, hooks with timeouts, Codex dynamic tools, clarification and plan approval, proof gates, human review, GitHub PR creation and merge detection, retries and reconciliation. The test suite exercises the complete initial lifecycle with fake CLI processes and a real local bare git remote. It never calls real Codex, GitHub or Bitbucket.
 

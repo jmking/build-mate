@@ -4,14 +4,14 @@ import GRDB
 extension Orchestrator {
     func chatWorkspace(_ project: Project) -> URL { store.root.appending(path: "worktrees/\(project.id)/project-chat") }
 
-    func sendProjectMessage(_ projectID: UUID, text: String) async throws {
+    func sendProjectMessage(_ projectID: UUID, text: String, files: [URL] = []) async throws {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !shuttingDown else { throw CoreError.invalid("Enter a message.") }
+        guard (!text.isEmpty || !files.isEmpty), !shuttingDown else { throw CoreError.invalid("Enter a message.") }
         _ = try store.get(Project.self, projectID)
         var session = try store.session(for: projectID, ownerType: "project")
         guard session.status != "waiting" else { throw CoreError.invalid("Answer the project agent’s question first.") }
         guard chatJobs[projectID] == nil else { throw CoreError.invalid("Wait for the reply or stop the current response first.") }
-        try store.save(Message(sessionId: session.id, role: "user", body: text))
+        try store.saveChatMessage(Message(sessionId: session.id, role: "user", body: text), files: files, projectID: projectID, ownerID: projectID)
         session.status = "queued"; try store.save(session)
         await tick()
     }
@@ -110,7 +110,7 @@ extension Orchestrator {
             }
             session.status = "running"; try store.save(session)
             let response = try await client.request("turn/start", [
-                "threadId": .string(session.codexThreadId!), "cwd": .string(cwd), "input": .textInput(try projectContext(project, session: session)),
+                "threadId": .string(session.codexThreadId!), "cwd": .string(cwd), "input": .chatInput(try projectContext(project, session: session), attachments: try store.chatAttachments(sessionID: session.id)),
                 "effort": project.settings.effort.map(JSON.string) ?? .null,
                 "sandboxPolicy": .object(["type": .string("readOnly"), "networkAccess": .bool(false)])
             ])
@@ -164,6 +164,7 @@ extension Orchestrator {
         if var session = try? store.session(for: projectID, ownerType: "project") {
             session.status = outcome; session.currentTurn = nil; try? store.save(session)
         }
+        try? store.removeCompletedProjectAttachments(projectID)
         chatClients[projectID] = nil; chatJobs[projectID] = nil
     }
 
@@ -247,19 +248,31 @@ extension Orchestrator {
             var created: [Int: WorkTask] = [:]
             // Append below existing ranked tasks, preserving proposal order.
             let rank = try Double.fetchOne(db, sql: "SELECT COALESCE(MIN(rank), 0) FROM task WHERE projectId = ?", arguments: [projectID])!
-            for index in selected.sorted() {
-                let item = proposal.tasks[index]
-                let task = WorkTask(projectId: projectID, number: number + created.count, title: item.title, description: item.description,
-                                    state: queue.contains(index) ? .todo : .backlog, rank: rank - Double(created.count + 1),
-                                    dependsOn: item.dependsOnIndex.compactMap { created[$0]?.id }, origin: "chat")
-                try task.insert(db); created[index] = task
-            }
-            let tasks = selected.sorted().compactMap { created[$0] }
-            proposal.createdTaskIds = tasks.map(\.id); proposal.status = "created"; try proposal.update(db)
             let session = try Session.filter(Column("ownerType") == "project" && Column("ownerId") == projectID).fetchOne(db)!
-            let summary = tasks.map { "\($0.title) → \($0.state == .todo ? "Queue" : "Backlog")" }.joined(separator: "\n")
-            try Message(sessionId: session.id, role: "system", kind: "event", body: summary).insert(db)
-            return tasks
+            let sources = try Attachment.fetchAll(db, sql: "SELECT attachment.* FROM attachment JOIN message ON attachment.ownerId = message.id WHERE attachment.ownerType = 'message' AND message.sessionId = ? AND attachment.removedAt IS NULL AND message.createdAt <= (SELECT createdAt FROM message WHERE id = ?)", arguments: [session.id, proposal.messageId])
+            var prepared: [Attachment] = []
+            do {
+                for index in selected.sorted() {
+                    let item = proposal.tasks[index]
+                    let task = WorkTask(projectId: projectID, number: number + created.count, title: item.title, description: item.description,
+                                        state: queue.contains(index) ? .todo : .backlog, rank: rank - Double(created.count + 1),
+                                        dependsOn: item.dependsOnIndex.compactMap { created[$0]?.id }, origin: "chat")
+                    try task.insert(db); created[index] = task
+                    for (source, copy) in zip(sources, try store.prepareAttachments(sources.map { URL(fileURLWithPath: $0.path) }, projectID: projectID, ownerID: task.id, messageID: task.id)) {
+                        var attachment = copy
+                        attachment.ownerType = "task"; attachment.ownerId = task.id; attachment.sourceAttachmentId = source.id; attachment.filename = source.filename
+                        prepared.append(attachment); try attachment.insert(db)
+                    }
+                }
+                let tasks = selected.sorted().compactMap { created[$0] }
+                proposal.createdTaskIds = tasks.map(\.id); proposal.status = "created"; try proposal.update(db)
+                let summary = tasks.map { "\($0.title) → \($0.state == .todo ? "Queue" : "Backlog")" }.joined(separator: "\n")
+                try Message(sessionId: session.id, role: "system", kind: "event", body: summary).insert(db)
+                return tasks
+            } catch {
+                for attachment in prepared { store.discardPreparedAttachments([attachment]) }
+                throw error
+            }
         }
         await tick()
         return result
@@ -271,7 +284,7 @@ extension Orchestrator {
         proposal.status = "dismissed"; try store.save(proposal)
     }
 
-    func answerProjectQuestion(_ id: UUID, projectID: UUID, answer: String) async throws {
+    func answerProjectQuestion(_ id: UUID, projectID: UUID, answer: String, files: [URL] = []) async throws {
         let answer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !answer.isEmpty else { throw CoreError.invalid("Enter an answer.") }
         let session = try store.session(for: projectID, ownerType: "project")
@@ -280,6 +293,12 @@ extension Orchestrator {
               case .object(var payload) = message.payload else { throw CoreError.invalid("This question is no longer waiting for an answer.") }
         if message.payload["allowsFreeText"].bool == false {
             guard message.payload["options"].array.contains(.string(answer)) else { throw CoreError.invalid("Choose one of the offered answers.") }
+        }
+        if !files.isEmpty {
+            let attachments = try store.saveChatMessage(Message(sessionId: session.id, role: "user", body: answer), files: files, projectID: projectID, ownerID: projectID)
+            if let client = chatClients[projectID], let thread = session.codexThreadId, let turn = session.currentTurn {
+                _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput("Reference files for my answer: " + answer, attachments: attachments)])
+            }
         }
         payload["answer"] = .string(answer); message.payload = .object(payload)
         try store.save(message)

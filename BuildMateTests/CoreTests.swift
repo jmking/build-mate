@@ -70,7 +70,10 @@ struct CoreTests {
         #expect(task.state == .todo)
         await core.tick()
         try await f.wait("blocking question") { try f.store.get(WorkTask.self, task.id).state == .needsClarification }
-        #expect(try await core.steer(task.id, text: "Keep the output compact") == .sent)
+        #expect(try await core.steer(task.id, text: "Keep the output compact", files: [f.control.appending(path: "proof.png")]) == .sent)
+        let attached = try #require(f.store.all(Attachment.self).first)
+        #expect(attached.kind == "image" && FileManager.default.fileExists(atPath: attached.path))
+        #expect(try String(contentsOf: f.control.appending(path: "image-inputs.jsonl"), encoding: .utf8).contains("turn/steer"))
         let question = try #require(f.store.all(Question.self).first)
         let thread = try #require(f.store.session(for: task.id).codexThreadId)
         // A human may take longer than the stall window; answering must still resume.
@@ -145,6 +148,10 @@ struct CoreTests {
         await resumed.pollPR(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).state == .done)
         #expect(try reopened.get(WorkTask.self, task.id).doneAt != nil)
+        #expect(try reopened.get(Attachment.self, attached.id).removedAt != nil)
+        #expect(!FileManager.default.fileExists(atPath: attached.path))
+        #expect(!FileManager.default.fileExists(atPath: attached.frames[0]))
+        #expect(FileManager.default.fileExists(atPath: f.control.appending(path: "proof.png").path))
         #expect(FileManager.default.fileExists(atPath: unsaved.path)) // A merge must never force-delete uncommitted work.
         try FileManager.default.removeItem(at: unsaved)
         await resumed.pollPR(task.id)

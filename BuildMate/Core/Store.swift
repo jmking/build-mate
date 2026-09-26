@@ -66,6 +66,10 @@ final class Store: Sendable {
         migrator.registerMigration("v4-project-chat") { db in
             try db.execute(sql: "ALTER TABLE proposal ADD COLUMN createdTaskIds TEXT NOT NULL DEFAULT '[]'")
         }
+        migrator.registerMigration("v5-chat-attachments") { db in
+            try db.execute(sql: "ALTER TABLE attachment ADD COLUMN removedAt DATETIME")
+            try db.execute(sql: "ALTER TABLE attachment ADD COLUMN sourceAttachmentId TEXT")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

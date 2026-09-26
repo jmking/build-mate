@@ -23,6 +23,8 @@ struct TaskDetailView: View {
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
     private var questions: [Question] { model.snapshot.questions.filter { $0.taskId == task.id } }
     private var proof: Proof? { model.snapshot.proofs.first { $0.taskId == task.id } }
+    private var files: [URL] { model.attachmentDrafts[task.id] ?? [] }
+    private var fileBinding: Binding<[URL]> { Binding(get: { model.attachmentDrafts[task.id] ?? [] }, set: { model.attachmentDrafts[task.id] = $0 }) }
     var body: some View {
         @Bindable var model = model
         ScrollView {
@@ -36,6 +38,7 @@ struct TaskDetailView: View {
                             .buttonStyle(.borderless).help("Edit task (⇧⌘E)")
                             .accessibilityLabel("Edit task").accessibilityIdentifier("edit-task")
                     }
+                    MessageAttachments(messageID: task.id, ownerType: "task")
                     Text(task.description.isEmpty ? "No additional description." : task.description).textSelection(.enabled).font(.system(size: 14)).lineSpacing(5)
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
                 ForEach(messages) { item in
@@ -53,6 +56,7 @@ struct TaskDetailView: View {
                                 Text(item.role == "agent" ? "Agent" : item.role == "user" ? "You" : "Build Mate").fontWeight(.medium)
                                 Text(item.createdAt, style: .time)
                             }.font(.caption).foregroundStyle(item.role == "user" ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.secondary))
+                            MessageAttachments(messageID: item.id)
                             Text(.init(displayText(item))).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .foregroundStyle(item.role == "user" ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
@@ -80,9 +84,11 @@ struct TaskDetailView: View {
         .safeAreaBar(edge: .bottom, spacing: 0) {
             if !task.state.terminal && task.state != .backlog {
                 VStack(alignment: .leading, spacing: 8) {
+                    ChatAttachmentTray(files: fileBinding, root: model.store.root)
                     Text(messageStatus ?? composerExplanation).font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("message-status")
                     HStack(alignment: .bottom, spacing: 12) {
+                    ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
                         TextField(composerTitle, text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain).font(.system(size: 14))
                             .padding(.vertical, 7).frame(minHeight: 32)
                             .accessibilityLabel(composerTitle).accessibilityIdentifier("task-message").onSubmit(send)
@@ -90,7 +96,7 @@ struct TaskDetailView: View {
                         Button(action: send) { Label(actionTitle, systemImage: "arrow.up").labelStyle(.iconOnly).frame(width: 18, height: 18) }
                             .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
                             .accessibilityLabel(actionTitle).help(actionTitle + " (⌘Return)")
-                            .disabled(sending || openQuestion?.allowsFreeText == false || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(sending || openQuestion?.allowsFreeText == false || (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty))
                             .keyboardShortcut(.return, modifiers: .command)
                             .accessibilityIdentifier("send-task-message")
                     }
@@ -102,6 +108,7 @@ struct TaskDetailView: View {
 
             }
         }
+        .modifier(ChatAttachmentDrop(files: fileBinding, root: model.store.root, enabled: !sending && !task.state.terminal && task.state != .backlog))
         .inspector(isPresented: $model.showInspector) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -197,16 +204,17 @@ struct TaskDetailView: View {
     }
     private func send() {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !sending, openQuestion?.allowsFreeText != false else { return }
+        guard (!text.isEmpty || !files.isEmpty), !sending, openQuestion?.allowsFreeText != false else { return }
         let question = openQuestion
+        let attached = files
         sending = true
         model.perform {
             defer { sending = false }
             if let question {
-                try await model.core.answer(question.id, text: text)
+                try await model.core.answer(question.id, text: text.isEmpty ? "See attached files." : text, files: attached)
                 messageStatus = "Answer saved."
             } else {
-                let delivery = try await model.core.steer(task.id, text: text)
+                let delivery = try await model.core.steer(task.id, text: text, files: attached)
                 switch delivery {
                 case .sent: messageStatus = "Sent to the agent."
                 case .saved: messageStatus = "Saved. The agent will read this when work resumes."
@@ -214,6 +222,8 @@ struct TaskDetailView: View {
                 }
             }
             message = ""
+            model.attachmentDrafts[task.id] = []
+            for url in attached { removeDraftCapture(url, root: model.store.root) }
         }
     }
 }

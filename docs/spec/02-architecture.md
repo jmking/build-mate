@@ -75,7 +75,7 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 
 **Task**: `id, projectId, number (int, unique per project), title, description (markdown), state (see 5), paused (bool), rank (float, ordering within backlog/todo), dependsOn [taskId], shipAs (own | stackOn(taskId) | featureBranch(name) v1.1), askBeforeBuild (inherit|on|off), proofRequirement (automatic|checksOnly|checksAndRecording), origin (chat|sheet|phone|backlog), branchName, worktreePath, pr { number, url, baseBranch } ?, retry { attempt, dueAt, error } ?, createdAt, updatedAt, doneAt`.
 
-**Attachment**: `id, ownerType (task|message), ownerId, kind (image|video), path, filename, byteSize, durationSec?, frames [path]?, transcript?`.
+**Attachment**: `id, ownerType (task|message), ownerId, kind (image|file), path, filename, byteSize, durationSec?, frames [path]?, transcript?, sourceAttachmentId?, removedAt?`.
 
 **Session**: `id, ownerType (task|project), ownerId, codexThreadId, status (idle|running|waiting|stalled|failed|ended), currentTurn, turnCount, tokensIn, tokensOut, startedAt, lastEventAt`.
 
@@ -196,3 +196,10 @@ Pause never discards work. Paused time does not count toward timeouts.
 - The app runs hooks and checks as the user. Hooks are shown in Settings › Hooks and changes require confirmation.
 - No tokens are stored by Build Mate for GitHub/Bitbucket; it uses the logged-in `gh` and `twg` CLIs. Codex auth is owned by Codex (ChatGPT sign-in).
 - Logs redact tokens and environment variables matching common secret patterns.
+
+
+### Chat attachment ownership and cleanup (2026-09-27)
+
+Copy sent attachments into `projects/<project-id>/media/<task-or-project-id>/<message-id>/`; never depend on the original Desktop/Downloads path. Message insertion and attachment records are atomic; import failure removes partial copies. Up to 20 files per message, 50 MB each; reject folders and unreadable images. Images retain their original bytes and a normalized vision PNG. File bytes do not enter logs.
+
+Tasks created from a project proposal inherit copies of the chat attachments available when that proposal was made. Each task copy records its `sourceAttachmentId`. Confirmed merge deletes that task's attachment files (including normalized images). The project-chat source is removed only once every task linked to it has merged. Unassigned project files remain until project deletion; no age-based purge. Originals outside Build Mate and proof evidence are untouched. Keep metadata tombstones and transcript text; show “attachment removed” instead of a broken preview. Recovery retries merge cleanup after interruption.

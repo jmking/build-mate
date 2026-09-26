@@ -11,6 +11,7 @@ struct AppSnapshot: Sendable {
     var approvals: [Approval] = []
     var proofs: [Proof] = []
     var proposals: [Proposal] = []
+    var attachments: [Attachment] = []
 }
 
 enum Destination: Hashable {
@@ -56,6 +57,7 @@ final class AppModel {
     var listMode = false
     var search = ""
     var chatDrafts: [UUID: String] = [:]
+    var attachmentDrafts: [UUID: [URL]] = [:]
     var error: String?
     var schedulerError: String?
     var usage = UsageSnapshot()
@@ -93,7 +95,7 @@ final class AppModel {
                 AppSnapshot(projects: try Project.order(Column("name")).fetchAll(db),
                             tasks: try WorkTask.order(Column("rank").desc, Column("createdAt")).fetchAll(db),
                             sessions: try Session.fetchAll(db), messages: try Message.order(Column("createdAt")).fetchAll(db),
-                            questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db), proposals: try Proposal.fetchAll(db))
+                            questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db), proposals: try Proposal.fetchAll(db), attachments: try Attachment.fetchAll(db))
             }
             settings = try store.settings()
             schedulerError = await core.lastError

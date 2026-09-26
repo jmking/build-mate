@@ -12,6 +12,8 @@ struct ProjectChatView: View {
     private var busy: Bool { ["queued", "running", "waiting"].contains(session?.status ?? "") }
     private var question: Message? { messages.last { $0.kind == "question" && $0.payload["answer"] == .null } }
     private var fromChat: [WorkTask] { model.snapshot.tasks.filter { $0.projectId == projectID && $0.origin == "chat" } }
+    private var files: [URL] { model.attachmentDrafts[projectID] ?? [] }
+    private var fileBinding: Binding<[URL]> { Binding(get: { model.attachmentDrafts[projectID] ?? [] }, set: { model.attachmentDrafts[projectID] = $0 }) }
     var body: some View {
         @Bindable var model = model
         ScrollViewReader { proxy in
@@ -55,9 +57,12 @@ struct ProjectChatView: View {
         }
         .safeAreaBar(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(question != nil ? "Answer the question to continue." : "Discuss ideas and turn them into tasks.")
-                    .font(.caption).foregroundStyle(.secondary)
+                ChatAttachmentTray(files: fileBinding, root: model.store.root)
+                if question != nil {
+                    Text("Answer the question to continue.").font(.caption).foregroundStyle(.secondary)
+                }
                 HStack(alignment: .bottom, spacing: 12) {
+                    ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
                     TextField(question != nil ? "Your answer…" : "Describe what you want built…", text: Binding(get: { model.chatDrafts[projectID] ?? "" }, set: { model.chatDrafts[projectID] = $0 }), axis: .vertical)
                         .font(.system(size: 14)).lineLimit(1...5).textFieldStyle(.plain).padding(.vertical, 7).frame(minHeight: 32)
                         .focused($focused).accessibilityLabel("Project message").accessibilityIdentifier("project-message")
@@ -69,7 +74,7 @@ struct ProjectChatView: View {
                     } else {
                         Button(action: send) { Image(systemName: "arrow.up").frame(width: 18, height: 18) }
                             .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
-                            .disabled(sending || (model.chatDrafts[projectID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || question?.payload["allowsFreeText"].bool == false)
+                            .disabled(sending || (model.chatDrafts[projectID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty || question?.payload["allowsFreeText"].bool == false)
                             .keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send project message")
                             .accessibilityIdentifier("send-project-message").help("Send message (⌘Return)")
                     }
@@ -77,6 +82,7 @@ struct ProjectChatView: View {
             }.padding(14).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
                 .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16).frame(maxWidth: 776).frame(maxWidth: .infinity)
         }
+        .modifier(ChatAttachmentDrop(files: fileBinding, root: model.store.root, enabled: !sending))
         .inspector(isPresented: $model.showInspector) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -122,14 +128,17 @@ struct ProjectChatView: View {
     private func send() {
         guard !sending else { return }
         let text = (model.chatDrafts[projectID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || !files.isEmpty else { return }
         let pending = question
+        let attached = files
         sending = true
         model.perform {
             defer { sending = false }
-            if let pending { try await model.core.answerProjectQuestion(pending.id, projectID: projectID, answer: text) }
-            else { try await model.core.sendProjectMessage(projectID, text: text) }
+            if let pending { try await model.core.answerProjectQuestion(pending.id, projectID: projectID, answer: text.isEmpty ? "See attached files." : text, files: attached) }
+            else { try await model.core.sendProjectMessage(projectID, text: text, files: attached) }
             model.chatDrafts[projectID] = ""
+            model.attachmentDrafts[projectID] = []
+            for url in attached { removeDraftCapture(url, root: model.store.root) }
         }
     }
 }
@@ -143,6 +152,7 @@ private struct ProjectChatBubble: View {
                 Text(user ? "You" : "Agent").fontWeight(.medium)
                 Text(message.createdAt, style: .time)
             }.font(.caption).foregroundStyle(user ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.secondary))
+            MessageAttachments(messageID: message.id)
             Text(.init(message.body)).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         }.foregroundStyle(user ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary)).tint(user ? .white : .accentColor)
             .frame(maxWidth: 560, alignment: .leading).padding(14)

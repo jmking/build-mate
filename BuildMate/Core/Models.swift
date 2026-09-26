@@ -224,6 +224,8 @@ struct Attachment: Record {
     var durationSec: Double?
     var frames: [String] = []
     var transcript: String?
+    var removedAt: Date? = nil
+    var sourceAttachmentId: UUID? = nil
 }
 struct Proposal: Record {
     static let databaseTableName = "proposal"

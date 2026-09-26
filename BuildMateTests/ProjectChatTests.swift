@@ -8,7 +8,13 @@ struct ProjectChatTests {
         var f = try await CoreTests.Fixture()
         var settings = try f.store.settings(); settings.agentsAtOnce = 1; try f.store.saveSettings(settings)
         let core = Orchestrator(store: f.store, runner: f.runner)
-        try await core.sendProjectMessage(f.project.id, text: "Plan account search")
+        let reference = f.root.appending(path: "requirements.txt")
+        try "Show empty states clearly.".write(to: reference, atomically: true, encoding: .utf8)
+        try await core.sendProjectMessage(f.project.id, text: "Plan account search", files: [f.control.appending(path: "proof.png"), reference])
+        let originals = try f.store.all(Attachment.self)
+        #expect(originals.count == 2)
+        try FileManager.default.removeItem(at: reference)
+        #expect(originals.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
         try await f.wait("project proposal and final response") { try f.store.all(Proposal.self).count == 1 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let session = try f.store.session(for: f.project.id, ownerType: "project")
         let thread = try #require(session.codexThreadId)
@@ -22,6 +28,12 @@ struct ProjectChatTests {
         #expect(try f.store.all(WorkTask.self).count == 3)
         #expect(tasks.allSatisfy { $0.state == .backlog && $0.worktreePath == nil && $0.origin == "chat" })
         #expect(tasks[1].dependsOn == [tasks[0].id])
+        #expect(try f.store.all(Attachment.self).filter { $0.ownerType == "task" }.count == 6)
+        #expect(try String(contentsOf: f.control.appending(path: "image-inputs.jsonl"), encoding: .utf8).contains("turn/start"))
+        let invalid = f.root.appending(path: "broken.png")
+        try "not an image".write(to: invalid, atomically: true, encoding: .utf8)
+        do { try await core.sendProjectMessage(f.project.id, text: "Invalid reference", files: [f.control.appending(path: "proof.png"), invalid]); Issue.record("Accepted corrupt image after copying a valid attachment") } catch {}
+        #expect(try f.store.all(Attachment.self).count == 8)
         try await core.sendProjectMessage(f.project.id, text: "Refine task \(tasks[0].id)")
         try await f.wait("refined description") { try f.store.get(WorkTask.self, tasks[0].id).description.contains("active accounts") && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         try await core.sendProjectMessage(f.project.id, text: "Ask a question")
@@ -58,6 +70,18 @@ struct ProjectChatTests {
         #expect(!FileManager.default.fileExists(atPath: f.repo.appending(path: "WORKFLOW.md").path))
         #expect(try f.store.all(WorkTask.self).filter { $0.state == .backlog }.allSatisfy { $0.worktreePath == nil })
         await resumed.shutdown()
+        // Recovery removes merged-task copies but preserves the shared source until every linked task merges.
+        var first = try f.store.get(WorkTask.self, tasks[0].id); first.state = .done; try f.store.save(first)
+        let cleanup = Orchestrator(store: f.store, runner: f.runner)
+        try await cleanup.recover()
+        #expect(try f.store.all(Attachment.self).filter { $0.ownerId == first.id }.allSatisfy { $0.removedAt != nil })
+        #expect(originals.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+        for var task in try f.store.all(WorkTask.self) { task.state = .done; try f.store.save(task) }
+        try await cleanup.recover()
+        #expect(try f.store.all(Attachment.self).allSatisfy { $0.removedAt != nil })
+        #expect(originals.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+        #expect(try f.store.all(Message.self).contains { $0.body == "Plan account search" })
+        await cleanup.shutdown()
         try f.cleanup()
     }
 }

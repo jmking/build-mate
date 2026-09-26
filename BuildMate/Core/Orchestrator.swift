@@ -70,6 +70,8 @@ actor Orchestrator {
         }
     }
     func recover() throws {
+        for task in try store.all(WorkTask.self) where task.state == .done { try store.removeMergedTaskAttachments(task.id) }
+        for project in try store.all(Project.self) { try store.removeCompletedProjectAttachments(project.id) }
         for var attempt in try store.all(RunAttempt.self) where attempt.status == "running" {
             attempt.status = "failed"; attempt.error = "App stopped during attempt; resuming durable thread"; attempt.endedAt = Date()
             try store.save(attempt)
@@ -242,11 +244,19 @@ actor Orchestrator {
             }
         }
     }
-    func answer(_ id: UUID, text: String, useSuggested: Bool = false) async throws {
+    func answer(_ id: UUID, text: String, useSuggested: Bool = false, files: [URL] = []) async throws {
         var question = try store.get(Question.self, id)
         guard question.answer == nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Question is answered or answer is empty") }
         guard question.allowsFreeText || question.options.contains(text) else { throw CoreError.invalid("Choose an offered answer") }
         if useSuggested, question.suggestedAnswer != text { throw CoreError.invalid("The suggested answer changed. Review it again.") }
+        if !files.isEmpty {
+            let task = try store.get(WorkTask.self, question.taskId)
+            let session = try store.session(for: task.id)
+            let attachments = try store.saveChatMessage(Message(sessionId: session.id, role: "user", body: text), files: files, projectID: task.projectId, ownerID: task.id)
+            if let client = clients[task.id], let thread = session.codexThreadId, let turn = session.currentTurn {
+                _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput("Reference files for my answer: " + text, attachments: attachments)])
+            }
+        }
         question.answer = text; question.answeredAt = Date(); question.answeredBy = useSuggested ? "agentDefault" : "user"; try store.save(question)
         let task = try store.get(WorkTask.self, question.taskId)
         if try task.state == .needsClarification && !openQuestions(task.id) {
@@ -263,37 +273,43 @@ actor Orchestrator {
         if try dependenciesReady(store.get(WorkTask.self, approval.taskId)) { try transition(approval.taskId, to: .building) }
         await tick()
     }
-    private func requestChanges(_ id: UUID, note: String) async throws {
+    private func requestChanges(_ id: UUID, note: String, files: [URL]) async throws {
+        guard files.count <= 20 else { throw CoreError.invalid("Attach up to 20 files per message.") }
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !note.isEmpty else { throw CoreError.invalid("Describe the changes you want.") }
+        guard !note.isEmpty || !files.isEmpty else { throw CoreError.invalid("Describe the changes you want.") }
         guard !openingPRs.contains(id), editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
         defer { editingTasks.remove(id) }
         guard try store.get(WorkTask.self, id).state == .humanReview else { throw CoreError.invalid("Only a task awaiting review can receive review feedback.") }
         await stopPreview(id)
         if let worker = workers[id] { worker.cancel(); await clients[id]?.stop(); await worker.value }
         let session = try store.session(for: id)
-        try await store.db.write { db in
+        let projectID = try store.get(WorkTask.self, id).projectId
+        let message = Message(sessionId: session.id, role: "user", body: note)
+        let attachments = try store.prepareAttachments(files, projectID: projectID, ownerID: id, messageID: message.id)
+        do { try await store.db.write { db in
             guard var task = try WorkTask.fetchOne(db, key: id), task.state == .humanReview else { throw CoreError.invalid("The task is no longer awaiting review.") }
             task.state = .building; task.retry = nil; task.updatedAt = Date()
             try task.save(db)
             try db.execute(sql: "UPDATE proof SET complete = 0 WHERE taskId = ?", arguments: [id])
-            try Message(sessionId: session.id, role: "user", body: note).insert(db)
+            try message.insert(db)
+            for attachment in attachments { try attachment.insert(db) }
             try Message(sessionId: session.id, role: "system", kind: "event", body: "Review feedback received. Fresh proof is required.").insert(db)
         }
+        } catch { store.discardPreparedAttachments(attachments); throw error }
         editingTasks.remove(id)
         await tick()
     }
     @discardableResult
-    func steer(_ id: UUID, text: String) async throws -> MessageDelivery {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Enter a message.") }
+    func steer(_ id: UUID, text: String, files: [URL] = []) async throws -> MessageDelivery {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { throw CoreError.invalid("Enter a message or attach a file.") }
         if try store.get(WorkTask.self, id).state == .humanReview {
-            try await requestChanges(id, note: text)
+            try await requestChanges(id, note: text, files: files)
             return .queued
         }
         let session = try store.session(for: id)
-        try store.save(Message(sessionId: session.id, role: "user", body: text))
+        let attachments = try store.saveChatMessage(Message(sessionId: session.id, role: "user", body: text), files: files, projectID: store.get(WorkTask.self, id).projectId, ownerID: id)
         if let client = clients[id], let thread = session.codexThreadId, let turn = session.currentTurn {
-            _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .textInput(text)])
+            _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput(text, attachments: attachments)])
             return .sent
         }
         return .saved
@@ -334,6 +350,10 @@ actor Orchestrator {
                 try transition(id, to: .done, merged: true)
             }
             let merged = try store.get(WorkTask.self, id)
+            if merged.state == .done {
+                try store.removeMergedTaskAttachments(id)
+                try store.removeCompletedProjectAttachments(project.id)
+            }
             if merged.state == .done, merged.worktreePath != nil, workers[id] == nil {
                 await stopPreview(id)
                 let prefix = "Worktree cleanup for task #\(merged.number): "
@@ -376,6 +396,7 @@ actor Orchestrator {
         guard tasks.allSatisfy({ workers[$0.id] == nil }) else { throw CoreError.invalid("Pause the project before deleting it") }
         for task in tasks { try await deleteTask(task.id) }
         try await store.db.write { db in
+            try db.execute(sql: "DELETE FROM attachment WHERE ownerType = 'message' AND ownerId IN (SELECT message.id FROM message JOIN session ON session.id = message.sessionId WHERE session.ownerType = 'project' AND session.ownerId = ?)", arguments: [id])
             try db.execute(sql: "DELETE FROM session WHERE ownerType = 'project' AND ownerId = ?", arguments: [id])
             _ = try Project.deleteOne(db, key: id)
         }
@@ -438,7 +459,7 @@ actor Orchestrator {
                     throw CoreError.invalid("Turn limit reached; review and resume with an increased limit")
                 }
                 let response = try await client.request("turn/start", [
-                    "threadId": .string(session.codexThreadId!), "cwd": .string(cwd!), "input": .textInput(input),
+                    "threadId": .string(session.codexThreadId!), "cwd": .string(cwd!), "input": .chatInput(input, attachments: try store.taskAttachments(id, sessionID: session.id)),
                     "effort": p.settings.effort.map(JSON.string) ?? .null,
                     "sandboxPolicy": .object(["type": .string("workspaceWrite"), "writableRoots": .array([.string(cwd!)]),
                                               "networkAccess": .bool(p.settings.network), "excludeTmpdirEnvVar": .bool(true), "excludeSlashTmp": .bool(true)])

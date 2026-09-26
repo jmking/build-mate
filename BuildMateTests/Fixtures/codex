@@ -47,6 +47,12 @@ for line in sys.stdin:
  req=json.loads(line)
  with log.open('a') as f:f.write(json.dumps({'method':req.get('method'),'id':req.get('id'),'params':req.get('params')})+'\n')
  method=req.get('method');p=req.get('params',{})
+ if method in ('turn/start','turn/steer'):
+  images=[item['path'] for item in p.get('input',[]) if item['type']=='localImage']
+  for image in images:
+   assert '/media/' in image and pathlib.Path(image).read_bytes().startswith(b'\x89PNG')
+  if images:
+   with (root/'image-inputs.jsonl').open('a') as f:f.write(json.dumps({'method':method,'images':images})+'\n')
  if method=='initialize':reply(req,{'userAgent':'fake/0.151'})
  elif method=='initialized':pass
  elif method=='model/list':

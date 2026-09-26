@@ -204,3 +204,14 @@ The Chat page now supports persistent text conversations, streamed agent bubbles
 The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector shows project checkout, branch and model plus live created-task states and dependencies.
 
 This pulls forward text project chat and backlog refinement, not all of milestone 6: image/video attachment entry and instruction editing remain separate remaining work. Proposal Ship as controls remain hidden until the related SCM capability exists. Spoken VoiceOver and reduced-transparency validation are not inferred from accessibility labels alone.
+
+
+### Screenshot and file attachments (2026-09-27)
+
+Both project and task composers offer a paperclip for the native multiple-file picker and a camera menu with **Capture Window…** and **Capture Area…**. Capture uses macOS's interactive selector: click a window or draw a rectangle; Escape cancels. The app temporarily hides during capture and returns with the image attached to the draft. macOS may request Screen Recording access. Capture never sends automatically.
+
+Drop files or image data anywhere in the chat. Draft attachments show thumbnails/filenames, Preview and Remove actions. Files can be sent without message text (a question still needs a valid answer). Sent images appear in the conversation; clicking an attachment opens native Quick Look. Task brief attachments inherited from project chat are visible in task details. All controls have tooltips and accessibility names. Attachment bytes are cleaned up on merge as described in 02; removed files retain a filename placeholder.
+
+This implements image/file attachments; video frame extraction and clipboard image paste remain separate from the delivered drag/drop, picker and screenshot entry points.
+
+The ordinary project composer has no explanatory caption (user preference); retain the answer hint only while a clarification question is pending.
