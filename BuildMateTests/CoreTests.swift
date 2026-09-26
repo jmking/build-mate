@@ -146,7 +146,8 @@ struct CoreTests {
         try await f.wait("stall retry and cleanup") {
             try f.store.get(WorkTask.self, high.id).retry?.attempt == 2 && f.store.all(RunAttempt.self).contains { $0.status == "stalled" }
         }
-        #expect(try f.store.session(for: high.id).codexThreadId == thread)
+        // Observe the reopened store without starting a competing get-or-create write transaction.
+        #expect(try f.store.all(Session.self).first { $0.ownerId == high.id }?.codexThreadId == thread)
         #expect(try f.store.all(RunAttempt.self).contains { $0.status == "stalled" })
         try FileManager.default.removeItem(at: f.control.appending(path: "stall"))
         let second = try f.store.get(WorkTask.self, high.id)
