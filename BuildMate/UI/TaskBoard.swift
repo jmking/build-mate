@@ -73,7 +73,7 @@ struct TaskList: View {
                 ForEach(TaskState.allCases, id: \.self) { state in
                     let group = tasks.filter { $0.state == state }
                     if !group.isEmpty {
-                        Section(state.title) {
+                        Section {
                             ForEach(group) { task in
                                 Button { model.destination = .task(task.id) } label: {
                                     Text(task.title).foregroundStyle(.primary).multilineTextAlignment(.leading)
@@ -87,6 +87,12 @@ struct TaskList: View {
                                     }
                                     .modifier(TaskPriorityDrag(task: task))
                             }
+                        } header: {
+                            HStack(spacing: 6) {
+                                Image(systemName: state.symbol)
+                                    .foregroundStyle(state.color).frame(width: 16).accessibilityHidden(true)
+                                Text(state.title)
+                            }.font(.caption.weight(.semibold)).accessibilityAddTraits(.isHeader)
                         }
                     }
                 }
