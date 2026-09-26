@@ -85,15 +85,15 @@ actor CodexClient {
     func stop() async { reader?.cancel(); reader = nil; await child.stop() }
 
     static let tools: JSON = .array([
-        tool("ask_question", "Ask the user before making an unclear decision. Blocking questions wait for an answer.",
-             ["prompt": "string", "allowsFreeText": "boolean", "blocking": "boolean"], required: ["prompt", "blocking"], options: true),
+        tool("ask_question", "Ask the user before making an unclear decision. Blocking questions wait for an answer. Include suggestedAnswer only when you have a reasonable default for the user to confirm.",
+             ["prompt": "string", "allowsFreeText": "boolean", "blocking": "boolean", "suggestedAnswer": "string"], required: ["prompt", "blocking"], options: true),
         tool("submit_plan", "Submit your plan before editing. Wait for approval when required.", ["plan": "string"], required: ["plan"]),
         reviewTool,
         tool("note", "Record a short progress note.", ["text": "string"], required: ["text"])
     ])
     private static let reviewTool: JSON = .object([
         "name": .string("request_review"),
-        "description": .string("Request review after committing. Classify visual changes and explain the relevant evidence, respecting the user's proof choice and brief. Supply meaningful check commands; Build Mate runs them independently alongside configured checks. For required visual proof supply a recordingCommand that writes a playable MP4 to $BUILD_MATE_RECORDING_PATH (up to 180 seconds), unless the project has one configured. Commands run in the task worktree. Do not push or open a PR."),
+        "description": .string("Request review after committing. Classify visual changes and explain the relevant evidence, respecting the user's proof choice and brief. Supply meaningful check commands; Build Mate runs them independently alongside configured checks. For required visual proof supply a recordingCommand that writes a playable MP4 to $BUILD_MATE_RECORDING_PATH (up to 180 seconds), unless the project has one configured. For visual changes with screenshots enabled, supply screenshotsCommand writing before/after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. Commands run in the task worktree. Do not push or open a PR."),
         "inputSchema": .object([
             "type": .string("object"), "additionalProperties": .bool(false),
             "properties": .object([
@@ -101,6 +101,7 @@ actor CodexClient {
                 "needsRecording": .object(["type": .string("boolean")]),
                 "rationale": .object(["type": .string("string")]),
                 "recordingCommand": .object(["type": .string("string")]),
+                "screenshotsCommand": .object(["type": .string("string")]),
                 "checks": .object(["type": .string("array"), "items": .object([
                     "type": .string("object"), "additionalProperties": .bool(false),
                     "properties": .object(["name": .object(["type": .string("string")]), "command": .object(["type": .string("string")])]),

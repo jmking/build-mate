@@ -154,3 +154,13 @@ User-directed rename: the ready-to-start state is displayed as **Queue** through
 ## Conversation bubble contrast (2026-09-26)
 
 The owner supplied new light/dark chat references: agent bubbles are light grey in light mode and charcoal in dark mode; user bubbles are near-black in light mode and medium grey in dark mode, with white text. Apply these opaque neutral fills to the existing conversation layout; retain speaker/time, text selection, questions and event rows. This supersedes the earlier identical low-opacity grey fills.
+
+
+## Milestone 4 lifecycle decisions (2026-09-26)
+
+- Use agent-provided, optional `suggestedAnswer` for **Let the Agent Decide**. Show every proposed answer and require explicit confirmation. Legacy questions without suggestions stay answerable normally; never pick the first option on the user's behalf.
+- Use the existing sandboxed proof command mechanism for recording and before/after screenshots, rather than add an embedded browser or a second recording service. The agent writes outputs to app-owned paths; Build Mate validates H.264/duration and decodable PNGs, independently runs checks, and records the commit SHA. This verifies executable results and media format, not whether the evidence adequately demonstrates the change.
+- Send Back keeps the thread, branch and approved plan, saves the feedback, invalidates proof and resumes unless paused. Editing scope still requires a new plan. Existing proof without a SHA must be refreshed before publishing. Three failed proof attempts pause for human attention; Resume resets that consecutive-failure allowance.
+- Preview “idle” means 30 minutes since Run/Open Preview in Build Mate. External browser activity is not observable. Each running preview holds a heavy-work slot; Stop frees it immediately. Preview commands are explicit per-project configuration and must use the supplied port and local bind address; no automatic dependency installation. CLI/native tasks use Terminal/editor instead of HTTP preview.
+- Preview output is redacted, capped to the latest 64,000 characters in memory, and available while the preview/status exists. Preview processes are ephemeral and are not restored after app restart.
+- Full Settings remains milestone 7; New Task exposes the per-task plan approval override now. Full SCM/stacking/watch/merge remains milestone 5.

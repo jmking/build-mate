@@ -9,12 +9,16 @@ actor Orchestrator {
     private var clients: [UUID: CodexClient] = [:]
     private var polling: Set<UUID> = []
     private var lastPoll: [UUID: Date] = [:]
-    private var heavySteps = 0
+    var heavySteps = 0
+    var previews: [UUID: PreviewStatus] = [:]
+    var previewProcesses: [UUID: ChildProcess] = [:]
+    var previewJobs: [UUID: Task<URL, Error>] = [:]
+    var previewMonitors: [UUID: Task<Void, Never>] = [:]
     private var openingPRs: Set<UUID> = []
-    private var editingTasks: Set<UUID> = []
+    var editingTasks: Set<UUID> = []
     private var ticking = false
     var titleJobs: [UUID: Task<Void, Never>] = [:]
-    private var shuttingDown = false
+    var shuttingDown = false
     private(set) var lastError: String?
     private(set) var rateLimits: JSON = .null
     private(set) var usage = UsageSnapshot()
@@ -74,6 +78,7 @@ actor Orchestrator {
     }
     func shutdown() async {
         shuttingDown = true
+        for id in Array(previews.keys) { await stopPreview(id) }
         let naming = Array(titleJobs.values)
         for job in naming { job.cancel() }
         for job in naming { await job.value }
@@ -174,7 +179,13 @@ actor Orchestrator {
     }
     func pause(_ id: UUID, paused: Bool) async throws {
         guard !editingTasks.contains(id) else { throw CoreError.invalid("Wait for the task edit to finish.") }
-        var task = try store.get(WorkTask.self, id); task.paused = paused; try store.save(task)
+        var task = try store.get(WorkTask.self, id)
+        if task.paused && !paused {
+            let session = try store.session(for: id)
+            try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Work resumed by you."))
+            task.retry = nil
+        }
+        task.paused = paused; try store.save(task)
         await tick()
     }
     func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement) async throws {
@@ -190,6 +201,7 @@ actor Orchestrator {
             guard !task.state.terminal, task.state != .inPR, !openingPRs.contains(id) else {
                 throw CoreError.invalid("Only the title can be edited after a pull request is opening or the task is finished.")
             }
+            await stopPreview(id)
             if task.worktreePath != nil || workers[id] != nil {
                 task.paused = true; try store.save(task)
                 if let worker = workers[id] {
@@ -225,11 +237,12 @@ actor Orchestrator {
             }
         }
     }
-    func answer(_ id: UUID, text: String) async throws {
+    func answer(_ id: UUID, text: String, useSuggested: Bool = false) async throws {
         var question = try store.get(Question.self, id)
         guard question.answer == nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Question is answered or answer is empty") }
         guard question.allowsFreeText || question.options.contains(text) else { throw CoreError.invalid("Choose an offered answer") }
-        question.answer = text; question.answeredAt = Date(); question.answeredBy = "user"; try store.save(question)
+        if useSuggested, question.suggestedAnswer != text { throw CoreError.invalid("The suggested answer changed. Review it again.") }
+        question.answer = text; question.answeredAt = Date(); question.answeredBy = useSuggested ? "agentDefault" : "user"; try store.save(question)
         let task = try store.get(WorkTask.self, question.taskId)
         if try task.state == .needsClarification && !openQuestions(task.id) {
             let project = try store.get(Project.self, task.projectId)
@@ -243,6 +256,26 @@ actor Orchestrator {
         guard approval.kind == "plan", approval.status == "pending" else { throw CoreError.invalid("No pending plan") }
         approval.status = "approved"; approval.resolvedAt = Date(); try store.save(approval)
         if try dependenciesReady(store.get(WorkTask.self, approval.taskId)) { try transition(approval.taskId, to: .building) }
+        await tick()
+    }
+    func sendBack(_ id: UUID, note: String) async throws {
+        let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty else { throw CoreError.invalid("Describe the changes you want.") }
+        guard !openingPRs.contains(id), editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
+        defer { editingTasks.remove(id) }
+        guard try store.get(WorkTask.self, id).state == .humanReview else { throw CoreError.invalid("Only a task awaiting review can be sent back.") }
+        await stopPreview(id)
+        if let worker = workers[id] { worker.cancel(); await clients[id]?.stop(); await worker.value }
+        let session = try store.session(for: id)
+        try await store.db.write { db in
+            guard var task = try WorkTask.fetchOne(db, key: id), task.state == .humanReview else { throw CoreError.invalid("The task is no longer awaiting review.") }
+            task.state = .building; task.retry = nil; task.updatedAt = Date()
+            try task.save(db)
+            try db.execute(sql: "UPDATE proof SET complete = 0 WHERE taskId = ?", arguments: [id])
+            try Message(sessionId: session.id, role: "user", body: note).insert(db)
+            try Message(sessionId: session.id, role: "system", kind: "event", body: "Sent back for changes. Fresh proof is required.").insert(db)
+        }
+        editingTasks.remove(id)
         await tick()
     }
     @discardableResult
@@ -262,6 +295,11 @@ actor Orchestrator {
         defer { openingPRs.remove(id) }
         guard task.state == .humanReview, !task.paused else { throw CoreError.invalid("Task is not ready for a PR") }
         guard let proof = try store.all(Proof.self).first(where: { $0.taskId == id && $0.complete }) else { throw CoreError.invalid("Proof is incomplete") }
+        guard let cwd = task.worktreePath else { throw CoreError.invalid("The worktree is unavailable.") }
+        await stopPreview(id)
+        let head = try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = try await runner.run("git", ["status", "--porcelain"], cwd: cwd).output.isEmpty
+        guard clean, proof.commitSHA == head else { throw CoreError.invalid("The worktree changed since proof was recorded. Send it back for fresh proof before opening a pull request.") }
         let project = try store.get(Project.self, task.projectId)
         guard project.host != .local else { throw CoreError.invalid("This project is local. Publishing and pull requests require a hosting service.") }
         var base = project.defaultBranch
@@ -287,6 +325,7 @@ actor Orchestrator {
             }
             let merged = try store.get(WorkTask.self, id)
             if merged.state == .done, merged.worktreePath != nil, workers[id] == nil {
+                await stopPreview(id)
                 let prefix = "Worktree cleanup for task #\(merged.number): "
                 do {
                     try await Workspace(store: store, runner: runner).remove(merged, project: project)
@@ -300,6 +339,7 @@ actor Orchestrator {
     }
     func deleteTask(_ id: UUID) async throws {
         guard workers[id] == nil else { throw CoreError.invalid("Pause the task before deleting it") }
+        await stopPreview(id)
         let task = try store.get(WorkTask.self, id)
         let project = try store.get(Project.self, task.projectId)
         try await Workspace(store: store, runner: runner).remove(task, project: project)
@@ -472,7 +512,7 @@ actor Orchestrator {
         let answers = try store.all(Question.self).filter { $0.taskId == task.id && $0.answeredBy != "taskEdit" }.map { "\($0.prompt): \($0.answer ?? "unanswered")" }.joined(separator: "\n")
         let session = try store.session(for: task.id)
         let messages = try store.all(Message.self).filter { $0.sessionId == session.id && $0.role == "user" }.map(\.body).joined(separator: "\n")
-        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages:\n\(messages)\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. A recording command writes MP4 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema only accepts summary, encode the complete report as JSON in summary.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review."
+        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages:\n\(messages)\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema lacks a report field, encode the complete report as JSON in summary.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {
@@ -481,11 +521,14 @@ actor Orchestrator {
             try await Task.sleep(for: .milliseconds(100))
         }
     }
-    private func ask(taskId: UUID, prompt: String, options: [String], allowsFreeText: Bool, blocking: Bool) throws -> Question {
+    private func ask(taskId: UUID, prompt: String, options: [String], allowsFreeText: Bool, blocking: Bool, suggestedAnswer: String? = nil) throws -> Question {
         guard !prompt.isEmpty else { throw CoreError.invalid("Question needs a prompt") }
         let session = try store.session(for: taskId)
         let message = Message(sessionId: session.id, role: "agent", kind: "question", body: prompt)
-        let question = Question(taskId: taskId, messageId: message.id, prompt: prompt, options: options, allowsFreeText: allowsFreeText, blocking: blocking)
+        let suggestion = suggestedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validSuggestion = suggestion.flatMap { !$0.isEmpty && (allowsFreeText || options.contains($0)) ? $0 : nil }
+        let question = Question(taskId: taskId, messageId: message.id, prompt: prompt, options: options, allowsFreeText: allowsFreeText, blocking: blocking,
+                                suggestedAnswer: validSuggestion)
         try store.db.write { db in try message.insert(db); try question.insert(db) }
         if blocking {
             let task = try store.get(WorkTask.self, taskId)
@@ -513,7 +556,7 @@ actor Orchestrator {
         switch params["tool"].string {
         case "ask_question":
             guard let prompt = args["prompt"].string, let blocking = args["blocking"].bool else { try await client.respond(requestId, text: "Invalid question", success: false); return }
-            let question = try ask(taskId: taskId, prompt: prompt, options: args["options"].array.compactMap(\.string), allowsFreeText: args["allowsFreeText"].bool ?? true, blocking: blocking)
+            let question = try ask(taskId: taskId, prompt: prompt, options: args["options"].array.compactMap(\.string), allowsFreeText: args["allowsFreeText"].bool ?? true, blocking: blocking, suggestedAnswer: args["suggestedAnswer"].string)
             let answer = blocking ? try await waitForAnswer(question) : "Question recorded; continue without depending on an answer."
             guard try dependenciesReady(store.get(WorkTask.self, taskId)) else { throw CancellationError() }
             try await client.respond(requestId, text: answer)
@@ -550,15 +593,23 @@ actor Orchestrator {
             catch { heavySteps -= 1; throw error }
             heavySteps -= 1
             if proof.complete {
+                try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Proof passed. Ready for review."))
                 try transition(taskId, to: .humanReview)
                 try await client.respond(requestId, text: "Proof passed. Waiting for human review. Stop now.")
                 if !project.settings.askBeforeOpenPR && project.host != .local { try await openPullRequest(taskId) }
             } else {
-                let reason = proof.checks.isEmpty ? "Provide at least one relevant executable check." : proof.recordingRequired && proof.recordingPath == nil ? "Provide a playable visual recording using recordingCommand and $BUILD_MATE_RECORDING_PATH." : "Fix the failing checks and commit all implementation changes."
+                let reason = proof.checks.isEmpty ? "Provide at least one relevant executable check." : proof.recordingRequired && proof.recordingPath == nil ? "Provide a playable visual recording using recordingCommand and $BUILD_MATE_RECORDING_PATH." : "Fix the failing checks, provide required before/after screenshots for visual changes, and commit all implementation changes."
                 try store.save(Message(sessionId: session.id, role: "system", kind: "proof", body: "Required proof failed. " + reason))
-                let failures = try store.all(Message.self).filter { $0.sessionId == session.id && $0.kind == "proof" }.count
-                if failures >= 3 { var paused = task; paused.paused = true; try store.save(paused) }
+                let messages = try store.all(Message.self).filter { $0.sessionId == session.id }.sorted { $0.createdAt < $1.createdAt }
+                let since = messages.last { $0.body == "Proof passed. Ready for review." || $0.body == "Work resumed by you." }?.createdAt ?? .distantPast
+                let failures = messages.filter { $0.kind == "proof" && $0.createdAt > since }.count
+                if failures >= 3 {
+                    var paused = try store.get(WorkTask.self, taskId); paused.paused = true
+                    paused.retry = Retry(attempt: 0, dueAt: Date(), error: "Proof failed three times. Review the check logs, then resume when ready.")
+                    try store.save(paused)
+                }
                 try await client.respond(requestId, text: "Required proof failed. " + reason + " Review check logs under app storage; fix and request review again.", success: false)
+                if failures >= 3 { throw CancellationError() }
             }
         case "note":
             guard let text = args["text"].string else { try await client.respond(requestId, text: "Text required", success: false); return }

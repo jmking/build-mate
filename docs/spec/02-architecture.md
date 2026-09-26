@@ -87,7 +87,7 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 
 **Approval**: `id, taskId, kind (plan|openPR|merge), status (pending|approved|rejected), planText?, createdAt, resolvedAt?`.
 
-**Proof**: `taskId, rationale, recordingRequired, recording { path, durationSec }?, screenshots [path], checks [{ name, status (passed|failed|skipped), durationSec, logPath }], changes { files, additions, deletions, summary }, complete (bool), producedAt`.
+**Proof**: `taskId, rationale, recordingRequired, recording { path, durationSec }?, screenshots [beforePath, afterPath], commitSHA?, checks [{ name, status (passed|failed|skipped), durationSec, logPath }], changes { files, additions, deletions, summary, perFile [{path, additions?, deletions?}] }, complete (bool), producedAt`.
 
 **RunAttempt** (Symphony): `id, taskId, attempt, phase, startedAt, endedAt, status (succeeded|failed|timedOut|stalled|canceled), error`.
 
@@ -155,11 +155,11 @@ The **project agent** gets 1–3 plus a project brief (repo summary, open tasks 
 - **Task-specific evidence**: New Task defaults to Automatic. The agent chooses whether a recording is needed based on visual versus functional work and explicit user instructions, explains the choice in its plan and submits a rationale. The user can override with Checks only or Checks + recording; the app enforces that choice. Existing tasks migrate to Automatic. The former project-wide `recordingRequired` setting is retired.
 - **Checks** run by Build Mate in the worktree after `request_review`: project-configured checks plus agent-proposed named commands, with exit code, duration and log. Agent checks are required and at least one required check must exist and pass. No recording setup is needed to start work. A check demonstrates behavior; documentation-only work can use a relevant content/format check.
 - **Command boundary**: proof commands run under the macOS sandbox with writes restricted to the task worktree and its app-owned media directory (including a private TMPDIR). Network follows the project setting. Agent-proposed commands never run as unrestricted shell hooks. Command success is independently measured; the relevance of agent-chosen evidence still needs human review.
-- **Recording**, only when selected by the agent or required by the user: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-driven (the agent drives a browser through a browser tool and Build Mate records). Output: MP4/H.264, max 3 minutes, saved to `media/`.
-- **Screenshots**: for UI changes when enabled, before (default branch) and after (task branch).
+- **Recording**, only when selected by the agent or required by the user: either a configured command that writes a video (for example a Playwright script with video on, using the task's preview port), or agent-authored browser automation executed by the proof runner as a recording command. Output: MP4/H.264, max 3 minutes, saved to `media/`.
+- **Screenshots**: for UI changes when enabled, before (default/base branch) and after (task branch). The agent supplies `screenshotsCommand`, executed within the same proof sandbox, writing PNGs to `$BUILD_MATE_BEFORE_PATH` and `$BUILD_MATE_AFTER_PATH`. Build Mate decodes both images before accepting proof. Checks only suppresses visual evidence. Image contents still require human review; successful decoding cannot establish semantic correctness.
 - **Changes summary**: files changed, additions, deletions, and a one-paragraph agent summary.
-- The configured or agent-proposed recording command receives an absolute `$BUILD_MATE_RECORDING_PATH` in project media storage and must write MP4/H.264 there. The core verifies a playable video track and duration in (0, 180] seconds. A missing required command or recording fails proof.
-- Proof is `complete` when every required item exists and passed and the implementation is committed (a dirty worktree fails proof). Only then can the task enter Human review.
+- The configured or agent-proposed recording command receives an absolute `$BUILD_MATE_RECORDING_PATH` in project media storage and must write MP4/H.264 there. The core verifies an H.264 video track and duration in (0, 180] seconds. A missing required command or recording fails proof.
+- Proof is `complete` when every required item exists and passed and the implementation is committed (a dirty worktree fails proof). Only then can the task enter Human review. Save the verified commit SHA and reject PR publication if HEAD or the worktree changes afterward. Older proof without a SHA must be refreshed via Send Back. Send Back saves feedback, invalidates proof, returns to Building and resumes the same thread; task/project/global pause remains in effect. Three consecutive proof failures pause the task and create a Needs You Fix item; explicit Resume starts a new failure allowance.
 - Proof stays in Build Mate. It is **not** added to PR descriptions (the team should not see Build Mate artefacts).
 
 ## 9. Pull requests and stacking
@@ -177,7 +177,7 @@ The **project agent** gets 1–3 plus a project brief (repo summary, open tasks 
 Pause never discards work. Paused time does not count toward timeouts.
 
 ## 11. Previews (Run locally / Open Preview)
-- Each task gets a port from a pool (default 4100–4199) when a preview is requested. Build Mate runs `preview.command` in the worktree with `portEnvVar` set, waits until `readyPath` responds (timeout 90 s), then opens `http://localhost:<port>`. Previews count against the heavy-step limit and stop after 30 minutes idle.
+- Each task gets a port from a pool (default 4100–4199) when a preview is requested. Build Mate runs `preview.command` in the worktree with `portEnvVar` set, waits until `readyPath` responds (timeout 90 s), then opens `http://127.0.0.1:<port>/` (the configured ready path is only for readiness checks). Pass `HOST=127.0.0.1`; the configured command must bind locally and respect the supplied port. Readiness requires an HTTP 2xx/3xx response at this host/port. Previews count against the heavy-step limit for their lifetime; a busy limit explains how to free a slot. Repeated requests reuse the running preview. Stop, quit, Send Back, scope edits, deletion and merge cleanup terminate the child process group and free its slot. Startup failure/timeout shows redacted output. Previews stop 30 minutes after the last Run/Open from Build Mate (browser activity cannot be observed). A missing command opens configuration; Build Mate does not guess or install a project toolchain. Native/CLI tasks can use editor and Terminal instead.
 - v1.1: a local reverse proxy maps `<task-number>.localhost` to the preview port.
 
 ## 12. Notifications and usage

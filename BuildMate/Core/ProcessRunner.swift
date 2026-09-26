@@ -85,7 +85,11 @@ actor ChildProcess {
             return CommandResult(output: String(decoding: bytes, as: UTF8.self), status: exitStatus ?? -1)
         } catch { await stop(); throw error }
     }
-    private func isRunning() -> Bool {
+    func drainOutput() -> String {
+        defer { bytes.removeAll(keepingCapacity: true) }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+    func isRunning() -> Bool {
         guard pid > 0, exitStatus == nil else { return false }
         var status: Int32 = 0
         let result = waitpid(pid, &status, WNOHANG)

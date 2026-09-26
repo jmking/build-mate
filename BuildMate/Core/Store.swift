@@ -58,6 +58,11 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE proof ADD COLUMN rationale TEXT")
             try db.execute(sql: "UPDATE proof SET recordingRequired = 1 WHERE recordingPath IS NOT NULL")
         }
+        migrator.registerMigration("v3-lifecycle-review") { db in
+            try db.execute(sql: "ALTER TABLE question ADD COLUMN suggestedAnswer TEXT")
+            try db.execute(sql: "ALTER TABLE proof ADD COLUMN commitSHA TEXT")
+            try db.execute(sql: "ALTER TABLE proof ADD COLUMN changes TEXT NOT NULL DEFAULT '[]'")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -91,12 +96,12 @@ final class Store: Sendable {
         try db.write { try $0.execute(sql: "INSERT OR REPLACE INTO appSettings VALUES (1, ?)", arguments: [data]) }
     }
     func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .backlog,
-                    rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic) throws -> WorkTask {
+                    rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil) throws -> WorkTask {
         guard [.backlog, .todo].contains(state) else { throw CoreError.invalid("New tasks must be Backlog or Queue") }
         return try db.write { db in
             let number = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE projectId = ?", arguments: [projectId])!
             let task = WorkTask(projectId: projectId, number: number, title: title, description: description,
-                                state: state, rank: rank, dependsOn: dependsOn, proofRequirement: proofRequirement)
+                                state: state, rank: rank, dependsOn: dependsOn, askBeforeBuild: askBeforeBuild, proofRequirement: proofRequirement)
             try task.insert(db)
             return task
         }

@@ -21,12 +21,12 @@ struct CoreTests {
             let fixtures = Bundle(for: BundleMarker.self).resourceURL!.appending(path: "Fixtures")
             let bin = root.appending(path: "bin")
             try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-            for name in ["codex", "gh", "twg"] {
+            for name in ["codex", "gh", "twg", "preview"] {
                 let destination = bin.appending(path: name)
                 try FileManager.default.copyItem(at: fixtures.appending(path: name), to: destination)
                 try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
             }
-            try FileManager.default.copyItem(at: fixtures.appending(path: "proof.mp4"), to: control.appending(path: "proof.mp4"))
+            for name in ["proof.mp4", "proof.png"] { try FileManager.default.copyItem(at: fixtures.appending(path: name), to: control.appending(path: name)) }
             // Isolated environment: no auth, config, credentials, or real host tools on PATH.
             runner = ProcessRunner(environment: ["PATH": bin.path + ":/usr/bin:/bin", "HOME": root.path,
                                                  "BUILD_MATE_FIXTURE": control.path,
@@ -49,9 +49,9 @@ struct CoreTests {
         }
         func marker(_ name: String) throws { try Data().write(to: control.appending(path: name)) }
         func wait(_ description: String, until predicate: () throws -> Bool) async throws {
-            let deadline = Date().addingTimeInterval(20)
+            let deadline = ContinuousClock.now + .seconds(20)
             while !(try predicate()) {
-                guard Date() < deadline else { throw CoreError.invalid("Timed out: \(description)") }
+                guard ContinuousClock.now < deadline else { throw CoreError.invalid("Timed out: \(description)") }
                 try await Task.sleep(for: .milliseconds(30))
             }
         }
@@ -60,13 +60,13 @@ struct CoreTests {
 
     @Test func lifecycleKeepsCloneCleanGatesProofAndFinishesOnlyAfterMerge() async throws {
         var f = try await Fixture()
-        f.project.settings.askBeforeBuild = true
+        f.project.settings.askBeforeBuild = false
         f.project.settings.stallTimeoutMs = 750
         f.project.settings.recordingCommand = nil
         f.project.settings.checks.append(CheckDefinition(name: "Required proof", command: "test -f \"$BUILD_MATE_FIXTURE/proof-repaired\""))
         try f.store.save(f.project)
         let core = Orchestrator(store: f.store, runner: f.runner)
-        let task = try f.store.createTask(projectId: f.project.id, title: "Add plain output", state: .todo, proofRequirement: .checksAndRecording)
+        let task = try f.store.createTask(projectId: f.project.id, title: "Add plain output", state: .todo, proofRequirement: .checksAndRecording, askBeforeBuild: true)
         #expect(task.state == .todo)
         await core.tick()
         try await f.wait("blocking question") { try f.store.get(WorkTask.self, task.id).state == .needsClarification }
@@ -75,7 +75,9 @@ struct CoreTests {
         let thread = try #require(f.store.session(for: task.id).codexThreadId)
         // A human may take longer than the stall window; answering must still resume.
         try await Task.sleep(for: .seconds(1))
-        try await core.answer(question.id, text: "Plain")
+        #expect(question.suggestedAnswer == "Plain")
+        try await core.answer(question.id, text: "Plain", useSuggested: true)
+        #expect(try f.store.get(Question.self, question.id).answeredBy == "agentDefault")
         try await f.wait("plan approval") { try !f.store.all(Approval.self).isEmpty }
         #expect(try f.store.get(WorkTask.self, task.id).state == .todo)
         try await core.approvePlan(f.store.all(Approval.self)[0].id)
@@ -102,6 +104,22 @@ struct CoreTests {
         try await f.wait("fresh proof after edit") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
         #expect(try f.store.session(for: task.id).codexThreadId == thread)
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Preserve errors in the compact output"))
+        // Send Back preserves context and pause, and a changed reviewed commit cannot be published.
+        do { try await core.sendBack(task.id, note: "  "); Issue.record("Accepted empty feedback") } catch {}
+        let worktree = try #require(f.store.get(WorkTask.self, task.id).worktreePath)
+        #expect(try f.store.all(Proof.self).first?.changes.map(\.path) == ["feature.txt"])
+        _ = try await f.runner.run("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-m", "Changed after review"], cwd: worktree)
+        do { try await core.openPullRequest(task.id); Issue.record("Published a commit without proof") } catch {}
+        try await core.pause(task.id, paused: true)
+        try await core.sendBack(task.id, note: "Please verify the revised commit")
+        #expect(try f.store.get(WorkTask.self, task.id).state == .building)
+        #expect(try f.store.get(WorkTask.self, task.id).paused)
+        #expect(try f.store.all(Proof.self).allSatisfy { !$0.complete })
+        try await core.pause(task.id, paused: false)
+        try await f.wait("fresh proof after send back") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
+        #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        #expect(try f.store.all(Approval.self).filter { $0.status == "approved" }.count == 1)
+        #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Please verify the revised commit"))
         await core.shutdown()
 
         // Reopen SQLite and the orchestrator at the human-review boundary.
@@ -168,16 +186,85 @@ struct CoreTests {
             try await core.answer(question.id, text: "Plain")
             try await f.wait("task-specific proof") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
             let proof = try #require(f.store.all(Proof.self).first)
-            #expect(proof.complete && proof.checks.count == 1 && proof.checks[0].status == "passed")
+            #expect(proof.complete && proof.checks.count == (visual && requirement != .checksOnly ? 2 : 1) && proof.checks.allSatisfy { $0.status == "passed" })
             #expect(proof.rationale != nil)
             #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "forbidden-write").path))
             let recording = visual && requirement != .checksOnly
             #expect(proof.recordingRequired == recording)
+            #expect(proof.screenshots.count == (recording ? 2 : 0))
             #expect((proof.recordingPath != nil) == recording)
             #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == (recording ? 2 : visual ? 0 : 1))
+            if !visual {
+                try f.marker("always-fail-proof")
+                try await core.sendBack(task.id, note: "Exercise failed proof recovery")
+                try await f.wait("three failures pause work") { try f.store.get(WorkTask.self, task.id).paused && f.store.all(RunAttempt.self).last?.endedAt != nil }
+                #expect(try f.store.get(WorkTask.self, task.id).retry?.error.contains("three times") == true)
+                #expect(try f.store.get(WorkTask.self, task.id).state == .building)
+                try FileManager.default.removeItem(at: f.control.appending(path: "always-fail-proof"))
+                try await core.pause(task.id, paused: false)
+                try await f.wait("resume after failed proof") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
+            }
             await core.shutdown()
             try f.cleanup()
         }
+    }
+
+    // Catches port collisions, orphan preview children, and bypasses of the shared heavy-work limit.
+    @Test func previewsUseSeparateWorktreesAndReleasePortsOnStopFailureAndQuit() async throws {
+        var f = try await Fixture()
+        f.project.paused = true
+        f.project.settings.previewCommand = "preview"
+        f.project.settings.previewPortEnvVar = "CUSTOM_PORT"
+        f.project.settings.previewReadyPath = "/health"
+        try f.store.save(f.project)
+        let workspace = Workspace(store: f.store, runner: f.runner)
+        var preparedTasks: [WorkTask] = []
+        for title in ["First preview", "Second preview", "Waiting preview"] {
+            let task = try f.store.createTask(projectId: f.project.id, title: title, state: .todo)
+            preparedTasks.append(try await workspace.prepare(task, project: f.project))
+        }
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        let tasks = preparedTasks
+        async let first = core.startPreview(tasks[0].id, timeout: 5)
+        async let second = core.startPreview(tasks[1].id, timeout: 5)
+        async let duplicate = core.startPreview(tasks[0].id, timeout: 5)
+        let urls = try await [first, second]
+        #expect(try await duplicate == urls[0])
+        #expect(urls[0].port != urls[1].port && urls.allSatisfy { $0.host == "127.0.0.1" && $0.path == "/" })
+        for (index, url) in urls.enumerated() {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            #expect(String(decoding: data, as: UTF8.self) == String(tasks[index].number))
+        }
+        #expect(try await core.startPreview(tasks[0].id) == urls[0])
+        do { _ = try await core.startPreview(tasks[2].id); Issue.record("Exceeded preview slot limit") } catch {}
+        await core.stopPreview(tasks[0].id)
+        #expect(await core.previews[tasks[0].id] == nil)
+        do { _ = try await URLSession.shared.data(from: urls[0]); Issue.record("Stopped preview still serves HTTP") } catch {}
+        f.project.settings.previewCommand = "preview --never-ready"
+        try f.store.save(f.project)
+        do { _ = try await core.startPreview(tasks[2].id, timeout: 0.5); Issue.record("Unready preview was accepted") } catch {}
+        #expect(await core.previews[tasks[2].id]?.phase == "failed")
+        #expect(await core.heavySteps == 1)
+        f.project.settings.previewCommand = "echo startup-failed; exit 7"
+        try f.store.save(f.project)
+        do { _ = try await core.startPreview(tasks[2].id, timeout: 2); Issue.record("Exited preview was accepted") } catch {}
+        #expect(await core.previews[tasks[2].id]?.log.contains("startup-failed") == true)
+        f.project.settings.previewCommand = "preview --never-ready"
+        try f.store.save(f.project)
+        let pending = Task { try await core.startPreview(tasks[2].id, timeout: 5) }
+        for _ in 0..<100 {
+            if await core.previews[tasks[2].id]?.phase == "starting" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        await core.stopPreview(tasks[2].id)
+        do { _ = try await pending.value; Issue.record("Stopped startup completed") } catch {}
+        #expect(await core.heavySteps == 1)
+        await core.shutdown()
+        #expect(await core.previews.isEmpty)
+        #expect(await core.heavySteps == 0)
+        do { _ = try await URLSession.shared.data(from: urls[1]); Issue.record("Quit left preview running") } catch {}
+        #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
+        try f.cleanup()
     }
 
     @Test func schedulerRespectsRankDependenciesPauseAndResumesThreadAfterCrash() async throws {

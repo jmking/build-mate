@@ -25,6 +25,8 @@ def review():
  if attempt==1 and (root/'omit-checks').exists():report['checks']=[]
  if attempt>1:
   report['recordingCommand']='printf invalid > "$BUILD_MATE_RECORDING_PATH"' if attempt==2 else 'cp "$BUILD_MATE_FIXTURE/proof.mp4" "$BUILD_MATE_RECORDING_PATH"'
+ if (root/'visual-task').exists():report['screenshotsCommand']='cp "$BUILD_MATE_FIXTURE/proof.png" "$BUILD_MATE_BEFORE_PATH" && cp "$BUILD_MATE_FIXTURE/proof.png" "$BUILD_MATE_AFTER_PATH"'
+ if (root/'always-fail-proof').exists():report['checks']=[{'name':'Failing check','command':'exit 1'}]
  if (root/'legacy-review').exists():report={'summary':json.dumps(report)}
  call('request_review',report)
 def build():
@@ -75,7 +77,7 @@ for line in sys.stdin:
    while True:
     event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'delta':'working '});time.sleep(0.005)
   if (root/'stall').exists():continue
-  if not readstate().get('answered'):call('ask_question',{'prompt':'Which output?','options':['Plain','Rich'],'allowsFreeText':True,'blocking':True})
+  if not readstate().get('answered'):call('ask_question',{'prompt':'Which output?','options':['Plain','Rich'],'allowsFreeText':True,'blocking':True,'suggestedAnswer':'Plain'})
   else:call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
  elif method=='turn/steer':reply(req,{'turnId':turn})
  elif method=='turn/interrupt':reply(req,{});event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'interrupted','items':[]}})

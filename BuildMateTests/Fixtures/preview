@@ -1,0 +1,10 @@
+#!/usr/bin/python3
+"""Local HTTP preview fixture; only binds the port supplied by the app."""
+import http.server, os, pathlib, sys
+class Handler(http.server.BaseHTTPRequestHandler):
+ def do_GET(self):
+  self.send_response(503 if '--never-ready' in sys.argv else 200); self.end_headers()
+  self.wfile.write(pathlib.Path.cwd().name.encode())
+ def log_message(self, *args): pass
+print('Preview fixture started', flush=True)
+http.server.HTTPServer((os.environ['HOST'], int(os.environ.get('CUSTOM_PORT', os.environ.get('PORT')))), Handler).serve_forever()

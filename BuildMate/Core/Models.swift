@@ -158,6 +158,7 @@ struct Question: Record {
     var answer: String?
     var answeredBy: String?
     var answeredAt: Date?
+    var suggestedAnswer: String?
 }
 struct Approval: Record {
     static let databaseTableName = "approval"
@@ -185,6 +186,14 @@ struct Proof: Record {
     var summary: String
     var complete = false
     var producedAt = Date()
+    var commitSHA: String?
+    var changes: [ChangedFile] = []
+}
+struct ChangedFile: Codable, Sendable, Identifiable {
+    var path: String
+    var additions: Int?
+    var deletions: Int?
+    var id: String { path }
 }
 struct CheckResult: Codable, Sendable {
     var name: String
