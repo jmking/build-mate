@@ -29,11 +29,11 @@ private struct EditorComboButton: NSViewRepresentable {
     }
     func updateNSView(_ button: NSComboButton, context: Context) {
         context.coordinator.model = model
-        button.title = "Open in " + (editor?.name ?? "Finder")
-        button.image = editor.map { Self.icon($0.url) }
+        button.title = ""
+        button.image = editor.map { Self.icon($0.url) } ?? NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
         button.isEnabled = isEnabled
         button.toolTip = "Open in \(editor?.name ?? "Finder") (⌘O), or choose another app"
-        button.setAccessibilityLabel(button.title)
+        button.setAccessibilityLabel("Open in " + (editor?.name ?? "Finder"))
     }
     static func icon(_ url: URL) -> NSImage {
         let image = NSWorkspace.shared.icon(forFile: url.path).copy() as! NSImage
