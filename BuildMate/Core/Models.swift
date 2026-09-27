@@ -165,6 +165,30 @@ struct Message: Record, Equatable {
     var payload: JSON = .null
     var createdAt = Date()
 }
+/// Presentation-only grouping; original messages remain in storage and agent context.
+enum ChatReactions {
+    static func targets(in messages: [Message], attachmentMessageIDs: Set<UUID> = []) -> [UUID: [Message]] {
+        var result: [UUID: [Message]] = [:]
+        var preceding: Message?
+        for message in messages {
+            let text = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let scalars = text.unicodeScalars
+            // Unicode marks ASCII digits as emoji-capable; only their keycap sequences qualify.
+            let emoji = text.count == 1 && scalars.first.map {
+                $0.properties.isEmoji && ($0.value > 0x7F || scalars.contains { $0.value == 0x20E3 })
+            } == true
+            if message.role == "agent", message.kind == "text", emoji,
+               message.payload["streaming"].bool != true, !attachmentMessageIDs.contains(message.id),
+               let preceding, preceding.role == "user", preceding.kind == "text" {
+                result[preceding.id, default: []].append(message)
+            } else if message.role == "user" || (message.role == "agent" && message.kind != "activity") {
+                preceding = message
+            }
+        }
+        return result
+    }
+}
+
 struct Question: Record {
     static let databaseTableName = "question"
     var id = UUID()

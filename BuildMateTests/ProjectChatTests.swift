@@ -29,6 +29,24 @@ struct ProjectChatTests {
         let proposal = try #require(f.store.all(Proposal.self).first)
         #expect(try f.store.all(WorkTask.self).isEmpty)
         #expect(try f.store.all(Message.self).filter { $0.sessionId == session.id && $0.body.hasPrefix("Here are three") }.count == 1)
+        // Emoji-only replies become reactions only after completion; text, attachments and history are preserved.
+        try await core.sendProjectMessage(f.project.id, text: "Cool")
+        try await f.wait("streaming emoji") { try f.store.all(Message.self).contains { $0.body == "👍" && $0.payload["streaming"].bool == true } }
+        let streamed = try f.store.all(Message.self).filter { $0.sessionId == session.id }
+        let reactedTo = try #require(streamed.last { $0.role == "user" && $0.body == "Cool" })
+        #expect(ChatReactions.targets(in: streamed)[reactedTo.id] == nil)
+        try f.marker("finish-reaction")
+        try await f.wait("completed reaction") { try f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
+        let completed = try Store(root: f.store.root).all(Message.self).filter { $0.sessionId == session.id }
+        let reaction = try #require(ChatReactions.targets(in: completed)[reactedTo.id]?.first)
+        #expect(reaction.body == "👍🏽")
+        #expect(completed.contains { $0.id == reaction.id && $0.body == "👍🏽" })
+        #expect(ChatReactions.targets(in: completed, attachmentMessageIDs: [reaction.id])[reactedTo.id] == nil)
+        try await core.sendProjectMessage(f.project.id, text: "Emoji with text")
+        try await f.wait("emoji followed by prose") { try f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
+        let withText = try f.store.all(Message.self).filter { $0.sessionId == session.id }
+        #expect(withText.contains { $0.body == "👍 Sounds good. I will keep that in mind." })
+        #expect(ChatReactions.targets(in: withText).count == 1)
         do { _ = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [1]); Issue.record("Allowed a task without its selected dependency") } catch {}
         do { _ = try await core.acceptProposal(proposal.id, projectID: UUID(), selected: [0,1,2]); Issue.record("Allowed cross-project proposal acceptance") } catch {}
         f.project = try f.store.get(Project.self, f.project.id)

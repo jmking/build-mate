@@ -7,14 +7,18 @@ struct ChatTranscript<Content: View>: View {
     var spacing: CGFloat = 20
     @ViewBuilder let content: (Message) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(AppModel.self) private var model
     @State private var rows: [Row] = []
+    @State private var observedMessages: [Message] = []
     @State private var loaded = false
     @State private var nextIndicator: Task<Void, Never>?
 
     private struct Row: Identifiable {
         var id: UUID
         var message: Message?
+        var reactions: [Message] = []
     }
+    private var attachmentMessageIDs: Set<UUID> { Set(model.snapshot.attachments.filter { $0.ownerType == "message" }.map(\.ownerId)) }
     private var motion: Animation { reduceMotion ? .easeOut(duration: 0.15) : .smooth(duration: 0.32) }
     private func isSpeech(_ message: Message) -> Bool { message.role == "agent" && message.kind == "text" }
 
@@ -28,17 +32,39 @@ struct ChatTranscript<Content: View>: View {
                         content(message)
                     }
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    if !row.reactions.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(row.reactions) { reaction in
+                                Text(reaction.body.trimmingCharacters(in: .whitespacesAndNewlines))
+                                    .font(.system(size: 16)).padding(6)
+                                    .background(AppSurface.agentBubble, in: Capsule())
+                                    .overlay { Capsule().strokeBorder(AppSurface.window, lineWidth: 2) }
+                                    .accessibilityLabel("Agent reacted \(reaction.body) to your message")
+                                    .help("Agent reacted \(reaction.body)")
+                            }
+                        }.offset(x: -10, y: 14)
+                    }
+                }
+                .padding(.bottom, row.reactions.isEmpty ? 0 : 14)
+                .accessibilityElement(children: .contain)
                 .transition(reduceMotion ? .opacity : .scale(scale: 0.8, anchor: .bottomLeading).combined(with: .opacity))
             }
         }
         .onChange(of: messages, initial: true) { update() }
         .onChange(of: responding) { update() }
+        .onChange(of: attachmentMessageIDs) { update() }
         .onDisappear { nextIndicator?.cancel(); nextIndicator = nil; loaded = false }
     }
 
     private func update() {
+        let reactions = ChatReactions.targets(in: messages, attachmentMessageIDs: attachmentMessageIDs)
+        let reactionIDs = Set(reactions.values.flatMap { $0.map(\.id) })
+        let visible = messages.filter { !reactionIDs.contains($0.id) }
+        let previous = Dictionary(uniqueKeysWithValues: observedMessages.map { ($0.id, $0) })
+        observedMessages = messages
         guard loaded else {
-            var initial = messages.map { Row(id: $0.id, message: $0) }
+            var initial = visible.map { Row(id: $0.id, message: $0, reactions: reactions[$0.id] ?? []) }
             if responding { initial.append(Row(id: UUID(), message: nil)) }
             var transaction = Transaction()
             transaction.disablesAnimations = true
@@ -48,10 +74,10 @@ struct ChatTranscript<Content: View>: View {
         }
         let existing = Dictionary(uniqueKeysWithValues: rows.compactMap { row in row.message.map { ($0.id, row) } })
         let pending = rows.first { $0.message == nil }
-        let incoming = messages.first { isSpeech($0) && existing[$0.id] == nil }
-        let changedSpeech = messages.contains { isSpeech($0) && existing[$0.id]?.message?.body != $0.body }
-        var updated = messages.map { message in
-            Row(id: existing[message.id]?.id ?? (message.id == incoming?.id ? pending?.id : nil) ?? message.id, message: message)
+        let incoming = visible.first { isSpeech($0) && existing[$0.id] == nil }
+        let changedSpeech = messages.contains { isSpeech($0) && previous[$0.id] != $0 }
+        var updated = visible.map { message in
+            Row(id: existing[message.id]?.id ?? (message.id == incoming?.id ? pending?.id : nil) ?? message.id, message: message, reactions: reactions[message.id] ?? [])
         }
         if !responding || changedSpeech { nextIndicator?.cancel(); nextIndicator = nil }
         if responding && !changedSpeech && nextIndicator == nil {

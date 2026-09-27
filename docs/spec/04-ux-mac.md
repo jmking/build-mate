@@ -213,6 +213,8 @@ This implements image/file attachments; video frame extraction and clipboard ima
 
 The ordinary project composer has no explanatory caption (user preference); retain the answer hint only while a clarification question is pending.
 
+Both chat transcripts display a completed agent reply containing a single emoji as a small reaction badge overlapping the lower-right edge of the preceding user message, rather than a separate agent bubble. Emoji sequences such as skin tones and joined emoji count as one character. Activity/system events do not change the target; an intervening agent reply, question or proposal does. Replies containing prose, multiple emoji, unfinished streamed text or attachments remain messages. Preserve the original message in storage and agent context, apply the same presentation to saved history, and label the badge for VoiceOver as an agent reaction to the user's message. Reserve space below the badge and respect Reduce Motion.
+
 ### Milestone 6 editor and attachment completion
 
 Instructions are editable in the project sidebar and Settings › Instructions, autosaved after one second and flushed on navigation. New Task includes the shared attachment controls and drop/paste support. Chat and New Task accept clipboard images/files with ⌘V. Videos show a thumbnail and supply six chronological frames to the agent; audio is not automatically transcribed.

@@ -112,7 +112,13 @@ for line in sys.stdin:
    assert 'Write task descriptions as readable Markdown' in text
    assert 'Every created task goes straight to Queue.' in text
    if (root/'chat-stall').exists():continue
-   if latest.startswith('Ask a question'):
+   if latest.startswith('Cool'):
+    event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'itemId':'reaction','delta':'👍'})
+    while not (root/'finish-reaction').exists():time.sleep(0.01)
+    event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':'reaction','type':'agentMessage','text':'👍🏽'}})
+    complete()
+   elif latest.startswith('Emoji with text'):project_reply('👍 Sounds good. I will keep that in mind.')
+   elif latest.startswith('Ask a question'):
     call('ask_question',{'prompt':'Which accounts?','options':['Active','All'],'allowsFreeText':True})
    elif latest.startswith('Create all three tasks'):
     proposals=json.loads(text.split('Open proposals (zero-based dependency/selection indices): ')[1].split('\nConversation')[0])

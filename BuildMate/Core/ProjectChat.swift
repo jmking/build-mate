@@ -140,12 +140,14 @@ extension Orchestrator {
                 } else if event["id"] != .null { try await client.reject(event["id"]) }
                 else if method == "item/agentMessage/delta", let id = params["itemId"].string, let delta = params["delta"].string {
                     var message = try streaming[id].map { try store.get(Message.self, $0) } ?? Message(sessionId: session.id, role: "agent", body: "")
-                    message.body += runner.redacted(delta); streaming[id] = message.id; try store.save(message)
+                    message.body += runner.redacted(delta); message.payload = .object(["streaming": .bool(true)])
+                    streaming[id] = message.id; try store.save(message)
                 } else if method == "item/completed" {
                     let item = params["item"]
                     if item["type"].string == "agentMessage" {
                         var message = try item["id"].string.flatMap { streaming[$0] }.map { try store.get(Message.self, $0) } ?? Message(sessionId: session.id, role: "agent", body: "")
-                        message.body = runner.redacted(item["text"].string ?? message.body); try store.save(message)
+                        message.body = runner.redacted(item["text"].string ?? message.body)
+                        message.payload = .object(["streaming": .bool(false)]); try store.save(message)
                     } else if item["type"].string == "commandExecution" {
                         try store.save(Message(sessionId: session.id, role: "agent", kind: "activity", body: runner.redacted(item["command"].string ?? "Inspected project"), payload: .object(["output": .string(runner.redacted(item["aggregatedOutput"].string ?? ""))])))
                     }
