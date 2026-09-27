@@ -1,64 +1,69 @@
-# AGENTS.md
+# Working on Build Mate
 
-Instructions for every coding agent working in this repository (Codex, Claude Code and others).
+You are a pragmatic senior engineer. Deliver the simplest complete solution, keep the code small, and maintain a lean test suite. These instructions apply to every coding agent; human contributors should use the same workflow.
 
-## Who you are
-You are a pragmatic senior software engineer. Your priorities, in order:
-1. Deliver the **simplest solution that fully meets the requirements**.
-2. Keep code, abstractions and moving parts to a **minimum**.
-3. Maintain a **small, high-value test suite**.
+## Start here
 
-## Architecture and code style
-- Prefer simple, direct implementations over elaborate designs, patterns or abstractions.
-- Do not add layers, services, protocols, wrappers or indirection unless a current, concrete requirement needs them. "We might need it later" is not a reason.
-- No speculative generalisation or future-proofing. Build what the current version needs.
-- Keep types and functions small, readable and focused. Delete code you no longer need.
-- Refactor only to improve clarity, remove real duplication or fix a concrete problem.
-- When choosing:
-  - clever or generic vs. straightforward and specific → **straightforward**;
-  - a new setting or option vs. a sensible hard-coded value → **hard-code it**, unless the spec asks for the setting.
-- Add a third-party dependency only when it removes substantial code or risk, and say why in the commit message. Planned: GRDB (SQLite). Nothing else without a reason.
+Read `README.md` and `docs/architecture.md`, then inspect the relevant code and tests. The running product and current implementation are the source of truth; do not invent scope from old plans. Check `git status` first and preserve other work.
 
-## Testing
-The goal is a lean suite that catches real regressions.
-- Prefer **end-to-end tests** of critical user flows.
-- Add a unit test only when the behaviour is critical **and** cannot reasonably be covered end-to-end (for example the task state machine's transition rules, or parsing a CLI's JSON).
-- Prefer 1–3 well-chosen e2e tests over many unit tests.
-- Never test trivial getters/setters, simple data mapping, or behaviour an e2e test already covers. Coverage is a by-product, not a goal.
-- For every test, be able to answer: *what specific regression would this catch?* Put that answer in the test's name or a one-line comment.
-- **Test boundary for Build Mate**: stub at the process boundary, not inside the app. Tests put fake `codex`, `gh` and `twg` executables on `PATH` (scripts that speak the real protocols with canned responses) and use a local bare git repository as the remote. The app code runs unmodified. Never call real Codex, GitHub or Bitbucket from tests.
+Build Mate is a native macOS app that turns project conversations into scoped tasks, builds them with Codex in isolated Git worktrees, verifies the results and follows GitHub review through merge. Projects can link multiple repositories; each task and PR targets exactly one repository.
 
-## Project context
-- **What we're building**: Build Mate, a native macOS app for managing AI coding agents. Read `docs/spec/00-index.md` first.
-- **Scope now: v1, Mac only.** iPhone, remote access (Settings › Remote), Linear/Jira, a Claude runner and "ship as one PR" are later versions. Their designs are included for context only; do not build them. See `docs/spec/07-delivery.md`.
-- **Designs**: `docs/design/README.md` indexes every screen (PNG light/dark plus static HTML with exact values). Build them with native SwiftUI/AppKit controls, system materials (Liquid Glass), SF Symbols and system colours. Do not recreate the CSS. Where a design conflicts with Apple's Human Interface Guidelines, follow the HIG and note it in the PR/commit.
-- Sample data in the designs is illustrative.
+Current scope: macOS 26+, Apple Silicon releases, Codex and GitHub. Bitbucket execution, Claude, mobile/remote access, issue-tracker integrations and combined multi-task PRs are not implemented. Do not add these without a specific request.
 
-## Tech stack
-- Swift 6 (strict concurrency), SwiftUI first, AppKit only where SwiftUI lacks the control. Minimum macOS 26; build with the current Xcode.
-- One app target (`BuildMate`) plus test targets. The Xcode project is generated from `project.yml` with XcodeGen, so never hand-edit `.pbxproj`.
-- SQLite via GRDB in `~/Library/Application Support/Build Mate/`.
-- External tools are invoked as processes: `codex app-server` (JSON-RPC over stdio), `git`, `gh` (GitHub), `twg` (Bitbucket Cloud), and project hook commands.
+## Build and test
 
-## Commands
-Keep this section current as the project grows.
-- Generate the project: `xcodegen generate`
-- Build: `xcodebuild -scheme BuildMate -destination 'platform=macOS' build`
-- Test: `xcodebuild -scheme BuildMate -destination 'platform=macOS' test`
-- If Xcode stalls before launching tests: `xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build-for-testing && xcrun xctest .build/Build/Products/Debug/BuildMateTests.xctest`
-- Optional native UI automation (requires a working Xcode automation host): `xcodebuild -scheme BuildMateUI -destination 'platform=macOS' test`
-- Build to a predictable run path: `xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build`
-- Run: `open '.build/Build/Products/Debug/Build Mate.app'`
+Use Xcode 27, Swift 6 strict concurrency and XcodeGen (`brew install xcodegen`). GRDB is the sole package dependency, pinned in `project.yml`.
 
-## Rules that always apply
-- **Never write Build Mate files into a user's repository.** All project data, generated `WORKFLOW.md`, worktrees, media and logs live under `~/Library/Application Support/Build Mate/` (`docs/spec/02-architecture.md` §3).
-- PRs that Build Mate opens contain only the change summary: no proof, no Build Mate branding.
-- Secrets stay with the tools that own them (Codex, `gh`, `twg`) or in the Keychain. Never log, print or commit them.
-- Integrations marked "verify" in the spec are unconfirmed. Test them against the real tool once (manually, not in the test suite), then record the result in `docs/spec/08-open-questions.md` and update the spec.
-- Every feature is done when its acceptance criteria in `docs/spec/07-delivery.md` pass, in light and dark mode, with VoiceOver labels and keyboard access.
+```sh
+./scripts/check.sh                 # Generate, build app/tests, run the isolated suite
+open '.build/Build/Products/Debug/Build Mate.app'
+```
 
-## Working style
-- Work in small, reviewable commits, one coherent change each, with messages that say why.
-- Build and run the tests before each commit. Do not commit a broken build.
-- When the spec is ambiguous, choose the simplest reasonable reading, note the assumption in `docs/spec/08-open-questions.md`, and keep going. Stop and ask only for decisions that are costly to reverse.
-- Keep the spec true: when you change behaviour, update the relevant spec section in the same commit.
+For a build without tests:
+
+```sh
+xcodegen generate
+xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .build build
+```
+
+Never hand-edit `BuildMate.xcodeproj`; it is generated and ignored. Optional UI tests use `xcodebuild -scheme BuildMateUI -destination 'platform=macOS' test` and need an unlocked Mac with a working Xcode automation host. No signing account or real service credentials are needed to develop or run the automated suite.
+
+For manual testing, launch the executable with `BUILD_MATE_DATA_ROOT` set to a temporary directory so it cannot alter a real workspace. `BUILD_MATE_APPEARANCE=light` or `dark` selects the appearance. External tools are still real unless you supply fixtures on `PATH`.
+
+## Code map
+
+| Area | Start here |
+| --- | --- |
+| App lifecycle and commands | `BuildMate/BuildMateApp.swift` |
+| UI state, navigation, snapshots | `BuildMate/UI/AppModel.swift`, `MainWindow.swift` |
+| Task dispatch, recovery, transitions | `BuildMate/Core/Orchestrator.swift`, `Models.swift` |
+| Persistence and migrations | `Store.swift`, `ProjectRepositories.swift` |
+| Project conversations and task intake | `ProjectChat.swift`, `ProjectAgentTools.swift`, `TaskIntake.swift` |
+| Codex protocol and runner boundary | `CodexClient.swift`, `CodexRunner.swift`, `AgentRunner.swift`, `AgentEvents.swift` |
+| Worktrees, verification and previews | `Workspace.swift`, `ProofRunner.swift`, `SelfQA.swift`, `Previews.swift` |
+| PR publishing, reviews and CI | `GitHub.swift`, `HostedReview.swift` |
+| Isolated process-boundary tests | `BuildMateTests/` and `BuildMateTests/Fixtures/` |
+
+Core filenames in this table live under `BuildMate/Core/` unless shown otherwise.
+
+## Implementation rules
+
+- Prefer direct code over generic frameworks. Add an abstraction only for a concrete current need. No speculative provider capabilities, settings or dependencies.
+- SwiftUI first; AppKit where needed. Use native macOS controls, SF Symbols, system colours and materials. Follow Apple’s HIG. Keep spacing, alignment, keyboard navigation, accessibility labels, tooltips and Reduce Motion support deliberate. Check visual changes in light and dark mode; report any checks you could not perform.
+- Keep task identity, project display names and repository identity separate. Resolve task Git/host operations through `store.project(for:)`, not a project’s legacy repository fields.
+- Never put Build Mate metadata in a user’s checkout. App-owned worktrees, generated workflow files, logs and media belong in Application Support. Normal Git worktree metadata necessarily lives in the repository’s Git directory.
+- Keep credentials with Codex, `gh`, or the Keychain. Never print, persist or commit secrets. Don’t weaken sandboxing or approval boundaries to fix an integration.
+- Preserve native thread IDs, unsent input, attachment ownership and revision-bound proof. Do not resend entire conversations or repeat completed checks without a reason.
+- Only the parent agent may mutate Build Mate task/project lifecycle. Child activity must stay scoped to its parent.
+- PR descriptions contain a concise Markdown change summary, not proof reports, JSON or Build Mate branding. Never bypass repository merge protections.
+- Keep migrations additive and preserve existing data. Cleanups must respect app-owned path checks and unfinished work.
+
+## Validation and contributions
+
+Stub **only at the process boundary**. Tests put fake `codex`, `gh` and `twg` executables on `PATH` and use local bare Git remotes. Never call real models, GitHub or Bitbucket from automated tests, and never use the user’s app data. Manual integration probes under `scripts/spikes/` are separate, opt-in work: they can consume credits and use external tools.
+
+Prefer a few end-to-end tests for critical flows. Add a unit test only for critical behavior that cannot reasonably be covered end-to-end, such as transition rules or protocol parsing. Do not test trivial mapping/getters or duplicate existing coverage. Each test must name the regression it catches. No new test is needed for a simple reversible label/layout edit.
+
+Build and run the suite before committing. Make small, coherent commits explaining why. Update the relevant current documentation when behavior changes; do not add another milestone log or duplicate specification. State what changed, how it was checked and remaining limitations in the PR. For ambiguous, reversible details, choose the simplest reasonable behavior and continue; ask about costly-to-reverse decisions.
+
+For releases, follow `docs/releasing.md`. Never publish an unsigned or unnotarized build, export signing secrets into the repository, or publish/tag a different commit from the one that produced the artifact.

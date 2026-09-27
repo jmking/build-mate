@@ -4,3 +4,10 @@ BuildMate.xcodeproj/
 DerivedData/
 *.xcresult
 __pycache__/
+dist/
+.env
+.env.*
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile
