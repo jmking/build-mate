@@ -112,6 +112,10 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE agentConfiguration ADD COLUMN recommended BOOLEAN NOT NULL DEFAULT 0")
             try db.execute(sql: "ALTER TABLE agentConfiguration ADD COLUMN rationale TEXT")
         }
+        migrator.registerMigration("v13-self-qa") { db in
+            try db.execute(sql: "ALTER TABLE proof ADD COLUMN qaToken TEXT")
+            try db.execute(sql: "ALTER TABLE proof ADD COLUMN qaReview TEXT")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

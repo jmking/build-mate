@@ -46,6 +46,7 @@ struct ProofRunner: Sendable {
         let logs = store.root.appending(path: "logs/\(task.id)/\(UUID())")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
         var proof = try store.all(Proof.self).first { $0.taskId == task.id } ?? Proof(taskId: task.id, summary: submission.summary)
+        proof.qaToken = nil; proof.qaReview = nil
         proof.files = 0; proof.additions = 0; proof.deletions = 0
         proof.summary = submission.summary; proof.checks = []; proof.screenshots = []; proof.recordingPath = nil; proof.recordingDuration = nil
         proof.rationale = submission.rationale

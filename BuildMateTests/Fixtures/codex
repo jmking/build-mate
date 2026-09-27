@@ -296,6 +296,9 @@ for line in sys.stdin:
    time.sleep(0.05)
    call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
   elif tool=='submit_plan':build()
+  elif tool=='complete_qa':
+   assert req['result']['success'], req['result']
+   complete()
   elif tool=='request_review':
    if (root/'subagents').exists() and not req['result']['success']:
     gate=readstate().get('delegated_review_gates',0)
@@ -327,5 +330,12 @@ for line in sys.stdin:
      assert not list((root.parent/'Application Support/Build Mate/projects').rglob('fixture-screenshots'))
      (root/'proof-feedback.txt').write_text(text)
     (root/'proof-repaired').touch();review()
-   else:complete()
+   else:
+    receipt=json.loads(req['result']['contentItems'][0]['text'])
+    for path in receipt['inspectedPaths']:
+     assert pathlib.Path(path).exists()
+     pathlib.Path(path).read_bytes()
+    (root/'qa-inspected').write_text(json.dumps(receipt))
+    while (root/'hold-qa').exists():time.sleep(0.05)
+    call('complete_qa',{'proofToken':receipt['proofToken'],'inspectedPaths':receipt['inspectedPaths'],'assessment':'Inspected all fixture artifacts and checked the acceptance criteria. No unresolved defects.'})
  else:emit({'id':req.get('id'),'error':{'code':-32601,'message':'Unexpected fake method'}})

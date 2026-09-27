@@ -265,6 +265,8 @@ struct Proof: Record {
     var deletions = 0
     var summary: String
     var complete = false
+    var qaToken: String?
+    var qaReview: String?
     var producedAt = Date()
     var commitSHA: String?
     var requirementsRevision = 1

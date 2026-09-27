@@ -186,6 +186,11 @@ actor CodexClient {
              ["prompt": "string", "allowsFreeText": "boolean", "blocking": "boolean", "suggestedAnswer": "string"], required: ["prompt", "blocking"], options: true),
         tool("submit_plan", "Submit your plan before editing. Wait for approval when required.", ["plan": "string"], required: ["plan"]),
         reviewTool,
+        .object(["name": .string("complete_qa"), "description": .string("After inspecting all collected evidence and correcting defects, attest QA of this exact proof revision."), "inputSchema": .object([
+            "type": .string("object"), "additionalProperties": .bool(false),
+            "properties": .object(["proofToken": .object(["type": .string("string")]), "assessment": .object(["type": .string("string")]), "inspectedPaths": .object(["type": .string("array"), "items": .object(["type": .string("string")])])]),
+            "required": .array(["proofToken", "assessment", "inspectedPaths"].map(JSON.string))
+        ])]),
         tool("note", "Record a short progress note.", ["text": "string"], required: ["text"])
     ])
     private static let reviewTool: JSON = .object([

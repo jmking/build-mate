@@ -38,6 +38,30 @@ struct CoreTests {
         await core.shutdown()
         try f.cleanup()
     }
+    @Test func evidenceCannotReachHumanReviewBeforeInspectionOfTheCurrentRevision() async throws {
+        let f = try await Fixture()
+        try f.marker("hold-qa")
+        let task = try f.store.createTask(projectId: f.project.id, title: "Inspect evidence")
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        await core.tick()
+        try await f.wait("QA task question") { try !f.store.all(Question.self).isEmpty }
+        try await core.answer(try #require(f.store.all(Question.self).first).id, text: "Plain")
+        try await f.wait("pending semantic QA") { try f.store.all(Proof.self).first?.qaToken != nil }
+        let proof = try #require(f.store.all(Proof.self).first)
+        #expect(!proof.complete && proof.qaReview == nil)
+        #expect(try f.store.get(WorkTask.self, task.id).state == .building)
+        let receipt: JSON = .object(["proofToken": .string(proof.qaToken!), "assessment": .string("Checked"), "inspectedPaths": .array(proof.evidencePaths.map(JSON.string))])
+        var stale = try f.store.get(WorkTask.self, task.id); stale.requirementsRevision += 1; try f.store.save(stale)
+        do { try await core.completeQA(taskID: task.id, arguments: receipt); Issue.record("Accepted QA for stale requirements") } catch {}
+        #expect(try !f.store.get(Proof.self, proof.id).complete)
+        stale.requirementsRevision -= 1; try f.store.save(stale)
+        do { try await core.completeQA(taskID: task.id, arguments: .object(["proofToken": .string(proof.qaToken!), "assessment": .string("Checked"), "inspectedPaths": .array([])])); Issue.record("Accepted QA without inspecting artifacts") } catch {}
+        try FileManager.default.removeItem(at: f.control.appending(path: "hold-qa"))
+        try await f.wait("review after inspection") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
+        #expect(try f.store.get(Proof.self, proof.id).qaReview != nil)
+        await core.shutdown(); try f.cleanup()
+    }
+
     struct Fixture {
         let root: URL
         let repo: URL
@@ -706,7 +730,7 @@ struct CoreTests {
         #expect(fixtureState["delegated_review_gates"].int == 3 && fixtureState["reviews"].int == 4)
         let proofs = try f.store.all(Proof.self).filter { $0.taskId == task.id }
         #expect(proofs.count == 1 && proofs[0].complete)
-        #expect(try f.store.all(Message.self).filter { $0.sessionId == session.id && $0.body == "Proof passed. Ready for review." }.count == 1)
+        #expect(try f.store.all(Message.self).filter { $0.sessionId == session.id && $0.body == "Self-review completed. Ready for review." }.count == 1)
         #expect(try Store(root: f.store.root).get(Subagent.self, research.id).result == "Follow-up verified.")
 
         // Native child work belongs to the parent app-server process; pause and shutdown must stop it and persist that outcome.
