@@ -131,10 +131,10 @@ struct ChatTranscript<Content: View>: View {
                                     .accessibilityLabel("Agent reacted \(reaction.body) to your message")
                                     .help("Agent reacted \(reaction.body)")
                             }
-                        }.offset(x: -10, y: 14)
+                        }.offset(x: -10, y: 24)
                     }
                 }
-                .padding(.bottom, row.reactions.isEmpty ? 0 : 14)
+                .padding(.bottom, row.reactions.isEmpty ? 0 : 24)
                 .modifier(ChatMessageMetadata(message: row.message))
                 .padding(.top, index == 0 || timestamp ? 0 : previous?.role == row.message?.role ? 8 : spacing)
                 .transition(reduceMotion ? .opacity : .scale(scale: 0.8, anchor: .bottomLeading).combined(with: .opacity))
