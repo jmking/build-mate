@@ -99,9 +99,9 @@ struct ShellTests {
         await model.core.refreshUsage(); await model.refresh()
         #expect(!model.usageHeld && model.usage.credits?.balance == Decimal(string: "2034.1956750000"))
         var snapshot = model.usage
-        snapshot.receive(try JSONDecoder().decode(JSON.self, from: Data(#"{"rateLimits":{"primary":{"usedPercent":100}}}"#.utf8)), replacing: false)
+        snapshot.apply(.codex(try JSONDecoder().decode(JSON.self, from: Data(#"{"rateLimits":{"primary":{"usedPercent":100}}}"#.utf8)), replacing: false))
         #expect(snapshot.canUseCredits) // Sparse notifications must not discard the last credit balance.
-        snapshot.receive(try JSONDecoder().decode(JSON.self, from: Data(#"{"rateLimits":{"credits":null}}"#.utf8)), replacing: false)
+        snapshot.apply(.codex(try JSONDecoder().decode(JSON.self, from: Data(#"{"rateLimits":{"credits":null}}"#.utf8)), replacing: false))
         #expect(!snapshot.canUseCredits)
         #expect(snapshot.limitingWindow?.remaining == 0) // A credit-only update cannot clear an exhausted window.
         await model.core.tick()
@@ -126,13 +126,13 @@ struct ShellTests {
         #expect(attention.count == 1)
         await model.refresh(); #expect(model.attentionItems.map(\.id) == attention)
         #expect(!model.usageHeld)
-        let thread = try f.store.session(for: queued.id).codexThreadId
+        let thread = try f.store.session(for: queued.id).providerSessionID
         try f.marker("ignore-interrupt")
         let pauseStarted = Date()
         try model.pauseAll(); await model.core.tick()
         try await f.wait("bounded pause with unresponsive interrupt") { @Sendable in try usageStore.session(for: queued.id).status == "idle" }
         #expect(Date().timeIntervalSince(pauseStarted) < 30)
-        #expect(try f.store.session(for: queued.id).codexThreadId == thread)
+        #expect(try f.store.session(for: queued.id).providerSessionID == thread)
         try #"{"rateLimits":{"primary":{"usedPercent":10}}}"#.write(to: file, atomically: true, encoding: .utf8)
         await model.core.refreshUsage()
         try #"{"rateLimits":{"primary":{"usedPercent":95}}}"#.write(to: file, atomically: true, encoding: .utf8)
@@ -181,7 +181,7 @@ struct ShellTests {
         #expect(try uiStore.get(WorkTask.self, task.id).description == edited.description)
         let video = try #require(uiStore.all(Attachment.self).first)
         #expect(video.kind == "video" && video.frames.count == 6)
-        #expect(JSON.chatInput("Review", attachments: [video]).array.filter { $0["type"].string == "localImage" }.count == 6)
+        #expect(JSON.codexInput("Review", attachments: [video]).array.filter { $0["type"].string == "localImage" }.count == 6)
         let other = try uiStore.createTask(projectId: discovered.project.id, title: "Other queued task", rank: 10)
         try model.reorderTask(task.id, relativeTo: other.id, after: false)
         await model.refresh()

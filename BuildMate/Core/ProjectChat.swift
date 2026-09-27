@@ -12,9 +12,9 @@ extension Orchestrator {
         guard session.status != "waiting" else { throw CoreError.invalid("Answer the project agent’s question first.") }
         let message = Message(sessionId: session.id, role: "user", body: text)
         let attachments = try store.saveChatMessage(message, files: files, projectID: projectID, ownerID: projectID)
-        if let client = chatClients[projectID], let thread = session.codexThreadId, let turn = session.currentTurn {
+        if let client = chatClients[projectID], let thread = session.providerSessionID, let turn = session.currentTurn {
             do {
-                _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput(text, attachments: attachments)])
+                try await client.steer(session: thread, turn: turn, text: text, attachments: attachments)
                 try store.acknowledgeInput(session: session, ids: [message.id] + attachments.map(\.id))
             } catch { /* Saved input is picked up after this response or a retry. */ }
             return
@@ -58,7 +58,7 @@ extension Orchestrator {
         let starting = occupied
         for session in try store.all(Session.self).filter({ $0.ownerType == "project" && $0.status == "queued" }).sorted(by: { $0.startedAt < $1.startedAt }) {
             guard occupied < settings.agentsAtOnce, occupied - starting < maximum else { break }
-            guard chatJobs[session.ownerId] == nil, let project = projects[session.ownerId], !project.paused else { continue }
+            guard try !usageBlocksDispatch(provider: configuredProvider(for: session.ownerId)), chatJobs[session.ownerId] == nil, let project = projects[session.ownerId], !project.paused else { continue }
             occupied += 1
             chatJobs[project.id] = Task { await runProjectChat(project.id) }
         }
@@ -90,6 +90,7 @@ extension Orchestrator {
         let inventory = tasks.map { "\($0.id): \($0.title) [\($0.state.rawValue)]" }.joined(separator: "\n")
         let proposals = try store.all(Proposal.self).filter { $0.projectId == project.id }.sorted { $0.id.uuidString < $1.id.uuidString }
         let proposalStatus = proposals.map { "\($0.id): \($0.status); created task IDs: \($0.createdTaskIds.map(\.uuidString).joined(separator: ", "))" }.joined(separator: "\n")
+        let catalogue = modelCatalogues[try configuredProvider(for: project.id)] ?? []
         return """
         \(Self.projectBrief)
         Global instructions: \(try store.settings().instructions)
@@ -98,91 +99,61 @@ extension Orchestrator {
         Active task index (call project_status for full briefs, dependencies, questions or finished tasks):
         \(inventory)
         Available task models and supported efforts (recommend one with a short reason when creating work; explicit user/project choices take precedence):
-        \(availableModels.map { "\($0.id): \($0.efforts.joined(separator: ", "))" }.joined(separator: "\n"))
+        \(catalogue.map { "\($0.id): \($0.efforts.joined(separator: ", "))" }.joined(separator: "\n"))
         Proposal status (contents remain in this conversation):
         \(proposalStatus)
         """
     }
 
     private func runProjectChat(_ projectID: UUID) async {
-        let client = CodexClient()
-        chatClients[projectID] = client
+        var activeClient: (any AgentRunner)?
         var outcome = "idle"
         do {
+            let provider = try configuredProvider(for: projectID)
+            let client = provider.makeRunner(); activeClient = client; chatClients[projectID] = client
             let project = try store.get(Project.self, projectID)
             let cwd = try await prepareChatWorkspace(project)
             try Task.checkCancellation()
             try await client.start(runner: runner, cwd: cwd, timeout: Double(project.settings.readTimeoutMs) / 1000)
             var session = try store.session(for: projectID, ownerType: "project")
-            availableModels = try await client.models()
+            guard session.providerSessionID == nil || session.provider == provider else { throw CoreError.invalid("Changing providers requires a new agent session") }
+            session.provider = provider
+            modelCatalogues[provider] = try await client.models()
             var currentProject = try store.get(Project.self, projectID)
             var selection = try modelSelection(ownerID: projectID, defaultModel: "gpt-6-astra", defaultEffort: "high")
-            if let thread = session.codexThreadId {
-                _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd), "config": Self.delegationConfiguration, "developerInstructions": .string(Self.projectBrief), "excludeTurns": .bool(true)])
-            } else {
-                session.codexThreadId = try await client.request("thread/start", [
-                    "cwd": .string(cwd), "model": .string(selection.model), "sandbox": .string("read-only"), "approvalPolicy": .string("never"),
-                    "developerInstructions": .string(Self.projectBrief), "dynamicTools": Self.projectTools, "config": Self.delegationConfiguration
-                ])["thread"]["id"].string
-                guard session.codexThreadId != nil else { throw CoreError.invalid("Missing project thread ID") }
-                try store.save(session)
-            }
+            session.providerSessionID = try await client.openSession(id: session.providerSessionID, cwd: cwd, model: selection.model,
+                instructions: Self.projectBrief, tools: AgentTools.project, access: AgentAccess())
             session.status = "running"; try store.save(session)
             currentProject = try store.get(Project.self, projectID)
             selection = try modelSelection(ownerID: projectID, defaultModel: "gpt-6-astra", defaultEffort: "high")
             let input = try store.agentInput(session: session, context: projectContext(currentProject), attachments: store.chatAttachments(sessionID: session.id))
-            let response = try await client.request("turn/start", [
-                "threadId": .string(session.codexThreadId!), "cwd": .string(cwd), "input": .chatInput(input.text, attachments: input.attachments),
-                "model": .string(selection.model), "effort": selection.effort.map(JSON.string) ?? .null,
-                "sandboxPolicy": .object(["type": .string("readOnly"), "networkAccess": .bool(false)])
-            ])
+            let turn = try await client.startTurn(session: session.providerSessionID!, cwd: cwd, text: input.text, attachments: input.attachments,
+                model: selection.model, effort: selection.effort, access: AgentAccess())
             try store.acknowledgeInput(session: session, ids: input.ids, context: input.context)
             session.activeModel = selection.model; session.activeEffort = selection.effort
-            session.currentTurn = response["turn"]["id"].string; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
+            session.currentTurn = turn; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
             var deadline = SuspendingClock.now.advanced(by: .milliseconds(project.settings.turnTimeoutMs))
             var streaming: [String: UUID] = [:]
             while true {
                 try Task.checkCancellation()
                 guard SuspendingClock.now < deadline else { throw CoreError.invalid("Project chat timed out. Retry to continue the same conversation.") }
-                guard let event = try await client.nextEvent() else {
+                guard let event = try await client.nextAgentEvent() else {
                     let last = await client.lastEventAt
                     let runningCommand = await client.hasActiveCommands
                     guard runningCommand || project.settings.stallTimeoutMs <= 0 || last.duration(to: SuspendingClock.now) < .milliseconds(project.settings.stallTimeoutMs) else { throw CoreError.invalid("Project chat stalled. Retry to continue the same conversation.") }
                     continue
                 }
-                let method = event["method"].string ?? "", params = event["params"]
-                if try await routeSubagentEvent(event, session: session, client: client) { continue }
-                if try consumeGeneratedImage(event, session: session) { continue }
-                if method == "item/tool/call" || method == "item/tool/requestUserInput" {
+                let consumed = try await consumeAgentEvent(event, session: session, client: client, streaming: &streaming, includeCommands: true)
+                if consumed.handled { continue }
+                if case .request(let request) = event.kind {
                     let start = SuspendingClock.now
-                    try await handleProjectTool(event, projectID: projectID, sessionID: session.id, client: client)
+                    try await handleProjectRequest(request, projectID: projectID, sessionID: session.id)
                     deadline = deadline.advanced(by: start.duration(to: SuspendingClock.now))
-                } else if event["id"] != .null {
-                    if let diagnostic = try await client.rejectRequest(event) {
-                        try store.save(Message(sessionId: session.id, role: "system", kind: "error", body: diagnostic))
-                    }
-                } else if method == "item/agentMessage/delta", let id = params["itemId"].string, let delta = params["delta"].string {
-                    var message = try streaming[id].map { try store.get(Message.self, $0) } ?? Message(sessionId: session.id, role: "agent", body: "")
-                    message.body = runner.redacted(message.body + delta); message.payload = .object(["streaming": .bool(true)])
-                    streaming[id] = message.id; try store.save(message)
-                } else if method == "item/completed" {
-                    let item = params["item"]
-                    if item["type"].string == "agentMessage" {
-                        var message = try item["id"].string.flatMap { streaming[$0] }.map { try store.get(Message.self, $0) } ?? Message(sessionId: session.id, role: "agent", body: "")
-                        message.body = runner.redacted(item["text"].string ?? message.body)
-                        message.payload = .object(["streaming": .bool(false)]); try store.save(message)
-                    } else if item["type"].string == "commandExecution" {
-                        try store.save(Message(sessionId: session.id, role: "agent", kind: "activity", body: runner.redacted(item["command"].string ?? "Inspected project"), payload: .object(["output": .string(runner.redacted(item["aggregatedOutput"].string ?? ""))])))
-                    }
-                } else if method == "thread/tokenUsage/updated" {
-                    var latest = try store.session(for: projectID, ownerType: "project")
-                    latest.tokensIn = params["tokenUsage"]["total"]["inputTokens"].int ?? latest.tokensIn
-                    latest.tokensOut = params["tokenUsage"]["total"]["outputTokens"].int ?? latest.tokensOut
-                    try store.save(latest)
-                } else if method == "turn/completed" {
-                    guard params["turn"]["status"].string == "completed" else { throw CoreError.invalid("Project chat did not finish: \(params["turn"]["status"].string ?? "unknown"). Retry to continue.") }
+                } else if case .turnCompleted(let status) = event.kind {
+                    guard status == "completed" else { throw CoreError.invalid("Project chat did not finish: \(status). Retry to continue.") }
                     break
                 }
+
             }
         } catch is CancellationError { outcome = "interrupted" }
         catch {
@@ -191,7 +162,7 @@ extension Orchestrator {
                 try? store.save(Message(sessionId: session.id, role: "system", kind: "error", body: runner.redacted(error.localizedDescription)))
             }
         }
-        await client.stop()
+        await activeClient?.stop()
         if var session = try? store.session(for: projectID, ownerType: "project") {
             try? interruptSubagents(session.id)
             if outcome == "idle", (try? store.hasUndeliveredMessages(session)) == true { outcome = "queued" }
@@ -215,29 +186,6 @@ extension Orchestrator {
 }
 
 extension Orchestrator {
-    static let projectTools: JSON = {
-        func field(_ type: String) -> JSON { .object(["type": .string(type)]) }
-        func array(_ item: JSON) -> JSON { .object(["type": .string("array"), "items": item]) }
-        func object(_ properties: [String: JSON], _ required: [String]) -> JSON {
-            .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map(JSON.string)), "additionalProperties": .bool(false)])
-        }
-        func tool(_ name: String, _ description: String, _ properties: [String: JSON], _ required: [String]) -> JSON {
-            .object(["name": .string(name), "description": .string(description), "inputSchema": object(properties, required)])
-        }
-        let tasks = array(object(["title": field("string"), "description": field("string"), "dependsOnIndex": array(field("integer")),
-            "dependsOnTaskIds": array(field("string")), "attachmentIds": array(field("string")), "acceptanceCriteria": array(field("string")), "affectedPaths": array(field("string")),
-            "model": field("string"), "effort": field("string"), "modelRationale": field("string")], ["title", "description", "dependsOnIndex", "acceptanceCriteria", "model", "effort", "modelRationale"]))
-        return .array([
-            tool("propose_tasks", "Propose actionable tasks for the user to select. Dependencies use zero-based indices and must refer to earlier items.", ["tasks": tasks], ["tasks"]),
-            tool("create_tasks", "Only after an explicit user request. Use proposalId for an existing proposal, or tasks for new work. Every selected task goes straight to Queue. selectedIndexes defaults to all. Never recreate a completed proposal.", ["tasks": tasks, "proposalId": field("string"), "selectedIndexes": array(field("integer"))], []),
-            tool("ask_question", "Ask the user to clarify the project or task scope. Waits for an answer.", ["prompt": field("string"), "options": array(field("string")), "allowsFreeText": field("boolean")], ["prompt"]),
-            tool("project_status", "Read this project's tasks, open task questions and PRs.", [:], []),
-            tool("refine_task", "Apply changed requirements to an existing task, including built work and open PRs. Finished work gets a linked follow-up. Preserve the complete outcome and constraints. Explicit pauses and model choices are preserved.", ["taskId": field("string"), "description": field("string"), "title": field("string"), "attachmentIds": array(field("string"))], ["taskId", "description"]),
-            tool("reshape_tasks", "Replace unpublished tasks with coherent delivery units: split a large task or combine related tasks. Retains source work and rewires dependents. Describe all original requirements in the replacements. Do not use on unrelated work.", ["taskIds": array(field("string")), "tasks": tasks, "reason": field("string")], ["taskIds", "tasks", "reason"]),
-            tool("note", "Record a concise progress note.", ["text": field("string")], ["text"])
-        ])
-    }()
-
     func projectStatus(_ projectID: UUID) throws -> JSON {
         let tasks = try store.all(WorkTask.self).filter { $0.projectId == projectID }.sorted { $0.number < $1.number }
         let questions = try store.all(Question.self).filter { $0.answer == nil }
@@ -286,8 +234,9 @@ extension Orchestrator {
     @discardableResult
     func acceptProposal(_ id: UUID, projectID: UUID, selected: Set<Int>, replacing: [WorkTask] = [], related: [UUID] = [], dispatch: Bool = true) async throws -> [WorkTask] {
         let candidate = try store.get(Proposal.self, id)
-        if candidate.tasks.contains(where: { $0.model != nil }) { _ = try await models() }
-        let catalogue = availableModels
+        let provider = try configuredProvider(for: projectID)
+        if candidate.tasks.contains(where: { $0.model != nil }) { _ = try await models(provider: provider) }
+        let catalogue = modelCatalogues[provider] ?? []
         let result: [WorkTask] = try await store.db.write { db in
             guard var proposal = try Proposal.fetchOne(db, key: id), proposal.projectId == projectID,
                   try Project.fetchOne(db, key: projectID) != nil else { throw CoreError.invalid("Proposal not found in this project.") }
@@ -322,9 +271,9 @@ extension Orchestrator {
                     task.deliveryGroupIds = Array(Set([id] + replacing.flatMap(\.deliveryGroupIds)))
                     try task.insert(db); created[index] = task
                     if let model = item.model {
-                        let selection = try CodexModel.resolve(catalogue, model: model, effort: item.effort)
+                        let selection = try AgentModel.resolve(catalogue, model: model, effort: item.effort)
                         guard let reason = item.modelRationale, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Explain the model recommendation.") }
-                        try AgentConfiguration(id: task.id, model: selection.model, effort: selection.effort, recommended: true, rationale: reason).insert(db)
+                        try AgentConfiguration(id: task.id, model: selection.model, effort: selection.effort, recommended: true, rationale: reason, provider: provider).insert(db)
                     } else if let config = try replacing.first.flatMap({ try AgentConfiguration.fetchOne(db, key: $0.id) }) {
                         var inherited = config; inherited.id = task.id; try inherited.insert(db)
                     }
@@ -396,8 +345,8 @@ extension Orchestrator {
         if separateReply {
             let reply = Message(sessionId: session.id, role: "user", body: answer)
             let attachments = try store.saveChatMessage(reply, files: files, projectID: projectID, ownerID: projectID)
-            if let client = chatClients[projectID], let thread = session.codexThreadId, let turn = session.currentTurn {
-                _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput("Reference files for my answer: " + answer, attachments: attachments)])
+            if let client = chatClients[projectID], let thread = session.providerSessionID, let turn = session.currentTurn {
+                try await client.steer(session: thread, turn: turn, text: "Reference files for my answer: " + answer, attachments: attachments)
                 try store.acknowledgeInput(session: session, ids: [reply.id] + (message.payload["blocking"].bool == false ? [message.id] : []) + attachments.map(\.id))
             }
         }
@@ -410,7 +359,7 @@ extension Orchestrator {
         }
     }
 
-    private func projectQuestion(projectID: UUID, sessionID: UUID, prompt: String, options: [String], allowsFreeText: Bool, blocking: Bool = true) async throws -> (id: UUID, answer: String, delivered: Bool) {
+    func projectQuestion(projectID: UUID, sessionID: UUID, prompt: String, options: [String], allowsFreeText: Bool, blocking: Bool = true) async throws -> (id: UUID, answer: String, delivered: Bool) {
         guard !prompt.isEmpty, allowsFreeText || !options.isEmpty else { throw CoreError.invalid("A question needs a prompt and a way to answer.") }
         let message = Message(sessionId: sessionID, role: "agent", kind: "question", body: prompt,
                               payload: .object(["options": .array(options.map(JSON.string)), "allowsFreeText": .bool(allowsFreeText), "blocking": .bool(blocking)]))
@@ -427,69 +376,4 @@ extension Orchestrator {
         }
     }
 
-    private func handleProjectTool(_ event: JSON, projectID: UUID, sessionID: UUID, client: CodexClient) async throws {
-        let params = event["params"], requestID = event["id"]
-        var answeredIDs: [UUID] = []
-        if event["method"].string == "item/tool/requestUserInput" {
-            var answers: [String: JSON] = [:]
-            for question in params["questions"].array {
-                guard let id = question["id"].string, let prompt = question["question"].string else { continue }
-                if question["isSecret"].bool == true {
-                    answers[id] = .object(["answers": .array([.string("Secret input is not supported here. Ask the user to authenticate through the tool that owns the credentials; do not ask them to paste secrets into chat.")])])
-                    continue
-                }
-                let answer = try await projectQuestion(projectID: projectID, sessionID: sessionID, prompt: prompt,
-                                                      options: question["options"].array.compactMap { $0["label"].string }, allowsFreeText: question["options"].array.isEmpty || question["isOther"].bool == true, blocking: params["isBlocking"].bool ?? true)
-                answers[id] = .object(["answers": .array([.string(answer.answer)])])
-                if answer.delivered { answeredIDs.append(answer.id) }
-            }
-            try await client.respondUserInput(requestID, answers: answers)
-            try store.acknowledgeInput(session: store.session(for: projectID, ownerType: "project"), ids: answeredIDs)
-            return
-        }
-        do {
-            let args = params["arguments"]
-            let result: String
-            switch params["tool"].string {
-            case "project_status": result = try projectStatus(projectID).text
-            case "note":
-                guard let text = args["text"].string else { throw CoreError.invalid("Text required") }
-                try store.save(Message(sessionId: sessionID, role: "agent", body: runner.redacted(text))); result = "Recorded"
-            case "ask_question":
-                guard let prompt = args["prompt"].string else { throw CoreError.invalid("Prompt required") }
-                let answer = try await projectQuestion(projectID: projectID, sessionID: sessionID, prompt: prompt, options: args["options"].array.compactMap(\.string), allowsFreeText: args["allowsFreeText"].bool ?? true)
-                result = answer.answer; answeredIDs.append(answer.id)
-            case "propose_tasks":
-                let proposal = try saveProposal(projectID, sessionID: sessionID, items: proposalItems(args["tasks"]))
-                result = "Proposal \(proposal.id). Wait for the user to select tasks or explicitly request creation."
-            case "create_tasks":
-                let proposal: Proposal
-                if let rawID = args["proposalId"].string {
-                    guard let id = UUID(uuidString: rawID) else { throw CoreError.invalid("Invalid proposal ID") }
-                    proposal = try store.get(Proposal.self, id)
-                    guard proposal.projectId == projectID else { throw CoreError.invalid("Proposal belongs to another project") }
-                } else { proposal = try saveProposal(projectID, sessionID: sessionID, items: proposalItems(args["tasks"])) }
-                let selected = args["selectedIndexes"] == .null ? Set(proposal.tasks.indices) : Set(args["selectedIndexes"].array.compactMap(\.int))
-                let tasks = try await acceptProposal(proposal.id, projectID: projectID, selected: selected)
-                result = String(decoding: try JSONEncoder().encode(tasks), as: UTF8.self)
-            case "reshape_tasks":
-                let ids = args["taskIds"].array.compactMap { $0.string.flatMap(UUID.init(uuidString:)) }
-                let tasks = try await reshapeTasks(projectID: projectID, sourceIDs: ids, items: proposalItems(args["tasks"]), reason: args["reason"].string ?? "")
-                result = String(decoding: try JSONEncoder().encode(tasks), as: UTF8.self)
-            case "refine_task":
-                guard let raw = args["taskId"].string, let id = UUID(uuidString: raw), let description = args["description"].string,
-                      !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Task and description required") }
-                let task = try store.get(WorkTask.self, id)
-                guard task.projectId == projectID else { throw CoreError.invalid("Task belongs to another project.") }
-                let references = args["attachmentIds"].array.compactMap { $0.string.flatMap(UUID.init(uuidString:)) }
-                let updated = try await reviseFromProject(task, title: args["title"].string ?? task.title, description: description, attachmentIDs: references)
-                try store.save(Message(sessionId: sessionID, role: "system", kind: "event", body: "Updated \(updated.title)."))
-                result = "Task \(updated.id): \(updated.state.rawValue). Explicitly paused: \(updated.paused). Requirements revision \(updated.requirementsRevision)."
-            default: throw CoreError.invalid("Tool unavailable for project chat")
-            }
-            try await client.respond(requestID, text: result)
-            try store.acknowledgeInput(session: store.session(for: projectID, ownerType: "project"), ids: answeredIDs)
-        } catch is CancellationError { throw CancellationError() }
-        catch { try await client.respond(requestID, text: runner.redacted(error.localizedDescription), success: false) }
-    }
 }

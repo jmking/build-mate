@@ -59,7 +59,7 @@ struct ProjectChatTests {
         #expect(originals.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
         try await f.wait("project proposal and final response") { try f.store.all(Proposal.self).count == 1 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let session = try f.store.session(for: f.project.id, ownerType: "project")
-        let thread = try #require(session.codexThreadId)
+        let thread = try #require(session.providerSessionID)
         func turns() throws -> [JSON] {
             try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n")
                 .map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }
@@ -146,7 +146,7 @@ struct ProjectChatTests {
         #expect(try Store(root: f.store.root).get(Subagent.self, delegated.id).result == "Delegated findings only.")
         try await resumed.sendProjectMessage(f.project.id, text: "Plan more account work")
         try await f.wait("second proposal after restart") { try f.store.all(Proposal.self).count == 2 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
-        #expect(try f.store.session(for: f.project.id, ownerType: "project").codexThreadId == thread)
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").providerSessionID == thread)
         #expect(try f.store.session(for: f.project.id, ownerType: "project").activeModel == "gpt-5.6-luna")
         #expect(try f.store.session(for: f.project.id, ownerType: "project").activeEffort == "low")
         let resumedTurn = try #require(turns().last)
@@ -176,7 +176,7 @@ struct ProjectChatTests {
         let retried = try turns().suffix(2)
         #expect(retried.count == 2 && retried.allSatisfy { inputText($0).contains("New user messages (in order):\nStatus") }) // Failed turn/start must not acknowledge undelivered input.
         #expect(try f.store.session(for: f.project.id, ownerType: "project").turnCount == acceptedTurns + 1)
-        #expect(try f.store.session(for: f.project.id, ownerType: "project").codexThreadId == thread)
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").providerSessionID == thread)
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: f.repo.appending(path: "WORKFLOW.md").path))
         #expect(try f.store.all(WorkTask.self).filter { $0.state == .todo }.allSatisfy { $0.worktreePath == nil })

@@ -19,6 +19,18 @@ Build Mate v1 is **one macOS app process**. No separate helper, no XPC, no local
 
 Language: Swift 6, SwiftUI (AppKit where SwiftUI lacks a control), structured concurrency. Persistence: SQLite through GRDB in WAL mode (the only third-party dependency planned for v1).
 
+### Agent integration boundary
+
+`AgentRunner` is the single actor contract used by task execution, project chat, model discovery, account reads and title generation. It covers existing operations only: start/resume, turns, steering, typed events, model/effort metadata, usage, child metadata, interruption and shutdown. `AgentProvider` constructs the implementation directly; there is no plugin registry, service container or additional dependency.
+
+- `CodexClient` owns the JSON-RPC connection, request replies, active-turn tracking and native process shutdown. `CodexRunner` translates native sessions, events, question replies, model discovery, title generation and attachment inputs into the shared contract. `CodexUsage` decodes rate-limit payloads into incremental account updates.
+- `AgentTools` defines the Build Mate tool schemas. `TaskAgentTools` and `ProjectAgentTools` execute their operations, retaining the same lifecycle, approval, QA and parent-only authority checks. Reply closures keep native request IDs and wire encoding out of these operations. Delivery is acknowledged only after a successful reply or input submission.
+- `AgentEvents` persists shared transcript, media, token and usage events. `Subagents` isolates child activity from the parent transcript and lifecycle tools. The runner continues to own native child-turn interruption and shutdown behavior.
+- `AgentAccounts` keeps account usage, holds and overrides per provider. Partial notifications preserve omitted windows and credit fields; full account reads replace the snapshot. `ModelSelection` caches catalogues by provider and validates supported effort levels without translating them into an invented common scale.
+- Attachment import, storage and cleanup remain shared; the runner owns native input encoding. Workspaces, scheduling, PRs, proof, QA and human decisions remain Build Mate responsibilities.
+
+The database upgrade labels existing configurations, sessions and delivery receipts as `codex`, renames the native session ID column, and preserves native history, model choices and acknowledgements. A provider mismatch on an existing native session is rejected; cross-provider conversation handover is not implemented. The UI and intake defaults remain Codex-specific while Codex is the sole installed provider. Claude authentication, capabilities, provider selection, defaults and handover require a separate implementation and process-boundary verification; this refactor does not claim feature parity.
+
 ## 2. Relationship to Symphony
 Build Mate adapts Symphony's orchestration model (`openai/symphony` `SPEC.md`) in Swift. It does not ship the Elixir reference implementation.
 
@@ -32,7 +44,7 @@ Build Mate adapts Symphony's orchestration model (`openai/symphony` `SPEC.md`) i
 | Run attempt, retry with backoff (`min(10000·2^(n-1), max_retry_backoff_ms)`), continuation retry (1 s) | Same semantics and defaults. |
 | `max_concurrent_agents`, per-state limits | "Agents at once" (default 4), internal verification-job capacity (default 2), and a separate limit of two local previews. |
 | Reconciliation (stop sessions whose issue left an active state) | Same. Used for pause, cancel. |
-| Codex app-server as the agent | Same. Codex is the only runner in v1; introduce an abstraction only when a second runner (Claude, v3) is actually built. |
+| Codex app-server as the agent | Codex remains the only shipped runner. The owner approved extracting a narrow runner boundary before implementing Claude; no second runner or provider selector ships with this refactor. |
 | Status API | Not needed; the UI reads the core directly. |
 
 The targeted audit and deliberate deviations are recorded in [09-symphony-audit.md](09-symphony-audit.md). Live workers waiting for an answer or approval still reserve a concurrency slot. `afterRun` failures are diagnostic; `beforeRemove` failures abort removal to preserve work.
@@ -77,9 +89,9 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 
 **Attachment**: `id, ownerType (task|message), ownerId, kind (image|file), path, filename, byteSize, durationSec?, frames [path]?, transcript?, sourceAttachmentId?, removedAt?`.
 
-**AgentConfiguration**: `id (task or project UUID), model, effort?`. Store explicit conversation choices separately from task/project lifecycle records so concurrent lifecycle writes cannot overwrite them. Missing task configuration inherits project/default Codex settings; missing project-chat configuration means `gpt-6-astra` / `high`.
+**AgentConfiguration**: `id (task or project UUID), provider, model, effort?`. Store explicit conversation choices separately from task/project lifecycle records so concurrent lifecycle writes cannot overwrite them. Missing task configuration inherits project/default Codex settings; missing project-chat configuration means `gpt-6-astra` / `high`.
 
-**Session**: `id, ownerType (task|project), ownerId, codexThreadId, status (idle|running|waiting|stalled|failed|ended), currentTurn, activeModel?, activeEffort?, turnCount, tokensIn, tokensOut, startedAt, lastEventAt`. Active model/effort describe the last started turn, allowing the UI to distinguish a saved change from a response already in progress.
+**Session**: `id, ownerType (task|project), ownerId, provider, providerSessionID, status (idle|running|waiting|stalled|failed|ended), currentTurn, activeModel?, activeEffort?, turnCount, tokensIn, tokensOut, startedAt, lastEventAt`. Active model/effort describe the last started turn, allowing the UI to distinguish a saved change from a response already in progress.
 
 **Subagent**: `id, sessionId, threadId, parentThreadId, name, prompt, status, result, currentTurn?, model?, effort?, createdAt, updatedAt`. Native Codex children belong to their root task/project session, including nested children. Store their reported assignment when available and latest completed message separately from the main conversation. Records survive app restarts and cascade-delete with the owning session. Do not invent a prompt when Codex does not expose one.
 
@@ -154,7 +166,7 @@ For each task session Build Mate builds the initial prompt from, in order:
 3. **Project instructions** (Project menu › Instructions). Project instructions override global ones on conflict.
 4. **Task**: title, description, attachments (images inline; videos as key frames and transcript, see 03), answers to questions so far, approved plan, dependency context (what the tasks it depends on changed), and the current goal for its state.
 
-The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Mate does not copy it. Instruction changes apply from the next turn of every running session. Persist delivery acknowledgements per session and Codex thread: send the initial guidance once, changed guidance when needed, and only undelivered user messages, answers and attachments thereafter. A successful turn/start or turn/steer acknowledges those exact IDs; failed requests retain pending input. Tool-delivered answers are also acknowledged. Codex retains earlier turns, so never append the entire stored transcript or resend historical images on every continuation. A legacy thread without delivery tracking bootstraps once; do not discard potentially unsent input. In Codex 0.151, the fixed developer brief delegates current project/global instructions to the current text input when guidance changes; the resume override did not replace existing instructions in the spike (08).
+The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Mate does not copy it. Instruction changes apply from the next turn of every running session. Persist delivery acknowledgements per session, provider and native session ID: send the initial guidance once, changed guidance when needed, and only undelivered user messages, answers and attachments thereafter. A successful turn/start or turn/steer acknowledges those exact IDs; failed requests retain pending input. Tool-delivered answers are also acknowledged. Codex retains earlier turns, so never append the entire stored transcript or resend historical images on every continuation. A legacy thread without delivery tracking bootstraps once; do not discard potentially unsent input. In Codex 0.151, the fixed developer brief delegates current project/global instructions to the current text input when guidance changes; the resume override did not replace existing instructions in the spike (08).
 
 The **project agent** gets 1–3 plus a project brief (compact active task IDs/titles/states and proposal status, with full task details available through project_status) and the `propose_tasks` / `create_tasks` tools. It runs read-only in a dedicated worktree of the default branch, refreshed from the locally available default-branch commit on each new chat turn. Each message drives one turn, sharing the task-agent concurrency limit and project/global pause. Project questions are durable chat-message payloads (the task Question table retains its task foreign key). Open proposals and created-task links survive restarts.
 

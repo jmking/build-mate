@@ -300,3 +300,8 @@ The official release download was fetched to a temporary location for CLI inspec
 ## Credit-aware usage — 2026-09-28
 
 Verified the installed CLI's generated `GetAccountRateLimitsResponse` schema and a real, read-only `account/rateLimits/read` call. The account returned exhausted included usage and `ordinaryUsageAllowed: false` alongside a positive `credits.balance`, `hasCredits: true` and `spendControlReached: false`. These are separate allowances; the former must not suppress the latter. Build Mate now displays credits and bypasses its local percentage hold when usable credits are reported. No thread/turn, purchase or reset-credit redemption was performed. Earned rate-limit resets are distinct from spendable credits and are not automatically redeemed. Protocol reference: https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt.
+
+
+## Integration-boundary preparation — 2026-09-28
+
+The owner explicitly approved refactoring before a Claude integration. This supersedes the earlier instruction to delay a runner abstraction until the second implementation. Keep one narrow actor contract and direct construction; avoid a generic provider framework or speculative capabilities. Codex remains the only shipped provider, with existing access policy, tools and conversation semantics. Preserve existing native IDs and delivery receipts through the schema migration. Do not silently transfer a native conversation between providers or introduce a hidden Codex call when a future provider owns the conversation; title generation also goes through the selected runner. Claude's actual feature and account support remains unverified by this refactor.

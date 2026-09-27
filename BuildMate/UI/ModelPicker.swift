@@ -5,7 +5,7 @@ struct ModelPicker: View {
     let ownerID: UUID
     var projectChat = false
     @State private var expanded = false
-    @State private var models: [CodexModel] = []
+    @State private var models: [AgentModel] = []
     @State private var loading = false
     @State private var saving = false
     @State private var error: String?
@@ -24,7 +24,7 @@ struct ModelPicker: View {
         if let effort = projectChat ? "high" : project?.settings.effort { return effort }
         return session?.activeModel == selectedModel ? session?.activeEffort : nil
     }
-    private var choice: CodexModel? {
+    private var choice: AgentModel? {
         if let selectedModel { return models.first { $0.id == selectedModel } }
         return nil
     }

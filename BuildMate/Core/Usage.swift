@@ -21,12 +21,6 @@ struct UsageCredits: Sendable {
     let unlimited: Bool
     let balance: Decimal?
 
-    init(_ value: JSON) {
-        unlimited = value["unlimited"].bool == true
-        balance = value["balance"].string.flatMap { Decimal(string: $0, locale: Locale(identifier: "en_US_POSIX")) }
-        available = unlimited || (value["hasCredits"].bool == true && (balance.map { $0 > 0 } ?? true))
-    }
-
     var label: String {
         if unlimited { return "Unlimited credits" }
         if let balance { return "\(balance.formatted(.number.precision(.fractionLength(0...2)))) credits" }
@@ -36,6 +30,7 @@ struct UsageCredits: Sendable {
 
 struct UsageSnapshot: Sendable {
     var windows: [UsageWindow] = []
+    private var primaryBucket: String?
     private var creditsByBucket: [String: UsageCredits] = [:]
     private var spendBlockedBuckets: Set<String> = []
     var updatedAt: Date?
@@ -43,51 +38,37 @@ struct UsageSnapshot: Sendable {
     var refreshing = false
 
     var limitingWindow: UsageWindow? {
-        let codex = windows.filter { $0.bucket == "codex" }
-        return (codex.isEmpty ? windows : codex).min { $0.remaining < $1.remaining }
+        let preferred = windows.filter { $0.bucket == primaryBucket }
+        return (preferred.isEmpty ? windows : preferred).min { $0.remaining < $1.remaining }
     }
 
-    var credits: UsageCredits? { creditsByBucket[limitingWindow?.bucket ?? "codex"] }
+    var credits: UsageCredits? { (limitingWindow?.bucket ?? primaryBucket).flatMap { creditsByBucket[$0] } }
     var canUseCredits: Bool {
-        credits?.available == true && !spendBlockedBuckets.contains(limitingWindow?.bucket ?? "codex")
+        guard let bucket = limitingWindow?.bucket ?? primaryBucket else { return false }
+        return credits?.available == true && !spendBlockedBuckets.contains(bucket)
     }
 
-    mutating func receive(_ payload: JSON, replacing: Bool = true) {
-        if replacing { windows = []; creditsByBucket = [:]; spendBlockedBuckets = [] }
-        let buckets: [String: JSON]
-        if case .object(let values) = payload["rateLimitsByLimitId"], !values.isEmpty {
-            buckets = values
-            windows = []
-            creditsByBucket = [:]; spendBlockedBuckets = []
-        } else if payload["rateLimits"] != .null {
-            let value = payload["rateLimits"]
-            let id = value["limitId"].string ?? "codex"
-            buckets = [id: value]
-        } else {
-            updatedAt = Date(); error = nil
-            return
-        }
-        for (id, value) in buckets.sorted(by: { $0.key < $1.key }) {
-            // Notifications can omit credit details; explicit null and full reads clear them.
-            if case .object(let fields) = value, let creditValue = fields["credits"] {
-                creditsByBucket[id] = creditValue == .null ? nil : UsageCredits(creditValue)
-            }
-            let limit = value["rateLimitReachedType"].string ?? ""
-            if value["spendControlReached"].bool == true || limit.hasPrefix("workspace_") {
-                spendBlockedBuckets.insert(id)
-            } else if value["spendControlReached"].bool == false {
-                spendBlockedBuckets.remove(id)
-            }
-            for slot in ["primary", "secondary"] {
-                guard case .object(let fields) = value, fields[slot] != nil else { continue }
-                windows.removeAll { $0.id == id + ":" + slot }
-                let window = value[slot]
-                guard let used = window["usedPercent"].int else { continue }
-                windows.append(UsageWindow(id: id + ":" + slot, bucket: id, name: value["limitName"].string ?? (id == "codex" ? "Codex" : id),
-                                           remaining: min(100, max(0, 100 - used)), minutes: window["windowDurationMins"].int,
-                                           resetsAt: window["resetsAt"].int.map { Date(timeIntervalSince1970: Double($0)) }))
-            }
+    mutating func apply(_ update: AgentUsageUpdate) {
+        if update.replacing { windows = []; creditsByBucket = [:]; spendBlockedBuckets = [] }
+        if let bucket = update.primaryBucket { primaryBucket = bucket }
+        windows.removeAll { update.windowIDs.contains($0.id) }
+        windows += update.windows
+        for bucket in update.clearedCredits { creditsByBucket[bucket] = nil }
+        creditsByBucket.merge(update.credits) { _, new in new }
+        for (bucket, blocked) in update.spendBlocked {
+            if blocked { spendBlockedBuckets.insert(bucket) } else { spendBlockedBuckets.remove(bucket) }
         }
         updatedAt = Date(); error = nil
     }
+}
+
+/// Incremental account updates preserve omitted fields; a full read replaces the snapshot.
+struct AgentUsageUpdate: Sendable {
+    var replacing = false
+    var primaryBucket: String?
+    var windows: [UsageWindow] = []
+    var windowIDs: Set<String> = []
+    var credits: [String: UsageCredits] = [:]
+    var clearedCredits: Set<String> = []
+    var spendBlocked: [String: Bool] = [:]
 }

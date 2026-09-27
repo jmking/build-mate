@@ -125,6 +125,12 @@ final class Store: Sendable {
         migrator.registerMigration("v16-review-resolution") { db in
             try db.execute(sql: "ALTER TABLE prWatch ADD COLUMN resolutions TEXT NOT NULL DEFAULT '[]'")
         }
+        migrator.registerMigration("v17-agent-provider") { db in
+            try db.execute(sql: "ALTER TABLE session RENAME COLUMN codexThreadId TO providerSessionID")
+            try db.execute(sql: "ALTER TABLE session ADD COLUMN provider TEXT NOT NULL DEFAULT 'codex'")
+            try db.execute(sql: "ALTER TABLE agentConfiguration ADD COLUMN provider TEXT NOT NULL DEFAULT 'codex'")
+            try db.execute(sql: "ALTER TABLE agentDelivery ADD COLUMN provider TEXT NOT NULL DEFAULT 'codex'")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

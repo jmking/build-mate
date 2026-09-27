@@ -144,6 +144,7 @@ struct AgentConfiguration: Record {
     var effort: String?
     var recommended = false
     var rationale: String?
+    var provider: AgentProvider = .codex
 }
 struct PullRequest: Codable, Sendable { var number: Int; var url: String; var baseBranch: String }
 struct Retry: Codable, Sendable { var attempt: Int; var dueAt: Date; var error: String }
@@ -152,7 +153,8 @@ struct Session: Record {
     var id = UUID()
     var ownerType = "task"
     var ownerId: UUID
-    var codexThreadId: String?
+    var provider: AgentProvider = .codex
+    var providerSessionID: String?
     var status = "idle"
     var currentTurn: String?
     var activeModel: String?

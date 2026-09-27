@@ -167,6 +167,34 @@ struct CoreTests {
         try f.cleanup()
     }
 
+    @Test func providerMigrationPreservesNativeSessionModelAndAcknowledgedInput() async throws {
+        let f = try await Fixture()
+        let task = try f.store.createTask(projectId: f.project.id, title: "Resume existing work")
+        var session = try f.store.session(for: task.id)
+        session.providerSessionID = "existing-codex-thread"; try f.store.save(session)
+        let message = Message(sessionId: session.id, role: "user", body: "Already delivered")
+        try f.store.save(message)
+        try f.store.save(AgentConfiguration(id: task.id, model: "gpt-6-astra", effort: "high"))
+        try f.store.acknowledgeInput(session: session, ids: [message.id], context: "Existing guidance")
+        // Reconstruct the shipped schema, then exercise the real migration.
+        try await f.store.db.write { db in
+            try db.execute(sql: "ALTER TABLE session RENAME COLUMN providerSessionID TO codexThreadId")
+            for table in ["session", "agentConfiguration", "agentDelivery"] {
+                try db.execute(sql: "ALTER TABLE \(table) DROP COLUMN provider")
+            }
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'v17-agent-provider'")
+        }
+        let upgraded = try Store(root: f.store.root)
+        let restored = try upgraded.session(for: task.id)
+        #expect(restored.provider == .codex && restored.providerSessionID == "existing-codex-thread")
+        let config = try upgraded.get(AgentConfiguration.self, task.id)
+        #expect(config.provider == .codex && config.model == "gpt-6-astra" && config.effort == "high")
+        #expect(try !upgraded.hasUndeliveredMessages(restored))
+        let input = try upgraded.agentInput(session: restored, context: "Existing guidance", attachments: [])
+        #expect(input.ids.isEmpty && !input.text.contains("Already delivered") && !input.text.contains("Existing guidance"))
+        try f.cleanup()
+    }
+
     @Test @MainActor func deletingRunningTaskStopsProcessesRemovesDirtyWorkAndNeverReusesItsNumber() async throws {
         var f = try await Fixture()
         f.project.settings.previewCommand = "preview"
@@ -246,7 +274,7 @@ struct CoreTests {
         #expect(attached.kind == "image" && FileManager.default.fileExists(atPath: attached.path))
         #expect(try String(contentsOf: f.control.appending(path: "image-inputs.jsonl"), encoding: .utf8).contains("turn/steer"))
         let question = try #require(f.store.all(Question.self).first)
-        let thread = try #require(f.store.session(for: task.id).codexThreadId)
+        let thread = try #require(f.store.session(for: task.id).providerSessionID)
         let currentTurn = try f.store.session(for: task.id).currentTurn
         try await core.setModel(ownerID: task.id, projectChat: false, model: "gpt-6-astra", effort: "high")
         #expect(try f.store.session(for: task.id).currentTurn == currentTurn)
@@ -262,7 +290,7 @@ struct CoreTests {
         #expect(try f.store.get(WorkTask.self, task.id).state == .todo)
         try await core.approvePlan(f.store.all(Approval.self)[0].id)
         try await f.wait("human review") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
-        #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        #expect(try f.store.session(for: task.id).providerSessionID == thread)
         let proof = try #require(f.store.all(Proof.self).first)
         #expect(proof.complete && proof.checks.allSatisfy { $0.status == "passed" })
         #expect(proof.recordingRequired && proof.recordingDuration != nil)
@@ -296,7 +324,7 @@ struct CoreTests {
         let freshPlan = try #require(f.store.all(Approval.self).first { $0.status == "pending" })
         try await core.approvePlan(freshPlan.id)
         try await f.wait("fresh proof after edit") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
-        #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        #expect(try f.store.session(for: task.id).providerSessionID == thread)
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Preserve errors in the compact output"))
         #expect(try f.store.session(for: task.id).activeModel == "gpt-6-astra")
         #expect(try f.store.session(for: task.id).activeEffort == "high")
@@ -322,7 +350,7 @@ struct CoreTests {
         #expect(try f.store.all(Proof.self).allSatisfy { !$0.complete })
         try await core.pause(task.id, paused: false)
         try await f.wait("fresh proof after chat feedback") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
-        #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        #expect(try f.store.session(for: task.id).providerSessionID == thread)
         #expect(try f.store.all(Approval.self).filter { $0.status == "approved" }.count == 1)
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Please verify the revised commit"))
         #expect(try f.store.session(for: task.id).activeEffort == "low")
@@ -370,7 +398,7 @@ struct CoreTests {
         #expect(revising.state == .building && revising.paused)
         #expect(revising.branchName == branch && revising.worktreePath == published.worktreePath)
         #expect(revising.pr?.number == originalPR.number && revising.pr?.url == originalPR.url)
-        #expect(try reopened.session(for: task.id).codexThreadId == thread)
+        #expect(try reopened.session(for: task.id).providerSessionID == thread)
         #expect(try reopened.all(Proof.self).allSatisfy { !$0.complete })
         let feedback = try #require(reopened.all(Message.self).first { $0.body == "Change the feature to blue" })
         #expect(try reopened.all(Attachment.self).contains { $0.ownerId == feedback.id && FileManager.default.fileExists(atPath: $0.path) })
@@ -384,7 +412,7 @@ struct CoreTests {
         try await f.wait("fresh PR revision proof and finished worker") {
             try reopened.get(WorkTask.self, task.id).state == .humanReview && reopened.session(for: task.id).status == "idle"
         }
-        #expect(try reopened.session(for: task.id).codexThreadId == thread)
+        #expect(try reopened.session(for: task.id).providerSessionID == thread)
         let revisedHead = try await f.runner.run("git", ["rev-parse", "HEAD"], cwd: worktree).output
         #expect(revisedHead != originalRemoteHead)
         #expect(try await f.runner.run("git", ["--git-dir", f.remote.path, "rev-parse", "refs/heads/" + branch]).output == originalRemoteHead)
@@ -599,7 +627,7 @@ struct CoreTests {
         #expect(try f.store.get(WorkTask.self, dependency.id).worktreePath == nil)
         #expect(try f.store.get(WorkTask.self, held.id).worktreePath == nil)
         #expect(first.retry!.dueAt.timeIntervalSince(first.createdAt) >= 10)
-        let thread = try #require(f.store.session(for: high.id).codexThreadId)
+        let thread = try #require(f.store.session(for: high.id).providerSessionID)
         // Hold other candidates so the retry deadline is observable at the process boundary.
         try await core.pause(low.id, paused: true)
         await core.tick()
@@ -616,7 +644,7 @@ struct CoreTests {
             try f.store.get(WorkTask.self, high.id).retry?.attempt == 2 && f.store.all(RunAttempt.self).contains { $0.status == "stalled" }
         }
         // Observe the reopened store without starting a competing get-or-create write transaction.
-        #expect(try f.store.all(Session.self).first { $0.ownerId == high.id }?.codexThreadId == thread)
+        #expect(try f.store.all(Session.self).first { $0.ownerId == high.id }?.providerSessionID == thread)
         #expect(try f.store.all(RunAttempt.self).contains { $0.status == "stalled" })
         try FileManager.default.removeItem(at: f.control.appending(path: "stall"))
         let second = try f.store.get(WorkTask.self, high.id)
@@ -668,7 +696,7 @@ struct CoreTests {
         }
         let first = try f.store.get(WorkTask.self, task.id)
         #expect(!first.workspaceReady)
-        #expect(try f.store.session(for: task.id).codexThreadId == nil)
+        #expect(try f.store.session(for: task.id).providerSessionID == nil)
         await core.shutdown()
         let retry = Orchestrator(store: f.store, runner: f.runner)
         await retry.tick(now: first.retry!.dueAt.addingTimeInterval(1))
@@ -724,7 +752,7 @@ struct CoreTests {
                 && (try? String(contentsOf: f.control.appending(path: "delegated-rejections.jsonl"), encoding: .utf8))?.contains("missing-thread-lifecycle") == true
         }
         let session = try f.store.session(for: task.id)
-        let rootThread = try #require(session.codexThreadId)
+        let rootThread = try #require(session.providerSessionID)
         #expect(session.turnCount == 1 && session.tokensIn == 11 && session.tokensOut == 7)
         #expect(try f.store.all(Proof.self).isEmpty && f.store.all(Approval.self).isEmpty)
         #expect(try !f.store.all(Message.self).contains { $0.body.contains("Delegated findings") || $0.body.contains("CHILD MUST") || $0.body.contains("FOREIGN") })
@@ -767,7 +795,7 @@ struct CoreTests {
         }
         let firstPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegating-pid"), encoding: .utf8)))
         let firstChildPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegated-command-pid"), encoding: .utf8)))
-        let heldThread = try #require(f.store.session(for: held.id).codexThreadId)
+        let heldThread = try #require(f.store.session(for: held.id).providerSessionID)
         #expect(try f.store.get(WorkTask.self, held.id).state == .todo)
         try await core.pause(held.id, paused: true)
         try await f.wait("paused server PID \(firstPID) and child PID \(firstChildPID) exit") {
@@ -783,7 +811,7 @@ struct CoreTests {
         }
         let resumedPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegating-pid"), encoding: .utf8)))
         let resumedChildPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegated-command-pid"), encoding: .utf8)))
-        #expect(try f.store.session(for: held.id).codexThreadId == heldThread)
+        #expect(try f.store.session(for: held.id).providerSessionID == heldThread)
         await core.shutdown()
         try await f.wait("shutdown server PID \(resumedPID) and child PID \(resumedChildPID) exit") {
             kill(resumedPID, 0) != 0 && kill(resumedChildPID, 0) != 0
@@ -811,7 +839,7 @@ struct CoreTests {
         }
         #expect(try f.store.session(for: task.id).turnCount == 28)
         #expect(try f.store.get(WorkTask.self, task.id).retry?.error.contains("without taking action") == true)
-        let thread = try f.store.session(for: task.id).codexThreadId
+        let thread = try f.store.session(for: task.id).providerSessionID
         try FileManager.default.removeItem(at: f.control.appending(path: "empty-responses"))
         try f.marker("note-only-responses")
         try await core.pause(task.id, paused: false)
@@ -829,7 +857,7 @@ struct CoreTests {
             try f.store.get(WorkTask.self, task.id).state == .needsClarification
                 && (try? String(contentsOf: f.control.appending(path: "native-responses.jsonl"), encoding: .utf8).split(separator: "\n").count) == 4
         }
-        #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        #expect(try f.store.session(for: task.id).providerSessionID == thread)
         #expect(try f.store.session(for: task.id).turnCount == 32 && f.store.get(WorkTask.self, task.id).retry == nil)
         #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "quiet-command").path)) // The silent command exceeded stallTimeout, then finished normally.
         let messages = try f.store.all(Message.self)

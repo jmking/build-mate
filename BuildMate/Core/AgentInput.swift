@@ -1,10 +1,11 @@
 import Foundation
 import GRDB
 
-/// Codex threads already retain their transcript. Track accepted inputs across app restarts.
+/// Native agent sessions already retain their transcript. Track accepted inputs across app restarts.
 struct AgentDelivery: Record {
     static let databaseTableName = "agentDelivery"
     var id: UUID
+    var provider: AgentProvider = .codex
     var threadId: String
     var context = ""
     var deliveredIDs: [UUID] = []
@@ -20,13 +21,13 @@ struct AgentInput {
 extension Store {
     func hasUndeliveredMessages(_ session: Session) throws -> Bool {
         let delivery = try db.read { try AgentDelivery.fetchOne($0, key: session.id) }
-        let sent = Set(delivery?.threadId == session.codexThreadId ? delivery?.deliveredIDs ?? [] : [])
+        let sent = Set(delivery?.provider == session.provider && delivery?.threadId == session.providerSessionID ? delivery?.deliveredIDs ?? [] : [])
         return try db.read { try Message.filter(Column("sessionId") == session.id && Column("role") == "user").fetchAll($0) }
             .contains { !sent.contains($0.id) }
     }
     func agentInput(session: Session, context: String, attachments: [Attachment]) throws -> AgentInput {
         let delivery = try db.read { try AgentDelivery.fetchOne($0, key: session.id) }
-        let sameThread = delivery?.threadId == session.codexThreadId
+        let sameThread = delivery?.provider == session.provider && delivery?.threadId == session.providerSessionID
         let sent = Set(sameThread ? delivery?.deliveredIDs ?? [] : [])
         let messages = try db.read {
             try Message.filter(Column("sessionId") == session.id && Column("role") == "user").order(Column("createdAt")).fetchAll($0)
@@ -50,10 +51,10 @@ extension Store {
 
     /// Merge with concurrent steering acknowledgements; failed requests leave inputs pending.
     func acknowledgeInput(session: Session, ids: [UUID], context: String? = nil) throws {
-        guard let thread = session.codexThreadId else { return }
+        guard let thread = session.providerSessionID else { return }
         try db.write { db in
-            var delivery = try AgentDelivery.fetchOne(db, key: session.id) ?? AgentDelivery(id: session.id, threadId: thread)
-            if delivery.threadId != thread { delivery = AgentDelivery(id: session.id, threadId: thread) }
+            var delivery = try AgentDelivery.fetchOne(db, key: session.id) ?? AgentDelivery(id: session.id, provider: session.provider, threadId: thread)
+            if delivery.provider != session.provider || delivery.threadId != thread { delivery = AgentDelivery(id: session.id, provider: session.provider, threadId: thread) }
             let sent = Set(delivery.deliveredIDs)
             delivery.deliveredIDs += ids.filter { !sent.contains($0) }
             if let context { delivery.context = context }

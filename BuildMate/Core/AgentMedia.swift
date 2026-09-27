@@ -5,12 +5,11 @@ import UniformTypeIdentifiers
 
 extension Orchestrator {
     /// Import only a native output path from this parent's current turn, never a path in model text.
-    func consumeGeneratedImage(_ event: JSON, session: Session) throws -> Bool {
-        let params = event["params"], item = params["item"]
-        guard event["method"].string == "item/completed", item["type"].string == "imageGeneration" else { return false }
-        guard let thread = session.codexThreadId, params["threadId"].string == thread,
-              let turn = session.currentTurn, params["turnId"].string == turn,
-              let itemID = item["id"].string else { return true }
+    func consumeGeneratedImage(_ event: AgentEvent, session: Session) throws {
+        guard case .image(let id, let savedPath, let completed) = event.kind else { return }
+        guard let thread = session.providerSessionID, event.sessionID == thread,
+              let turn = session.currentTurn, event.turnID == turn,
+              let itemID = id else { return }
         let exists = try store.db.read { db in
             try Bool.fetchOne(db, sql: """
                 SELECT EXISTS(SELECT 1 FROM message WHERE sessionId = ?
@@ -18,12 +17,12 @@ extension Orchestrator {
                   AND json_extract(payload, '$.generatedImageTurnId') = ?)
                 """, arguments: [session.id, itemID, turn]) ?? false
         }
-        guard !exists else { return true }
+        guard !exists else { return }
         var message = Message(sessionId: session.id, role: "agent", body: "", payload: .object([
             "generatedImageItemId": .string(itemID), "generatedImageTurnId": .string(turn)
         ]))
         do {
-            guard item["status"].string == "completed", let path = item["savedPath"].string,
+            guard completed, let path = savedPath,
                   path.hasPrefix("/"), !path.contains("\0") else {
                 throw CoreError.invalid("No saved image")
             }
@@ -44,11 +43,10 @@ extension Orchestrator {
         } catch {
             // Do not persist paths, prompts, base64 results or tool error details.
             message.role = "system"; message.kind = "error"
-            message.body = item["status"].string == "completed"
+            message.body = completed
                 ? "The generated image could not be attached. Ask the agent to save it as a local image and try again."
                 : "Image generation did not complete. Ask the agent to try again."
             try store.save(message)
         }
-        return true
     }
 }
