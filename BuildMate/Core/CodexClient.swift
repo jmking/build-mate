@@ -186,6 +186,7 @@ actor CodexClient {
              ["prompt": "string", "allowsFreeText": "boolean", "blocking": "boolean", "suggestedAnswer": "string"], required: ["prompt", "blocking"], options: true),
         tool("submit_plan", "Submit your plan before editing. Wait for approval when required.", ["plan": "string"], required: ["plan"]),
         reviewTool,
+        tool("review_action", "Inspect failed CI, request an evidenced bounded rerun, queue a reviewer reply, or finish a PR triage pass with no code changes.", ["action": "string", "runId": "string", "reason": "string", "feedbackId": "string", "body": "string"], required: ["action"]),
         .object(["name": .string("complete_qa"), "description": .string("After inspecting all collected evidence and correcting defects, attest QA of this exact proof revision."), "inputSchema": .object([
             "type": .string("object"), "additionalProperties": .bool(false),
             "properties": .object(["proofToken": .object(["type": .string("string")]), "assessment": .object(["type": .string("string")]), "inspectedPaths": .object(["type": .string("array"), "items": .object(["type": .string("string")])])]),

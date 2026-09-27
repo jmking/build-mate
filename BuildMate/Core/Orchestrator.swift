@@ -166,7 +166,7 @@ actor Orchestrator {
             let settings = try store.settings()
             let tasks = try store.all(WorkTask.self)
             let projects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
-            for task in tasks where (task.state == .inPR || (task.state == .done && task.worktreePath != nil)) && !editingTasks.contains(task.id) && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
+            for task in tasks where (task.pr != nil && !task.state.terminal || (task.state == .done && task.worktreePath != nil)) && !editingTasks.contains(task.id) && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 15 {
                 lastPoll[task.id] = now
                 Task { await pollPR(task.id) }
             }
@@ -248,6 +248,7 @@ actor Orchestrator {
         guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
         guard editingTasks.insert(id).inserted else { throw CoreError.invalid("This task is already being edited.") }
         defer { editingTasks.remove(id) }
+        while polling.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
         titleJobs[id]?.cancel()
         var task = try store.get(WorkTask.self, id)
         let explicitlyPaused = task.paused
@@ -412,6 +413,7 @@ actor Orchestrator {
         var current = try store.get(WorkTask.self, id)
         current.pr = pr; try store.save(current)
         try transition(id, to: .inPR)
+        try await finishHostedPass(store.get(WorkTask.self, id), project: project)
     }
     func pollPR(_ id: UUID) async {
         guard !editingTasks.contains(id), !openingPRs.contains(id), polling.insert(id).inserted else { return }
@@ -419,9 +421,22 @@ actor Orchestrator {
         do {
             let task = try store.get(WorkTask.self, id)
             let project = try store.get(Project.self, task.projectId)
-            if task.state == .inPR, try await GitHub(runner: runner, root: store.root).merged(task: task, project: project) {
+            let status = try await GitHub(runner: runner, root: store.root).status(task: task, project: project)
+            guard !editingTasks.contains(id), !openingPRs.contains(id) else { return }
+            if status.state == "MERGED", !task.state.terminal, task.state != .inPR {
+                var paused = try store.get(WorkTask.self, id); paused.paused = true
+                paused.retry = Retry(attempt: 0, dueAt: Date(), error: "The PR merged while this task had further work. The worktree is preserved; create a follow-up for unpublished changes.")
+                try store.save(paused); await stopForReshape(id); return
+            }
+            if task.state == .inPR, status.state == "MERGED" {
                 guard !editingTasks.contains(id), try store.get(WorkTask.self, id).state == .inPR else { return }
                 try transition(id, to: .done, merged: true)
+            }
+            if status.state == "OPEN", task.state == .inPR {
+                try await finishHostedPass(task, project: project)
+                try await reconcileHostedReview(task, project: project, status: status)
+            } else if status.state == "CLOSED", !task.state.terminal {
+                throw CoreError.invalid("This PR was closed without merging. Review the host decision before continuing.")
             }
             guard !editingTasks.contains(id) else { return }
             let merged = try store.get(WorkTask.self, id)
@@ -688,7 +703,7 @@ actor Orchestrator {
     }
 
     private func prompt(task: WorkTask, project: Project) throws -> String {
-        return "\(Self.qaInstructions)\n\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository.\nSubmit a plan before the first edit or after the brief changes; continue an accepted plan without submitting it again. Ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
+        return "\(Self.hostedInstructions)\n\((try? watch(task.id).feedback.map { "Feedback ID: \($0.id)\n\($0.body)" }.joined(separator: "\n\n")) ?? "")\n\(Self.qaInstructions)\n\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository.\nSubmit a plan before the first edit or after the brief changes; continue an accepted plan without submitting it again. Ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {
@@ -803,11 +818,21 @@ actor Orchestrator {
                 if failures >= 3 { throw CancellationError() }
             }
             return true
+        case "review_action":
+            do { let result = try await reviewAction(taskId, arguments: args); try await client.respond(requestId, text: result); return true }
+            catch { try await client.respond(requestId, text: runner.redacted(error.localizedDescription), success: false); return false }
         case "complete_qa":
             do { try await completeQA(taskID: taskId, arguments: args); try await client.respond(requestId, text: "QA complete. Waiting for review. Stop now."); return true }
             catch { try await client.respond(requestId, text: runner.redacted(error.localizedDescription), success: false); return false }
         case "note":
             guard let text = args["text"].string else { try await client.respond(requestId, text: "Text required", success: false); return false }
+            if text.hasPrefix("BUILD_MATE_PR ") {
+                do {
+                    let args = try JSONDecoder().decode(JSON.self, from: Data(text.dropFirst("BUILD_MATE_PR ".count).utf8))
+                    let result = try await reviewAction(taskId, arguments: args)
+                    try await client.respond(requestId, text: result); return true
+                } catch { try await client.respond(requestId, text: runner.redacted(error.localizedDescription), success: false); return false }
+            }
             if text.hasPrefix("BUILD_MATE_QA ") {
                 do {
                     let receipt = try JSONDecoder().decode(JSON.self, from: Data(text.dropFirst("BUILD_MATE_QA ".count).utf8))

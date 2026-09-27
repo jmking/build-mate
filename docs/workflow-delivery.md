@@ -4,12 +4,12 @@ Scope authorized on 27 September 2026: implement all recommendations from the wo
 
 Implementation checklist:
 
-- [ ] Correctness: fresh remote bases, publish the verified commit, revision-bound proof, repeated review notifications, recoverable host actions.
+- [x] Correctness: fresh remote bases, publish the verified commit, revision-bound proof, repeated review notifications, recoverable host actions.
 - [x] Intake: readiness, search existing work, revise queued/running/review/PR work, linked follow-ups after merge, relevant attachments only.
 - [x] Delivery sizing: explicit split/combine operations, preserved requirements and dependencies, coherent review units.
 - [x] Model choice: validated recommendations saved before dispatch, rationale, sticky explicit user choices, Astra High project default.
 - [x] Self-QA: execute evidence, return actual artifacts to the agent, inspect/fix before human review, invalidate on changed code or requirements.
-- [ ] Hosted workflow: GitHub status, reviews and CI (authenticated Bitbucket deferred by the user); bounded evidence-based reruns, repairs/replies, human decisions and merge rules.
+- [x] Hosted workflow: GitHub status, reviews and CI (authenticated Bitbucket deferred by the user); bounded evidence-based reruns, repairs/replies, human decisions and merge rules.
 - [ ] Scheduling: release capacity during human waits, accept follow-ups, fair interactive/repair/dependency scheduling, overlap and compute pressure.
 - [ ] Native UI: useful status and decisions without extra routine controls or clutter; accessibility and tooltips.
 - [ ] Validation: process-boundary regressions and current specifications; document any authenticated host verification that cannot run locally.

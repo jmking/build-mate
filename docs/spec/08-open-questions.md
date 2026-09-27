@@ -294,3 +294,5 @@ The official release download was fetched to a temporary location for CLI inspec
 
 - 2026-09-27: Authenticated Bitbucket verification is deferred at the user's request; focus hosted-workflow testing on GitHub. `twg` help was verified, but no successful Bitbucket authentication or mutation is claimed.
 - Delivery sizing assumption: split/combine preserves unpublished source branches rather than rewriting them automatically. Replacement agents inspect and reuse relevant implementation; published tasks are revised on their existing PR to preserve review continuity.
+
+- 2026-09-27 GitHub live read-only verification: authenticated `gh` read `jmking/amux` PR #1's head, state, mergeability and checks; the paginated GraphQL review-thread query and repository-supported merge-method fields succeeded. No real comment, rerun, push or merge was performed. Mutation and recovery paths are exercised with fake executables against an isolated bare Git remote. Official contracts: https://cli.github.com/manual/gh_pr_merge, https://cli.github.com/manual/gh_run_rerun, https://cli.github.com/manual/gh_api.

@@ -25,7 +25,7 @@ struct TaskDetailView: View {
         return messages.filter { $0.kind != "event" && !pendingQuestions.contains($0.id) && !pendingPlanMessages.contains($0.id) }
     }
     private var questions: [Question] { model.snapshot.questions.filter { $0.taskId == task.id } }
-    private var pendingPlans: [Approval] { model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" } }
+    private var pendingPlans: [Approval] { model.snapshot.approvals.filter { $0.taskId == task.id && ["plan", "merge"].contains($0.kind) && $0.status == "pending" } }
     private var proof: Proof? { model.snapshot.proofs.first { $0.taskId == task.id } }
     private var files: [URL] { model.attachmentDrafts[task.id] ?? [] }
     private var message: Binding<String> { Binding(get: { model.chatDrafts[task.id] ?? "" }, set: { model.chatDrafts[task.id] = $0 }) }
@@ -65,16 +65,18 @@ struct TaskDetailView: View {
                 }
                 ForEach(pendingPlans) { approval in
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Review plan").font(.headline).accessibilityAddTraits(.isHeader)
-                        if let plan = approval.planText { MarkdownBrief(plan) }
-                        Button(approving.contains(approval.id) ? "Approving…" : "Approve Plan") {
+                        Text(approval.kind == "merge" ? "Ready to merge" : "Review plan").font(.headline).accessibilityAddTraits(.isHeader)
+                        if approval.kind == "merge" { Text("Approve merging the current reviewed commit. GitHub’s repository rules still apply.").foregroundStyle(.secondary) }
+                        else if let plan = approval.planText { MarkdownBrief(plan) }
+                        Button(approving.contains(approval.id) ? "Approving…" : (approval.kind == "merge" ? "Approve Merge" : "Approve Plan")) {
                             approving.insert(approval.id)
                             model.perform {
                                 defer { approving.remove(approval.id) }
-                                try await model.core.approvePlan(approval.id)
+                                if approval.kind == "merge" { try await model.core.approveMerge(approval.id) }
+                                else { try await model.core.approvePlan(approval.id) }
                             }
                         }.buttonStyle(.borderedProminent).disabled(approving.contains(approval.id))
-                            .help("Approve this plan so work can continue")
+                            .help(approval.kind == "merge" ? "Approve this reviewed commit for merge" : "Approve this plan so work can continue")
                             .accessibilityIdentifier("approve-task-plan")
                     }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                         .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))

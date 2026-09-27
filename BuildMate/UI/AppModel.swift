@@ -262,7 +262,7 @@ final class AppModel {
         }
         if task.retry != nil { return "Retrying automatically…" }
         guard [.todo, .building].contains(task.state) else { return nil }
-        if snapshot.approvals.contains(where: { $0.taskId == task.id && $0.status == "pending" }) { return "Waiting for plan approval" }
+        if snapshot.approvals.contains(where: { $0.taskId == task.id && $0.status == "pending" }) { return snapshot.approvals.contains(where: { $0.taskId == task.id && $0.kind == "merge" && $0.status == "pending" }) ? "Waiting for merge approval" : "Waiting for plan approval" }
         if usageHeld { return "Waiting for usage to reset" }
         if usage.refreshing && usage.updatedAt == nil { return "Checking account usage…" }
         return "Waiting for an agent"

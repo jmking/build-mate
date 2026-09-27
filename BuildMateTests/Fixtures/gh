@@ -6,7 +6,7 @@ if (root/'missing-gh').exists():sys.exit(127)
 pr={'number':42,'url':'https://github.com/fixture/repo/pull/42','baseRefName':'main'}
 if a[:2]==['auth','status']:
  sys.exit(1 if (root/'signed-out').exists() else 0)
-elif a[:2]==['repo','view']:print(json.dumps({'nameWithOwner':'fixture/repo','defaultBranchRef':{'name':'main'}}))
+elif a[:2]==['repo','view']:print(json.dumps({'nameWithOwner':'fixture/repo','defaultBranchRef':{'name':'main'},'squashMergeAllowed':True,'mergeCommitAllowed':True,'rebaseMergeAllowed':False}))
 elif a[:2]==['pr','list']:
  if (root/'move-head-during-publish').exists():
   subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','Concurrent editor change'],check=True,stdout=subprocess.DEVNULL)
@@ -15,15 +15,35 @@ elif a[:2]==['pr','create']:
  body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
  assert body==('- Adds the requested feature.\n- Preserves **existing behavior**.' if (root/'json-pr-summary').exists() else 'Adds the requested feature.')
  assert a[a.index('--base')+1]=='main'
- (root/'pr-body').write_text(body);(root/'pr-head').write_text(a[a.index('--head')+1]);(root/'pr-created').touch();print(pr['url'])
+ (root/'pr-sha').write_text(subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip());(root/'pr-body').write_text(body);(root/'pr-head').write_text(a[a.index('--head')+1]);(root/'pr-created').touch();print(pr['url'])
 elif a[:2]==['pr','edit']:
  assert a[2]=='42' and (root/'pr-created').exists()
  assert not (root/'merged').exists() and not (root/'pr-closed').exists()
  body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
  assert body==('- Changes the feature to blue.\n- Preserves **existing behavior**.' if (root/'pr-revision').exists() else '- Adds the requested feature.\n- Preserves **existing behavior**.' if (root/'json-pr-summary').exists() else 'Adds the requested feature.')
- (root/'pr-body').write_text(body);print(pr['url'])
+ (root/'pr-sha').write_text(subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip());(root/'pr-body').write_text(body);print(pr['url'])
 elif a[:2]==['pr','view']:
  state='MERGED' if (root/'merged').exists() else 'CLOSED' if (root/'pr-closed').exists() else 'OPEN'
- detail={**pr,'state':state,'headRefName':(root/'pr-head').read_text() if (root/'pr-head').exists() else ''}
+ head=(root/'pr-sha').read_text() if (root/'pr-sha').exists() else 'unknown'
+ detail={**pr,'state':state,'headRefOid':head,'mergeStateStatus':'CLEAN' if (root/'merge-ready').exists() else 'UNKNOWN','reviewDecision':'APPROVED' if (root/'merge-ready').exists() else 'REVIEW_REQUIRED','isDraft':False,'statusCheckRollup':[{'name':'CI','status':'COMPLETED','conclusion':'FAILURE','detailsUrl':'https://github.com/fixture/repo/actions/runs/91','runId':'91','attempt':1}] if (root/'ci-failed').exists() else [],'headRefName':(root/'pr-head').read_text() if (root/'pr-head').exists() else ''}
  print(json.dumps({key:detail[key] for key in a[a.index('--json')+1].split(',')}))
+elif a[:2]==['pr','merge']:
+ assert '--match-head-commit' in a and '--admin' not in a and (root/'merge-ready').exists()
+ (root/'merge-requested').touch()
+elif a[0]=='api':
+ if a[1]=='graphql':print(json.dumps([{'data':{'repository':{'pullRequest':{'reviewThreads':{'nodes':[],'pageInfo':{'hasNextPage':False}}}}}}]))
+ elif '--method' in a and a[a.index('--method')+1]=='POST':
+  body=json.loads(pathlib.Path(a[a.index('--input')+1]).read_text())['body']
+  posts=json.loads((root/'posted-replies').read_text()) if (root/'posted-replies').exists() else []
+  post={'id':200+len(posts),'body':body};posts.append(post);(root/'posted-replies').write_text(json.dumps(posts));print(json.dumps(post))
+ elif '/reviews?' in a[1]:print('[[]]')
+ elif '/comments?' in a[1]:
+  comments=json.loads((root/'review-feedback').read_text()) if (root/'review-feedback').exists() else []
+  posts=json.loads((root/'posted-replies').read_text()) if (root/'posted-replies').exists() else []
+  print(json.dumps([comments+posts]))
+ else:sys.exit('Unexpected fake API')
+elif a[:2]==['run','view']:
+ if '--log-failed' in a:print('Runner temporarily lost its network connection. No tests ran.')
+ else:print(json.dumps({'headSha':(root/'pr-sha').read_text(),'status':'completed','conclusion':'failure','attempt':1}))
+elif a[:2]==['run','rerun']:(root/'ci-retried').touch()
 else:sys.exit('Unexpected gh command')

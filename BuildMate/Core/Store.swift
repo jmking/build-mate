@@ -116,6 +116,9 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE proof ADD COLUMN qaToken TEXT")
             try db.execute(sql: "ALTER TABLE proof ADD COLUMN qaReview TEXT")
         }
+        migrator.registerMigration("v14-hosted-review") { db in
+            try db.execute(sql: "CREATE TABLE prWatch (id TEXT PRIMARY KEY REFERENCES task(id) ON DELETE CASCADE, head TEXT NOT NULL, feedback TEXT NOT NULL, seen TEXT NOT NULL, replies TEXT NOT NULL, actions TEXT NOT NULL, repairing BOOLEAN NOT NULL, requirementsRevision INTEGER NOT NULL, mergeHead TEXT)")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
