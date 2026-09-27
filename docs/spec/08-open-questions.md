@@ -212,7 +212,7 @@ Read-only manual `model/list` probe against installed codex-cli 0.151.0 returned
 
 ### Compact project-chat inspector (2026-09-27)
 
-Interpret “just show the last” as the single most recently created task originating from this project chat, using the project’s monotonically increasing task number. Older tasks remain in the board/Backlog. Keep Project information and Open Tasks in a separate fixed bottom section, outside the task scroll area.
+The later explicit request to order the list most recent first supersedes the initial interpretation of “just show the last” as one task. Show all chat-created tasks ordered by creation time descending, with task number descending as the tie-breaker. Keep Project information and Open Tasks in a separate fixed bottom section, outside the task scroll area.
 
 ### Deleting active tasks (2026-09-27)
 

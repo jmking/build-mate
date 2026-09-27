@@ -11,8 +11,9 @@ struct ProjectChatView: View {
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
     private var busy: Bool { ["queued", "running", "waiting"].contains(session?.status ?? "") }
     private var question: Message? { messages.last { $0.kind == "question" && $0.payload["answer"] == .null } }
-    private var latestFromChat: WorkTask? {
-        model.snapshot.tasks.filter { $0.projectId == projectID && $0.origin == "chat" }.max { $0.number < $1.number }
+    private var fromChat: [WorkTask] {
+        model.snapshot.tasks.filter { $0.projectId == projectID && $0.origin == "chat" }
+            .sorted { $0.createdAt == $1.createdAt ? $0.number > $1.number : $0.createdAt > $1.createdAt }
     }
     private var files: [URL] { model.attachmentDrafts[projectID] ?? [] }
     private var fileBinding: Binding<[URL]> { Binding(get: { model.attachmentDrafts[projectID] ?? [] }, set: { model.attachmentDrafts[projectID] = $0 }) }
@@ -89,7 +90,10 @@ struct ProjectChatView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("From this chat").font(.headline).accessibilityAddTraits(.isHeader)
-                    if let task = latestFromChat {
+                    if fromChat.isEmpty {
+                        Text("Tasks you create here will appear here.").foregroundStyle(.secondary)
+                    }
+                    ForEach(fromChat) { task in
                         Button { model.destination = .task(task.id) } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: task.state.symbol).foregroundStyle(task.state.color).frame(width: 16)
@@ -108,8 +112,7 @@ struct ProjectChatView: View {
                                 Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
                                     .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
                             }
-                    } else {
-                        Text("Your latest task from this chat will appear here.").foregroundStyle(.secondary)
+                        if task.id != fromChat.last?.id { Divider() }
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
             }.background(AppSurface.raised)
