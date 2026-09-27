@@ -23,6 +23,7 @@ Each milestone ends with a demo and its acceptance criteria passing.
 Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency and Reduce Motion on.
 
 **Projects and storage**
+- Rename a project from Project Settings, the Project menu or its sidebar context menu. The display name persists across relaunch, accepts spaces/Unicode and leaves repository paths, tasks and conversations unchanged. Blank names cannot be saved.
 - Create New initialises a new or empty local folder on main, seeds an empty commit and adds it as a local project. Reject nonempty and nested-repository folders; no remote is created. Local tasks run in app storage and stop at Human review until publishing/local merge support is added.
 - Project Settings supports adding/removing multiple Git repository folders. Each task targets one linked repository; project chat can coordinate dependent tasks across repositories. Worktrees, permissions, PRs and cleanup use that task’s repository. Upgrades preserve existing task targets; unlinking keeps the clone and is blocked while unfinished work or retained task worktrees exist.
 - Adding a project from a local clone detects GitHub or Bitbucket Cloud, remote slug and default branch, and shows CLI sign-in status with a fix action.

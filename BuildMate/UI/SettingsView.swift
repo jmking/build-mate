@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var projectID: UUID?
+    @State private var renamingProject: Project?
     @State private var advancedExpanded = false
     @State private var diagnosticsExpanded = false
     var body: some View {
@@ -20,6 +21,11 @@ struct SettingsView: View {
                     Section("Project") {
                         projectPicker
                         if let project {
+                            LabeledContent("Name") {
+                                Text(project.name).lineLimit(1).truncationMode(.middle).help(project.name)
+                                Button("Rename…") { renamingProject = project }
+                                    .help("Change the name shown for this project")
+                            }
                             ProjectRepositoryPicker(projectID: project.id).id(project.id)
                             Picker("Open code in", selection: projectSetting(\.editor, fallback: nil)) {
                                 Text("First installed editor").tag(Optional<String>.none)
@@ -49,6 +55,7 @@ struct SettingsView: View {
             InstructionsView().tabItem { Label("Instructions", systemImage: "doc.text") }.tag("instructions")
         }.padding(.top, 8).frame(width: 720, height: 620)
             .containerBackground(AppSurface.window, for: .window)
+            .sheet(item: $renamingProject) { RenameProjectSheet(project: $0).presentationBackground(AppSurface.sheet) }
             .alert("Unable to save settings", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
                 Button("OK", role: .cancel) { model.error = nil }.help("Dismiss the settings error")
             } message: { Text(model.error ?? "") }

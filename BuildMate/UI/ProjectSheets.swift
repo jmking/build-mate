@@ -278,3 +278,36 @@ struct NewTaskSheet: View {
         }
     }
 }
+
+
+struct RenameProjectSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let project: Project
+    @State private var name = ""
+    @State private var failure: String?
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Rename Project").font(.title2.weight(.semibold))
+            TextField("Project name", text: $name).textFieldStyle(.roundedBorder)
+                .focused($nameFocused).accessibilityLabel("Project name")
+                .accessibilityIdentifier("project-name")
+                .help("The name shown in Build Mate; repository folders keep their names")
+            if let failure { Text(failure).font(.callout).foregroundStyle(.secondary) }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                    .help("Keep the current project name (Esc)")
+                Button("Rename") {
+                    do { try model.renameProject(project.id, name: name); dismiss() }
+                    catch { failure = error.localizedDescription }
+                }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help("Save the project name (Return)")
+            }
+        }.padding(24).frame(width: 400)
+            .onAppear { name = project.name; nameFocused = true }
+    }
+}

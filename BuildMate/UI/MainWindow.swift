@@ -6,6 +6,7 @@ struct MainWindow: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @Environment(\.openSettings) private var openSettings
     @State private var showErrorDetails = false
+    @State private var renamingProject: Project?
     var body: some View {
         @Bindable var model = model
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -152,6 +153,7 @@ struct MainWindow: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: columnVisibility)
         .onChange(of: model.toggleSidebar) { columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly }
         .frame(minWidth: 900, minHeight: 620)
+        .sheet(item: $renamingProject) { RenameProjectSheet(project: $0).presentationBackground(AppSurface.sheet) }
         .sheet(isPresented: $model.showAddProject) { AddProjectSheet().presentationBackground(AppSurface.sheet) }
         .sheet(isPresented: $model.showNewTask) { NewTaskSheet().presentationBackground(AppSurface.sheet) }
         .sheet(item: $model.reviewSheet) { LifecycleSheet(sheet: $0).presentationBackground(AppSurface.sheet) }
@@ -181,6 +183,9 @@ struct MainWindow: View {
         }
     }
     @ViewBuilder private func projectActions(_ project: Project) -> some View {
+        Button("Rename Project…", systemImage: "pencil") { renamingProject = project }
+            .help("Change the name shown for this project")
+
         Button(project.paused ? "Resume Project" : "Pause Project", systemImage: project.paused ? "play" : "pause") {
             model.perform { try model.pauseProject(project) }
         }.help(project.paused ? "Resume work in \(project.name)" : "Pause work in \(project.name)")

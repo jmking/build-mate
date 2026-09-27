@@ -416,6 +416,16 @@ final class AppModel {
         perform { try await self.core.sendProjectMessage(task.projectId, text: "Help me refine this task: \(task.title) (task ID \(task.id)). Ask about unclear requirements, then update its description with refine_task. If coding has already started, pause it for replanning.") }
     }
     func pauseAll() throws { var value = try store.settings(); value.paused.toggle(); try store.saveSettings(value); Task { await core.tick() } }
+    func renameProject(_ id: UUID, name: String) throws {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw CoreError.invalid("Enter a project name.") }
+        var project = try store.get(Project.self, id)
+        project.name = name
+        try store.save(project)
+        if let index = snapshot.projects.firstIndex(where: { $0.id == id }) { snapshot.projects[index] = project }
+        snapshot.projects.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
     func pauseProject(_ project: Project) throws {
         var current = try store.get(Project.self, project.id); current.paused.toggle(); try store.save(current); Task { await core.tick() }
     }
