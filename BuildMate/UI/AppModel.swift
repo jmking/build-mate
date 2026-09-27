@@ -190,7 +190,7 @@ final class AppModel {
             }
             if task.state == .humanReview {
                 let proof = snapshot.proofs.first { $0.taskId == task.id }
-                result.append(AttentionItem(id: "review-\(proof?.id ?? task.id)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Awaiting human review"))
+                result.append(AttentionItem(id: "review-\(proof?.id ?? task.id)-\(proof?.producedAt.timeIntervalSince1970 ?? 0)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Awaiting human review"))
             }
             if retryNeedsAttention(task) {
                 result.append(AttentionItem(id: "retry-\(task.id)-\(task.retry?.dueAt.timeIntervalSince1970 ?? 0)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Agent needs help"))

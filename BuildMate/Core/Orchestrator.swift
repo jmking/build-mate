@@ -267,6 +267,7 @@ actor Orchestrator {
                 task.paused = true
             }
             task.retry = nil
+            task.requirementsRevision += 1
         }
         task.title = title; task.description = description; task.proofRequirement = proofRequirement; task.updatedAt = Date()
         let edited = task
@@ -345,7 +346,7 @@ actor Orchestrator {
         let attachments = try store.prepareAttachments(files, projectID: projectID, ownerID: id, messageID: message.id)
         do { try await store.db.write { db in
             guard var task = try WorkTask.fetchOne(db, key: id), [.humanReview, .inPR].contains(task.state) else { throw CoreError.invalid("The task is no longer available for review feedback.") }
-            task.state = .building; task.retry = nil; task.updatedAt = Date()
+            task.state = .building; task.retry = nil; task.updatedAt = Date(); task.requirementsRevision += 1
             try task.save(db)
             try db.execute(sql: "UPDATE proof SET complete = 0 WHERE taskId = ?", arguments: [id])
             try message.insert(db)
@@ -384,7 +385,7 @@ actor Orchestrator {
         await stopPreview(id)
         let head = try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)
         let clean = try await runner.run("git", ["status", "--porcelain"], cwd: cwd).output.isEmpty
-        guard clean, proof.commitSHA == head else { throw CoreError.invalid("The worktree changed since proof was recorded. Ask the agent in chat for fresh proof before opening a pull request.") }
+        guard clean, proof.commitSHA == head, proof.requirementsRevision == task.requirementsRevision else { throw CoreError.invalid("The worktree or requirements changed since proof was recorded. Ask the agent in chat for fresh proof before opening a pull request.") }
         let project = try store.get(Project.self, task.projectId)
         guard project.host != .local else { throw CoreError.invalid("This project is local. Publishing and pull requests require a hosting service.") }
         var base = project.defaultBranch
@@ -395,7 +396,7 @@ actor Orchestrator {
                 base = branch
             }
         }
-        let pr = try await GitHub(runner: runner, root: store.root).open(task: task, project: project, summary: proof.summary, base: base)
+        let pr = try await GitHub(runner: runner, root: store.root).open(task: task, project: project, summary: proof.summary, base: base, commitSHA: head)
         clearBackgroundIssue("pr-\(id)")
         var current = try store.get(WorkTask.self, id)
         current.pr = pr; try store.save(current)

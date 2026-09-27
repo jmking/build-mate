@@ -125,3 +125,7 @@ Each message starts one read-only turn in `worktrees/<project-id>/project-chat`,
 Project responses share the configured agent-slot limit, honour project/global pause, and stop on quit. The composer offers Stop during a response; additional messages wait until it finishes. Failures and interrupted responses expose Retry using the same thread; no automatic replay of task-creation actions. Accepting a proposal is transactional and idempotent. A repeated identical proposal for the same user message reuses the saved proposal. Stale/dismissed proposals and selections missing dependencies are rejected.
 
 Task description formatting (2026-09-27): project-agent developer instructions and each turn’s current context request readable Markdown for propose_tasks/create_tasks/refine_task descriptions. Supplying the rule every turn also covers pre-existing threads whose developer instructions cannot be relied upon to update. Store descriptions verbatim; rendering does not mutate task scope.
+
+### Publication correctness follow-up — 2026-09-27
+
+GitHub publication pushes `<verified SHA>:refs/heads/<task branch>` rather than a mutable branch name; ordinary non-fast-forward protection remains enabled. An external edit after validation can remain local but cannot silently enter the published PR. Existing PR updates set title and body together. Worktree preparation fetches the host default branch before choosing a base, without updating the user's local branch.

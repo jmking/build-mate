@@ -49,6 +49,7 @@ struct ProofRunner: Sendable {
         proof.files = 0; proof.additions = 0; proof.deletions = 0
         proof.summary = submission.summary; proof.checks = []; proof.screenshots = []; proof.recordingPath = nil; proof.recordingDuration = nil
         proof.rationale = submission.rationale
+        proof.requirementsRevision = task.requirementsRevision
         proof.recordingRequired = task.proofRequirement == .checksAndRecording || (task.proofRequirement == .automatic && submission.needsRecording)
         var checks: [CheckDefinition] = []
         for check in project.settings.checks + submission.checks {
@@ -125,7 +126,7 @@ struct ProofRunner: Sendable {
                 proof.checks.append(CheckResult(name: "Before and after screenshots", status: "failed", durationSec: Date().timeIntervalSince(started), logPath: log.path))
             }
         }
-        var base = project.defaultBranch
+        var base = task.baseCommitSHA ?? project.defaultBranch
         if let id = task.stackOn, let parent = try? store.get(WorkTask.self, id), parent.state != .done, let branch = parent.branchName { base = branch }
         let diff = try await runner.run("git", ["diff", "--numstat", "-z", "--no-renames", "\(base)...HEAD", "--"], cwd: cwd)
         proof.changes = []

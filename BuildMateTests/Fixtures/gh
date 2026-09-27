@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import json,os,pathlib,sys
+import json,os,pathlib,sys,subprocess
 root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);a=sys.argv[1:]
 with (root/'gh-calls.jsonl').open('a') as f:f.write(json.dumps(a)+'\n')
 if (root/'missing-gh').exists():sys.exit(127)
@@ -7,7 +7,10 @@ pr={'number':42,'url':'https://github.com/fixture/repo/pull/42','baseRefName':'m
 if a[:2]==['auth','status']:
  sys.exit(1 if (root/'signed-out').exists() else 0)
 elif a[:2]==['repo','view']:print(json.dumps({'nameWithOwner':'fixture/repo','defaultBranchRef':{'name':'main'}}))
-elif a[:2]==['pr','list']:print(json.dumps([pr] if (root/'pr-created').exists() else []))
+elif a[:2]==['pr','list']:
+ if (root/'move-head-during-publish').exists():
+  subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-m','Concurrent editor change'],check=True,stdout=subprocess.DEVNULL)
+ print(json.dumps([pr] if (root/'pr-created').exists() else []))
 elif a[:2]==['pr','create']:
  body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
  assert body==('- Adds the requested feature.\n- Preserves **existing behavior**.' if (root/'json-pr-summary').exists() else 'Adds the requested feature.')

@@ -6,7 +6,7 @@ struct GitHub: Sendable {
     let runner: ProcessRunner
     let root: URL
 
-    func open(task: WorkTask, project: Project, summary: String, base: String) async throws -> PullRequest {
+    func open(task: WorkTask, project: Project, summary: String, base: String, commitSHA: String) async throws -> PullRequest {
         guard project.host == .github else { throw CoreError.invalid("Set up twg; Bitbucket provider awaits its authenticated spike") }
         guard let branch = task.branchName, let cwd = task.worktreePath else { throw CoreError.invalid("Missing branch") }
         var existingPR: PullRequest?
@@ -21,12 +21,13 @@ struct GitHub: Sendable {
             }
         }
         let body = try Self.changeDescription(summary)
-        _ = try await runner.run("git", ["push", "-u", "origin", branch], cwd: cwd)
+        // Publish exactly the reviewed object, even if an editor moves the branch during publication.
+        _ = try await runner.run("git", ["push", "origin", "\(commitSHA):refs/heads/\(branch)"], cwd: cwd)
         let file = root.appending(path: "projects/\(project.id)/pr-\(task.id).md")
         try body.write(to: file, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: file) }
         if let existingPR {
-            _ = try await runner.run("gh", ["pr", "edit", String(existingPR.number), "--repo", project.remoteSlug, "--body-file", file.path], cwd: cwd)
+            _ = try await runner.run("gh", ["pr", "edit", String(existingPR.number), "--repo", project.remoteSlug, "--title", task.title, "--body-file", file.path], cwd: cwd)
             return existingPR
         }
         let result = try await runner.run("gh", ["pr", "create", "--repo", project.remoteSlug, "--base", base, "--head", branch, "--title", task.title, "--body-file", file.path], cwd: cwd)

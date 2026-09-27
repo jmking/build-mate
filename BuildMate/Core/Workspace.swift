@@ -4,6 +4,17 @@ struct Workspace: Sendable {
     let store: Store
     let runner: ProcessRunner
 
+    /// Fetch the actual host branch without touching the user's checked-out files or local branch.
+    func baseRevision(_ project: Project) async throws -> String {
+        let ref: String
+        if project.host == .local { ref = "refs/heads/\(project.defaultBranch)" }
+        else {
+            ref = "refs/remotes/origin/\(project.defaultBranch)"
+            _ = try await runner.run("git", ["fetch", "--no-tags", "origin", "+refs/heads/\(project.defaultBranch):\(ref)"], cwd: project.repoPath)
+        }
+        return try await runner.run("git", ["rev-parse", "--verify", "\(ref)^{commit}"], cwd: project.repoPath).output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func prepare(_ original: WorkTask, project: Project) async throws -> WorkTask {
         var task = original
         if task.worktreePath == nil {
@@ -16,12 +27,16 @@ struct Workspace: Sendable {
         try ensureOwned(path)
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: path) {
-            var base = project.defaultBranch
+            var base = try await baseRevision(project)
             if let baseId = task.stackOn {
                 let parent = try store.get(WorkTask.self, baseId)
                 if parent.state != .done { base = parent.branchName ?? base }
             }
             let exists = try await runner.run("git", ["show-ref", "--verify", "--quiet", "refs/heads/\(task.branchName!)"], cwd: project.repoPath, allowFailure: true)
+            if exists.status != 0 {
+                task.baseCommitSHA = try await runner.run("git", ["rev-parse", "--verify", "\(base)^{commit}"], cwd: project.repoPath).output.trimmingCharacters(in: .whitespacesAndNewlines)
+                try store.save(task)
+            }
             let arguments = exists.status == 0 ? ["worktree", "add", path, task.branchName!] : ["worktree", "add", "-b", task.branchName!, path, base]
             _ = try await runner.run("git", arguments, cwd: project.repoPath)
         }

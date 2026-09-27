@@ -125,6 +125,8 @@ struct WorkTask: Record {
     var branchName: String?
     var worktreePath: String?
     var workspaceReady = false
+    var baseCommitSHA: String?
+    var requirementsRevision = 1
     var pr: PullRequest?
     var retry: Retry?
     var createdAt = Date()
@@ -260,6 +262,7 @@ struct Proof: Record {
     var complete = false
     var producedAt = Date()
     var commitSHA: String?
+    var requirementsRevision = 1
     var changes: [ChangedFile] = []
 
     /// Older agents sometimes put a JSON report inside the human-facing summary.

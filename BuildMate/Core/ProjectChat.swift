@@ -56,7 +56,7 @@ extension Orchestrator {
         let workspace = Workspace(store: store, runner: runner)
         try workspace.ensureOwned(path)
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
-        let revision = try await runner.run("git", ["rev-parse", "--verify", "refs/heads/\(project.defaultBranch)^{commit}"], cwd: project.repoPath).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let revision = try await workspace.baseRevision(project)
         if !FileManager.default.fileExists(atPath: path) {
             _ = try await runner.run("git", ["worktree", "add", "--detach", path, revision], cwd: project.repoPath)
         } else {

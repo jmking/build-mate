@@ -228,3 +228,9 @@ Remove local messages, session, task-owned attachments/media/logs/proof, model p
 Inspector visibility, board/list preference, project expansion and brief disclosures persist in `view-preferences.json` under the app data root. Unsent task/project chat drafts survive navigation in memory; task search is held independently per project and Needs You. No task query silently filters another collection.
 
 Background errors carry their task/project scope; only global errors appear globally. Errors clear after the relevant recovery succeeds, and dismissing an unchanged diagnostic suppresses it until it changes or a successful recovery resets it. Cleanup failure does not imply coding has failed. Project settings validation, PR polling, worktree cleanup and after-run hooks are handled separately.
+
+## Workflow audit foundation — 2026-09-27
+
+New hosted worktrees and the read-only project checkout resolve a freshly fetched `origin/<defaultBranch>` commit. Fetch failure is surfaced; the app does not silently build from a stale local default branch. Local-only projects continue to use their local branch. Each new task records its base commit for evidence/diff scope. Fetching changes remote-tracking Git metadata, never the user's checked-out files or local default branch.
+
+Requirements carry a monotonically increasing revision. Brief/proof-preference edits and review feedback invalidate prior proof; proof records the revision it tested. Publication requires a clean worktree and matching proof commit and requirement revision. The push uses the verified commit object as its source, so an editor moving the branch after validation cannot publish unreviewed work. Updating an existing PR refreshes both its title and its change-only Markdown body. Every fresh human-review cycle has a distinct attention identity, even when the saved proof row is reused.

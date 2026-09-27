@@ -4,6 +4,40 @@ import Testing
 
 @Suite(.serialized)
 struct CoreTests {
+    // Prevent stale dependency bases and publishing an unreviewed branch tip during an editor race.
+    @Test func newWorkUsesRemoteBaseAndPublicationPinsReviewedCommitAndRequirements() async throws {
+        let f = try await Fixture()
+        let other = f.root.appending(path: "other-clone")
+        _ = try await f.runner.run("git", ["clone", f.remote.path, other.path])
+        try "merged dependency".write(to: other.appending(path: "dependency.txt"), atomically: true, encoding: .utf8)
+        _ = try await f.runner.run("git", ["add", "."], cwd: other.path)
+        _ = try await f.runner.run("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "Dependency merged"], cwd: other.path)
+        _ = try await f.runner.run("git", ["push", "origin", "main"], cwd: other.path)
+        let original = try f.store.createTask(projectId: f.project.id, title: "Next change")
+        let task = try await Workspace(store: f.store, runner: f.runner).prepare(original, project: f.project)
+        let cwd = try #require(task.worktreePath)
+        #expect(FileManager.default.fileExists(atPath: cwd + "/dependency.txt"))
+        #expect(!FileManager.default.fileExists(atPath: f.repo.path + "/dependency.txt"))
+        try "feature".write(to: URL(fileURLWithPath: cwd).appending(path: "feature.txt"), atomically: true, encoding: .utf8)
+        _ = try await f.runner.run("git", ["add", "."], cwd: cwd)
+        _ = try await f.runner.run("git", ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "Feature"], cwd: cwd)
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        try await core.transition(task.id, to: .building)
+        let submission = try ProofSubmission(.object(["summary": .string("Adds the requested feature."), "needsRecording": .bool(false), "rationale": .string("Verify the feature and merged dependency"), "checks": .array([.object(["name": .string("Dependency available"), "command": .string("test -f dependency.txt")])])]))
+        var proof = try await ProofRunner(store: f.store, runner: f.runner).run(task: task, project: f.project, submission: submission)
+        #expect(proof.complete && proof.changes.map(\.path) == ["feature.txt"])
+        try await core.transition(task.id, to: .humanReview)
+        proof.requirementsRevision = 0; try f.store.save(proof)
+        do { try await core.openPullRequest(task.id); Issue.record("Published superseded requirements") } catch {}
+        proof.requirementsRevision = task.requirementsRevision; try f.store.save(proof)
+        try f.marker("move-head-during-publish")
+        try await core.openPullRequest(task.id)
+        let published = try await f.runner.run("git", ["--git-dir", f.remote.path, "rev-parse", "refs/heads/" + task.branchName!]).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = try await f.runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(published == proof.commitSHA && current != published)
+        await core.shutdown()
+        try f.cleanup()
+    }
     struct Fixture {
         let root: URL
         let repo: URL

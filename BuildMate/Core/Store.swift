@@ -100,6 +100,11 @@ final class Store: Sendable {
         migrator.registerMigration("v10-agent-delivery") { db in
             try db.execute(sql: "CREATE TABLE agentDelivery (id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE, threadId TEXT NOT NULL, context TEXT NOT NULL, deliveredIDs TEXT NOT NULL)")
         }
+        migrator.registerMigration("v11-requirement-revisions") { db in
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN baseCommitSHA TEXT")
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN requirementsRevision INTEGER NOT NULL DEFAULT 1")
+            try db.execute(sql: "ALTER TABLE proof ADD COLUMN requirementsRevision INTEGER NOT NULL DEFAULT 1")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
