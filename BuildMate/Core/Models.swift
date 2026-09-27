@@ -207,6 +207,34 @@ struct Proof: Record {
     var producedAt = Date()
     var commitSHA: String?
     var changes: [ChangedFile] = []
+
+    /// Older agents sometimes put a JSON report inside the human-facing summary.
+    /// Format it for review without rewriting saved evidence or dropping unknown fields.
+    var reviewSummary: String {
+        guard let value = try? JSONDecoder().decode(JSON.self, from: Data(summary.utf8)) else { return summary }
+        switch value {
+        case .object, .array: return Self.formatReviewReport(value)
+        default: return summary
+        }
+    }
+
+    private static func formatReviewReport(_ value: JSON, level: Int = 3) -> String {
+        switch value {
+        case .object(let fields):
+            return fields.keys.sorted().map { key in
+                let title = key.replacingOccurrences(of: "_", with: " ")
+                let heading = title.prefix(1).uppercased() + title.dropFirst()
+                return String(repeating: "#", count: min(level, 6)) + " " + heading + "\n\n"
+                    + formatReviewReport(fields[key]!, level: level + 1)
+            }.joined(separator: "\n\n")
+        case .array(let items):
+            return items.map { "- " + formatReviewReport($0, level: level).replacingOccurrences(of: "\n", with: "\n  ") }
+                .joined(separator: "\n")
+        case .string(let text): return text
+        case .null: return "Not provided"
+        default: return value.text
+        }
+    }
 }
 struct ChangedFile: Codable, Sendable, Identifiable {
     var path: String

@@ -125,7 +125,7 @@ struct ReviewEvidence: View {
                 Label("Fresh proof required", systemImage: "exclamationmark.circle").foregroundStyle(.secondary)
                 Text("Ask the agent in chat for fresh proof before opening a pull request.").font(.caption).foregroundStyle(.secondary)
             }
-            Text(proof.summary).textSelection(.enabled)
+            MarkdownBrief(proof.reviewSummary)
             if let rationale = proof.rationale { Text(rationale).font(.caption).foregroundStyle(.secondary) }
             ForEach(Array(proof.checks.enumerated()), id: \.offset) { _, check in
                 Button { model.reviewSheet = .log(check.logPath) } label: {
@@ -276,7 +276,7 @@ struct LifecycleSheet: View {
             ScrollView { Text(log.isEmpty ? "No output was recorded." : log).font(.body.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(height: 330)
         case .changes(let id):
             if let proof = model.snapshot.proofs.first(where: { $0.taskId == id }) {
-                Text(proof.summary).textSelection(.enabled)
+                MarkdownBrief(proof.reviewSummary)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(proof.changes) { file in

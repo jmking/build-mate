@@ -296,6 +296,16 @@ struct CoreTests {
             let proof = try #require(f.store.all(Proof.self).first)
             #expect(proof.complete && proof.checks.count == (visual && requirement != .checksOnly ? 2 : 1) && proof.checks.allSatisfy { $0.status == "passed" })
             #expect(proof.rationale != nil)
+            // Old summary-only threads can nest a JSON summary inside the report: render all evidence readably.
+            if !visual {
+                #expect(proof.reviewSummary.contains("### Changes\n\nAdds the requested feature."))
+                #expect(proof.reviewSummary.contains("#### Limitations\n\nNo live interaction test."))
+                #expect(proof.reviewSummary.contains("- abc123"))
+                #expect(proof.reviewSummary.contains("### Extra detail\n\nPreserve this unknown field."))
+                #expect(proof.summary.hasPrefix("{")) // Reading old evidence must not rewrite it.
+            } else {
+                #expect(proof.reviewSummary == "Adds the requested feature.")
+            }
             #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "forbidden-write").path))
             let recording = visual && requirement != .checksOnly
             #expect(proof.recordingRequired == recording)
