@@ -218,7 +218,7 @@ private struct ProjectProposalCard: View {
                         Toggle(item.title, isOn: Binding(get: { !excluded.contains(index) }, set: { if $0 { excluded.remove(index) } else { excluded.insert(index) } }))
                             .toggleStyle(.checkbox).fontWeight(.medium).disabled(proposal.status != "open" || saving)
                             .help("Include \(item.title) when creating tasks")
-                        Text(item.description).font(.callout).foregroundStyle(.secondary).padding(.leading, 20)
+                        MarkdownBrief(item.description).padding(.leading, 20)
                         ForEach(item.dependsOnIndex, id: \.self) { dependency in
                             if proposal.tasks.indices.contains(dependency) { Label("After \(proposal.tasks[dependency].title)", systemImage: "link").font(.caption).foregroundStyle(.secondary).padding(.leading, 20) }
                         }

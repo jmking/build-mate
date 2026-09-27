@@ -39,7 +39,7 @@ struct TaskDetailView: View {
                             .accessibilityLabel("Edit task").accessibilityIdentifier("edit-task")
                     }
                     MessageAttachments(messageID: task.id, ownerType: "task")
-                    Text(task.description.isEmpty ? "No additional description." : task.description).textSelection(.enabled).font(.system(size: 14)).lineSpacing(5)
+                    MarkdownBrief(task.description.isEmpty ? "No additional description." : task.description)
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
                 ForEach(messages) { item in
                     if let question = questions.first(where: { $0.messageId == item.id }) { TaskQuestion(question: question) }
@@ -119,7 +119,7 @@ struct TaskDetailView: View {
                     RoadToMerge(task: task)
                     Divider()
                     Text("Brief").font(.headline)
-                    Text(task.description.isEmpty ? task.title : task.description).foregroundStyle(.secondary)
+                    MarkdownBrief(task.description.isEmpty ? task.title : task.description)
                     LabeledContent("Proof", value: task.proofRequirement.title)
                     if let path = task.worktreePath {
                         Divider()

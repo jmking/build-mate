@@ -35,6 +35,8 @@ struct ProjectChatTests {
         #expect(try f.store.all(WorkTask.self).count == 3)
         #expect(tasks.allSatisfy { $0.state == .backlog && $0.worktreePath == nil && $0.origin == "chat" })
         #expect(tasks[1].dependsOn == [tasks[0].id])
+        #expect(tasks[0].description == proposal.tasks[0].description) // Markdown structure survives proposal acceptance.
+        #expect(tasks[0].description.contains("\n\n## Scope\n\n-"))
         #expect(try f.store.all(Attachment.self).filter { $0.ownerType == "task" }.count == 6)
         #expect(try String(contentsOf: f.control.appending(path: "image-inputs.jsonl"), encoding: .utf8).contains("turn/start"))
         let invalid = f.root.appending(path: "broken.png")

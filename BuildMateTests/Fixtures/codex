@@ -22,7 +22,7 @@ def project_reply(text):
  event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':turn+'-reply','type':'agentMessage','text':text}})
  complete()
 def project_tasks():
- return [{'title':'Add account search','description':'Search accounts by name with empty-state checks.','dependsOnIndex':[]},
+ return [{'title':'Add account search','description':'Search accounts by name.\n\n## Scope\n\n- Match account names.\n- Preserve empty states.\n\n## Acceptance criteria\n\n1. Verify matching results.\n2. Verify no matches.','dependsOnIndex':[]},
          {'title':'Show matching accounts','description':'Show results from account search.','dependsOnIndex':[0]},
          {'title':'Document account search','description':'Explain account search to users.','dependsOnIndex':[]}]
 def review():
@@ -98,6 +98,7 @@ for line in sys.stdin:
    text=p['input'][0]['text'];latest=text.split('user:')[-1].strip()
    if (root/'chat-crash-once').exists():
     (root/'chat-crash-once').unlink();sys.exit(7)
+   assert 'Task brief formatting: Write task descriptions as readable Markdown' in text
    if (root/'chat-stall').exists():continue
    if latest.startswith('Ask a question'):
     call('ask_question',{'prompt':'Which accounts?','options':['Active','All'],'allowsFreeText':True})
@@ -105,7 +106,7 @@ for line in sys.stdin:
     proposals=json.loads(text.split('Open proposals (zero-based dependency/selection indices): ')[1].split('\nConversation')[0])
     call('create_tasks',{'proposalId':proposals[-1]['id'],'queueIndexes':[0,1]})
    elif latest.startswith('Refine task '):
-    call('refine_task',{'taskId':latest.split()[2],'description':'Search active accounts by name; preserve clear empty-state messaging.'})
+    call('refine_task',{'taskId':latest.split()[2],'description':'Search active accounts by name.\n\n## Scope\n\n- Preserve clear empty-state messaging.'})
    elif latest.startswith('Status'):
     call('project_status',{})
    else:call('propose_tasks',{'tasks':project_tasks()})

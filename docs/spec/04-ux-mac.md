@@ -241,3 +241,9 @@ Task and project chat toolbars show the selected model and effort. The native po
 Every task state, including active work, has Delete Task in the task toolbar, card/list context menu and Task menu (⌘Delete). A destructive confirmation names the task and explains removal of its conversation, attachments, proof and worktree, including uncommitted changes. Existing Git branches and hosted pull requests remain. Dependent tasks are paused for review. On success the open task returns to its project’s board (or Backlog), and navigation history drops the deleted task. Cancel closes the confirmation without modifying anything.
 
 Task composer refinement (2026-09-27): omit the active-turn delivery caption and routine successful-send confirmation. The sent message in the transcript provides confirmation. Keep actionable question, review-feedback and saved-for-later guidance when applicable.
+
+### Readable task briefs (2026-09-27)
+
+Render Markdown in the task brief, Brief inspector and proposed-task descriptions using Foundation’s Markdown parser with native SwiftUI block layout. Paragraphs have spacing; headings have hierarchy; bullet and numbered lists have hanging indents, including nested lists; inline emphasis/links and fenced code are retained. Use primary text for readable contrast. Editing continues to expose the original Markdown source. Existing plain-text descriptions are preserved, not automatically rewritten or sent to a model.
+
+The project agent receives brief-formatting guidance on every turn, including resumed conversations: short goal paragraph, headings and bullets for substantial requirements, ordered lists for actual sequences, and blank lines between blocks. Keep simple tasks short and preserve scope/technical constraints when refining.
