@@ -177,7 +177,7 @@ struct BuildMateApp: App {
                 .help("Build Mate agents and Needs You")
         }.menuBarExtraStyle(.window)
         Settings {
-            if let model { SettingsView().environment(model) }
+            if let model { SettingsView().environment(model).preferredColorScheme(developmentAppearance) }
         }
         WindowGroup("Proof Recording", id: "recording", for: String.self) { $path in
             if let path { RecordingPlayer(path: path).frame(minWidth: 640, minHeight: 360) }

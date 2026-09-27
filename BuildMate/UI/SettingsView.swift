@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var projectID: UUID?
+    @State private var advancedExpanded = false
+    @State private var diagnosticsExpanded = false
     var body: some View {
         @Bindable var model = model
         TabView(selection: $model.settingsTab) {
@@ -24,16 +26,17 @@ struct SettingsView: View {
                             }.help("Default editor for this project")
                             Toggle("Ask me before starting to build", isOn: projectSetting(\.askBeforeBuild, fallback: false))
                                 .help("Require plan approval unless a task overrides this preference")
-                            DisclosureGroup("Advanced") {
+                            DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
                                 TextField("Branch prefix", text: projectSetting(\.branchPrefix, fallback: "")).help("Prefix for newly created task branches")
                                 Toggle("Allow agent network access", isOn: projectSetting(\.network, fallback: true)).help("Allow network access from task agents; project chat remains read-only without network access")
-                                DisclosureGroup("Diagnostics") {
+                                DisclosureGroup("Diagnostics", isExpanded: $diagnosticsExpanded) {
                                     duration("Turn timeout", \.turnTimeoutMs, fallback: 3_600_000, unit: "minutes", scale: 60_000)
                                     duration("Stall timeout", \.stallTimeoutMs, fallback: 300_000, unit: "minutes", scale: 60_000, allowsZero: true)
                                     duration("Response timeout", \.readTimeoutMs, fallback: 5_000, unit: "seconds", scale: 1_000)
                                     duration("Maximum retry delay", \.retryBackoffMaxMs, fallback: 300_000, unit: "minutes", scale: 60_000)
-                                }.help("Adjust timeouts only when diagnosing agent connection or execution problems")
-                            }
+                                }.disclosureGroupStyle(SettingsDisclosureStyle())
+                                    .help("Adjust timeouts only when diagnosing agent connection or execution problems")
+                            }.disclosureGroupStyle(SettingsDisclosureStyle())
                         }
                     }
                 }
@@ -88,6 +91,32 @@ struct SettingsView: View {
         } : nil) {
             Text("\(title): \(value.wrappedValue, format: .number.precision(.fractionLength(0...2))) \(unit)")
         }.help(allowsZero ? "Time without an agent update before recovery; zero disables this timeout" : "\(title) in \(unit)")
+    }
+}
+
+/// The whole row is a keyboard-accessible button, not just the small disclosure arrow.
+private struct SettingsDisclosureStyle: DisclosureGroupStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                    configuration.isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0)).foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    configuration.label
+                    Spacer(minLength: 0)
+                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+                .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+                .help(configuration.isExpanded ? "Hide these settings" : "Show these settings")
+            if configuration.isExpanded { configuration.content.padding(.leading, 20) }
+        }
     }
 }
 
