@@ -166,6 +166,10 @@ struct BuildMateApp: App {
         WindowGroup("Proof Recording", id: "recording", for: String.self) { $path in
             if let path { RecordingPlayer(path: path).frame(minWidth: 640, minHeight: 360) }
         }.defaultSize(width: 960, height: 540)
+        WindowGroup("Screenshot", id: "screenshot", for: String.self) { $path in
+            if let path { ScreenshotViewer(path: path) }
+        }.defaultSize(width: 1100, height: 760)
+            .restorationBehavior(.disabled)
     }
     private var developmentAppearance: ColorScheme? {
         switch ProcessInfo.processInfo.environment["BUILD_MATE_APPEARANCE"] {

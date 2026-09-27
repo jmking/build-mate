@@ -237,3 +237,7 @@ Project chat receives current workflow instructions every turn. Old durable tool
 Validation: extend the existing shell/project-chat lifecycle scenarios for queue-only creation, old tool arguments, dependencies and pause controls; add one migration regression covering priority order, pause, content, attachments, conversation and a second open. The migration uses UUID database values because GRDB persists task/project IDs as blobs despite SQLite's TEXT column declaration.
 
 The optional native UI scenario now uses the single Add to queue action and Tasks ⌘3. Offscreen SwiftUI captures show the simplified action layout, but native editor/material rendering is incomplete in that renderer; this is not a full light/dark interaction or spoken VoiceOver sign-off. The previously recorded native automation-host limitation remains.
+
+## Screenshot review controls — 2026-09-27
+
+The screenshot sheet now offers Open in Preview and native full-screen expansion. SwiftUI owns the separate screenshot window; a small AppKit view requests full screen when that window becomes key and closes it when full screen ends. Native transitions, Preview launching, keyboard interaction and spoken VoiceOver still need manual verification because the UI automation/access limitation above remains. Build and the existing process-boundary regression suite are the automated checks for this change.

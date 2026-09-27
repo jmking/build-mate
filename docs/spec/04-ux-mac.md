@@ -102,6 +102,7 @@ Whenever a worktree path is present, show small Terminal and Finder icon buttons
 
 ### 9c. Human review — `mac-09-task-human-review`
 - Display the task status as **Awaiting human review** in state labels, headings and transition events. The Status checklist retains **Human review** as the name of its review stage, including after completion.
+- Proof screenshot sheets include **Open in Preview** (⌘O) and an icon-only **View Full Screen** (⌃⌘F) with tooltips and accessible names. Full screen opens a dedicated native window, fitting the entire image without cropping, with Open in Preview and Close available in its toolbar. Escape/Close or leaving full screen returns to the task; it never makes the main app window full screen. Missing images show an unavailable state. Preview is opened explicitly by its bundle identifier, regardless of the user's default image app.
 - Inspector: Status (Human review = current), **Recording** (plays inline; click for a larger player window), **Try it yourself**: **Run locally** (primary, starts the preview and opens the browser), **Open in <editor>**, **Terminal**; **Changes** row (files · +/−; opens a changes sheet with the per-file list and "Open in <editor>"). Review feedback is sent through the chat composer and automatically returns the task to Building with fresh proof required. Footer: **Open Pull Request** (primary, with the host mark).
 
 ### 9d. In PR — `mac-10-task-in-pr`

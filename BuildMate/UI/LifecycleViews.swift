@@ -213,6 +213,7 @@ struct PreviewControls: View {
 struct LifecycleSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     let sheet: ReviewSheet
     @State private var command = ""
     @State private var portVariable = "PORT"
@@ -222,7 +223,20 @@ struct LifecycleSheet: View {
     @State private var saving = false
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(title).font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            HStack {
+                Text(title).font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                Spacer()
+                if case .image(let path) = sheet {
+                    OpenScreenshotInPreview(path: path)
+                    Button("View Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") {
+                        dismiss()
+                        openWindow(id: "screenshot", value: path)
+                    }.labelStyle(.iconOnly).help("View the entire screenshot full screen (⌃⌘F)")
+                        .keyboardShortcut("f", modifiers: [.control, .command])
+                        .accessibilityIdentifier("expand-screenshot")
+                        .disabled(NSImage(contentsOfFile: path) == nil)
+                }
+            }
             content
             if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             HStack {
@@ -319,5 +333,77 @@ struct LifecycleSheet: View {
                 await model.refresh(); dismiss()
             } catch { failure = error.localizedDescription }
         }
+    }
+}
+
+private struct OpenScreenshotInPreview: View {
+    let path: String
+    @State private var failure: String?
+    var body: some View {
+        Button("Open in Preview", systemImage: "arrow.up.forward.app") {
+            Task {
+                do {
+                    guard FileManager.default.fileExists(atPath: path) else { throw CoreError.invalid("This screenshot is no longer available.") }
+                    guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") else {
+                        throw CoreError.invalid("Preview is not available on this Mac.")
+                    }
+                    _ = try await NSWorkspace.shared.open([URL(fileURLWithPath: path)], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+                } catch { failure = error.localizedDescription }
+            }
+        }.help("Open this screenshot in the macOS Preview app (⌘O)")
+            .keyboardShortcut("o").accessibilityIdentifier("open-screenshot-in-preview")
+            .disabled(!FileManager.default.fileExists(atPath: path))
+            .alert("Unable to open screenshot", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+                Button("OK", role: .cancel) { failure = nil }.help("Dismiss this error")
+            } message: { Text(failure ?? "") }
+    }
+}
+
+struct ScreenshotViewer: View {
+    @Environment(\.dismiss) private var dismiss
+    let path: String
+    var body: some View {
+        Group {
+            if let image = NSImage(contentsOfFile: path) {
+                Image(nsImage: image).resizable().scaledToFit().padding(16)
+                    .accessibilityLabel("Proof screenshot: \(URL(fileURLWithPath: path).lastPathComponent)")
+            } else {
+                ContentUnavailableView("Screenshot unavailable", systemImage: "photo", description: Text("This screenshot is no longer available."))
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 640, minHeight: 400)
+            .background(AppSurface.window)
+            .background(ScreenshotFullScreenWindow())
+            .toolbar {
+                OpenScreenshotInPreview(path: path)
+                Button("Close", systemImage: "xmark") { dismiss() }
+                    .help("Close the full-screen screenshot (Esc)").keyboardShortcut(.cancelAction)
+            }
+            .windowToolbarFullScreenVisibility(.visible)
+    }
+}
+
+/// SwiftUI can allow full screen but cannot request entry for this new window.
+private struct ScreenshotFullScreenWindow: NSViewRepresentable {
+    func makeNSView(context: Context) -> WindowObserver { WindowObserver() }
+    func updateNSView(_ view: WindowObserver, context: Context) {}
+
+    final class WindowObserver: NSView {
+        private var entered = false
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            NotificationCenter.default.removeObserver(self)
+            guard let window else { return }
+            NotificationCenter.default.addObserver(self, selector: #selector(enterFullScreen), name: NSWindow.didBecomeKeyNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(closeViewer), name: NSWindow.didExitFullScreenNotification, object: window)
+            if window.isKeyWindow { enterFullScreen() }
+        }
+        @objc private func enterFullScreen() {
+            guard !entered, let window else { return }
+            entered = true
+            window.collectionBehavior.insert(.fullScreenPrimary)
+            if !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        }
+        @objc private func closeViewer() { window?.close() }
     }
 }
