@@ -49,6 +49,32 @@ struct Workspace: Sendable {
         let arguments = ["worktree", "remove"] + (discardChanges ? ["--force"] : []) + [path]
         _ = try await runner.run("git", arguments, cwd: project.repoPath)
     }
+
+    func agentWritableRoots(_ task: WorkTask, project: Project) async throws -> [String] {
+        guard let path = task.worktreePath, let branch = task.branchName else {
+            throw CoreError.invalid("Task worktree is unavailable")
+        }
+        try ensureOwned(path)
+        let ref = "refs/heads/" + branch
+        let head = try await runner.run("git", ["symbolic-ref", "--quiet", "HEAD"], cwd: path)
+        guard head.output.trimmingCharacters(in: .whitespacesAndNewlines) == ref else {
+            throw CoreError.invalid("Worktree branch changed; review before resuming")
+        }
+        let metadata = try await runner.run("git", ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir",
+            "--git-path", "objects", "--git-path", ref, "--git-path", "logs/" + ref], cwd: path)
+        let paths = metadata.output.split(separator: "\n").map { URL(fileURLWithPath: String($0)).resolvingSymlinksInPath().path }
+        let repository = try await runner.run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd: project.repoPath)
+        let common = URL(fileURLWithPath: repository.output.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
+        guard paths.count == 5, paths[1] == common, paths[0].hasPrefix(common + "/worktrees/"),
+              paths.dropFirst(2).allSatisfy({ $0.hasPrefix(common + "/") }) else {
+            throw CoreError.invalid("Task Git metadata does not belong to this project")
+        }
+        // Linked worktree metadata lives outside cwd. Grant only its private index/HEAD,
+        // shared objects, and this branch's ref/reflog (including atomic-write locks).
+        // The clone's files, Git config/hooks, and other branch refs stay read-only.
+        return [path, paths[0], paths[2], paths[3], paths[3] + ".lock", paths[4], paths[4] + ".lock"]
+    }
+
     func ensureOwned(_ path: String) throws {
         let root = store.root.resolvingSymlinksInPath()
         let supplied = URL(fileURLWithPath: path).standardizedFileURL.path

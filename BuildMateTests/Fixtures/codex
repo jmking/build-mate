@@ -3,7 +3,7 @@
 import json, os, pathlib, subprocess, sys, time
 root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);root.mkdir(exist_ok=True)
 log=root/'calls.jsonl'
-thread='';cwd='';turn='';pending={};count=0;title_mode=False;project_mode=False
+thread='';cwd='';turn='';pending={};count=0;title_mode=False;project_mode=False;sandbox=[];git="git"
 
 def emit(value):print(json.dumps(value),flush=True)
 def event(method,params):emit({'method':method,'params':params})
@@ -39,8 +39,16 @@ def review():
  call('request_review',report)
 def build():
  pathlib.Path(cwd,'feature.txt').write_text('implemented\n')
- subprocess.run(['git','-C',cwd,'add','feature.txt'],check=True,stdout=subprocess.DEVNULL)
- subprocess.run(['git','-C',cwd,'-c','user.name=Fake Agent','-c','user.email=fake@example.invalid','commit','-m','Implement feature'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ subprocess.run(sandbox+[git,'-C',cwd,'add','feature.txt'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ # No changes is valid on a resumed review; any dirty state must still be committed.
+ if subprocess.check_output(['git','-C',cwd,'status','--porcelain']):
+  subprocess.run(sandbox+[git,'-C',cwd,'-c','user.name=Fake Agent','-c','user.email=fake@example.invalid','-c','maintenance.auto=false','commit','-m','Implement feature'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ if sandbox:
+  common=pathlib.Path(subprocess.check_output(['git','-C',cwd,'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
+  for forbidden in [common/'config', common/'hooks/forbidden', common.parent/'README.md']:
+   result=subprocess.run(sandbox+['/usr/bin/touch',str(forbidden)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+   assert result.returncode!=0, 'Agent can write outside its task: '+str(forbidden)
+  assert subprocess.run(sandbox+[git,'-C',cwd,'update-ref','refs/heads/main','HEAD'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode!=0
  review()
 
 for line in sys.stdin:
@@ -112,6 +120,12 @@ for line in sys.stdin:
    else:call('propose_tasks',{'tasks':project_tasks()})
    continue
   assert p['sandboxPolicy']['excludeSlashTmp'] and p['sandboxPolicy']['excludeTmpdirEnvVar']
+  if (root/'sandbox-git').exists():
+   # Exercise the supplied roots with real Git and Seatbelt, without calling real Codex.
+   roots=[str(pathlib.Path(value).resolve()) for value in p['sandboxPolicy']['writableRoots']]
+   profile='(version 1)(allow default)(deny file-write*)(allow file-write* (literal "/dev/null") '+''.join('(subpath '+json.dumps(value)+')' for value in roots)+')'
+   sandbox=['/usr/bin/sandbox-exec','-p',profile]
+   git=subprocess.check_output(['/usr/bin/xcrun','--find','git'],text=True).strip()
   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
   if (root/'crash-once').exists():
    (root/'crash-once').unlink();sys.exit(7)

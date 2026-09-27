@@ -194,7 +194,7 @@ Pause never discards work. Paused time does not count toward timeouts.
 - **Open Preview** on iPhone opens the task's preview through the private network address.
 
 ## 14. Security
-- Agents run with Codex's sandbox: writes limited to their worktree; network on by default (package installs), per-project switch.
+- Agents run with Codex's sandbox: writes limited to their worktree plus the Git metadata necessary to stage and commit on its assigned branch (private worktree metadata, shared objects, that branch’s ref/reflog and lock files). The main checkout, shared Git configuration/hooks and other branch refs remain read-only; network on by default (package installs), per-project switch.
 - The app runs hooks and checks as the user. Hooks are shown in Settings › Hooks and changes require confirmation.
 - No tokens are stored by Build Mate for GitHub/Bitbucket; it uses the logged-in `gh` and `twg` CLIs. Codex auth is owned by Codex (ChatGPT sign-in).
 - Logs redact tokens and environment variables matching common secret patterns.

@@ -115,6 +115,8 @@ struct CoreTests {
 
     @Test func lifecycleKeepsCloneCleanGatesProofAndFinishesOnlyAfterMerge() async throws {
         var f = try await Fixture()
+        // Catch missing Git metadata grants and grants that expose the main checkout/ref/config.
+        try f.marker("sandbox-git")
         f.project.settings.askBeforeBuild = false
         f.project.settings.stallTimeoutMs = 750
         f.project.settings.recordingCommand = nil
