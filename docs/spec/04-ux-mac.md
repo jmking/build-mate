@@ -239,3 +239,5 @@ Task and project chat toolbars show the selected model and effort. The native po
 ### Delete tasks (2026-09-27)
 
 Every task state, including active work, has Delete Task in the task toolbar, card/list context menu and Task menu (⌘Delete). A destructive confirmation names the task and explains removal of its conversation, attachments, proof and worktree, including uncommitted changes. Existing Git branches and hosted pull requests remain. Dependent tasks are paused for review. On success the open task returns to its project’s board (or Backlog), and navigation history drops the deleted task. Cancel closes the confirmation without modifying anything.
+
+Task composer refinement (2026-09-27): omit the active-turn delivery caption and routine successful-send confirmation. The sent message in the transcript provides confirmation. Keep actionable question, review-feedback and saved-for-later guidance when applicable.

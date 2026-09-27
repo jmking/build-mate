@@ -14,10 +14,10 @@ struct TaskDetailView: View {
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
     private var composerTitle: String { openQuestion != nil ? "Answer the question" : (activeTurn || task.state == .humanReview) ? "Message the agent" : "Save a message for the next run" }
     private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || task.state == .humanReview) ? "Send message" : "Save message" }
-    private var composerExplanation: String {
+    private var composerExplanation: String? {
         if let question = openQuestion { return question.allowsFreeText ? "Your answer resolves this question. Paused tasks stay paused." : "Choose one of the answer buttons above." }
         if task.state == .humanReview { return isPaused ? "Tell the agent what to change. Work will resume when unpaused." : "Tell the agent what to change. It will continue working." }
-        return activeTurn ? "Sent to the current agent turn." : "Messages are saved for when work resumes."
+        return activeTurn ? nil : "Messages are saved for when work resumes."
     }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerId == task.id && $0.ownerType == "task" } }
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
@@ -86,8 +86,10 @@ struct TaskDetailView: View {
             if !task.state.terminal && task.state != .backlog {
                 VStack(alignment: .leading, spacing: 8) {
                     ChatAttachmentTray(files: fileBinding, root: model.store.root)
-                    Text(messageStatus ?? composerExplanation).font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("message-status")
+                    if let explanation = messageStatus ?? composerExplanation {
+                        Text(explanation).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("message-status")
+                    }
                     HStack(alignment: .bottom, spacing: 12) {
                     ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
                         TextField(composerTitle, text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain).font(.system(size: 14))
@@ -222,7 +224,7 @@ struct TaskDetailView: View {
             } else {
                 let delivery = try await model.core.steer(task.id, text: text, files: attached)
                 switch delivery {
-                case .sent: messageStatus = "Sent to the agent."
+                case .sent: messageStatus = nil
                 case .saved: messageStatus = "Saved. The agent will read this when work resumes."
                 case .queued: messageStatus = isPaused ? "Feedback saved. Work will resume when unpaused." : "Feedback sent. The agent will continue working."
                 }
