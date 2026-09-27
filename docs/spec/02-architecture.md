@@ -165,7 +165,7 @@ The **project agent** gets 1–3 plus a project brief (repo summary, open tasks 
 - Proof stays in Build Mate. It is **not** added to PR descriptions (the team should not see Build Mate artefacts).
 
 ## 9. Pull requests and stacking
-- One PR per task by default. Title from the task title; body is the agent's plain change summary only: no proof, no Build Mate footer or branding.
+- One PR per task by default. Title from the task title; body is the agent's concise Markdown change description (paragraphs and bullets as needed), explaining what changed and why: no proof reports, recording details, validation logs, commit hashes or Build Mate footer/branding. For legacy JSON summaries, the publisher extracts only `changes` (or `summary`) and formats a list of changes as bullets; it never publishes the complete report. Reports without a usable change description stop publication before pushing and request a corrected summary. Existing hosted descriptions are not overwritten automatically.
 - **Stacked**: when task B depends on task A and A's PR is not merged, B's branch is created from A's branch and B's PR targets A's branch. When A merges, the agent rebases B onto the default branch, retargets the PR, force-pushes with lease, and re-runs checks. The In PR inspector shows the stack.
 - **Ship as one PR** (v1.1): tasks merge into a shared feature branch; one PR from it to the default branch with combined proof.
 - **Merging**: squash merge by default, delete branch after merge, never bypass branch protection or required reviews.

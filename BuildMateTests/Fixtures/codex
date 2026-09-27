@@ -30,6 +30,7 @@ def review():
  report={'summary':'Adds the requested feature.','needsRecording':(root/'visual-task').exists(),
          'rationale':'Demonstrate the visual change.' if (root/'visual-task').exists() else 'Functional change verified by checking the generated feature.',
          'checks':[{'name':'Agent feature check','command':'test -f feature.txt && ! touch "$BUILD_MATE_FIXTURE/forbidden-write"'}]}
+ if (root/'json-pr-summary').exists():report['summary']=json.dumps({'changes':['Adds the requested feature.', 'Preserves **existing behavior**.'], 'commits':['abc123'], 'validation':{'compile':'Passed'}, 'proof':{'recording':'Private recording details'}})
  if attempt==1 and (root/'omit-checks').exists():report['checks']=[]
  if attempt>1:
   report['recordingCommand']='printf invalid > "$BUILD_MATE_RECORDING_PATH"' if attempt==2 else 'cp "$BUILD_MATE_FIXTURE/proof.mp4" "$BUILD_MATE_RECORDING_PATH"'

@@ -144,6 +144,7 @@ struct CoreTests {
         var f = try await Fixture()
         // Catch missing Git metadata grants and grants that expose the main checkout/ref/config.
         try f.marker("sandbox-git")
+        try f.marker("json-pr-summary")
         f.project.settings.askBeforeBuild = false
         f.project.settings.stallTimeoutMs = 750
         f.project.settings.recordingCommand = nil
@@ -230,6 +231,15 @@ struct CoreTests {
         let reopened = try Store(root: f.store.root)
         let resumed = Orchestrator(store: reopened, runner: f.runner)
         try await resumed.recover()
+        // Never publish an unrecognised evidence report, even when the implementation passed proof.
+        var savedProof = try #require(reopened.all(Proof.self).first { $0.taskId == task.id })
+        let originalSummary = savedProof.summary
+        savedProof.summary = #"{"proof":{"recording":"Private evidence"}}"#
+        try reopened.save(savedProof)
+        do { try await resumed.openPullRequest(task.id); Issue.record("Published proof metadata as a PR description") } catch {}
+        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "pr-created").path))
+        savedProof.summary = originalSummary
+        try reopened.save(savedProof)
         try await resumed.openPullRequest(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).state == .inPR)
         do { try await resumed.editTask(task.id, title: "Changed scope", description: "Different work", proofRequirement: .checksOnly); Issue.record("PR task scope edited") } catch {}
@@ -261,7 +271,7 @@ struct CoreTests {
         #expect(try reopened.all(Proof.self).contains { $0.taskId == task.id })
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
-        #expect(try String(contentsOf: f.control.appending(path: "pr-body"), encoding: .utf8) == "Adds the requested feature.")
+        #expect(try String(contentsOf: f.control.appending(path: "pr-body"), encoding: .utf8) == "- Adds the requested feature.\n- Preserves **existing behavior**.")
         #expect(FileManager.default.fileExists(atPath: f.store.root.appending(path: "projects/\(f.project.id)/WORKFLOW.md").path))
         try await resumed.deleteProject(f.project.id)
         #expect(try reopened.all(Project.self).isEmpty)
@@ -312,6 +322,10 @@ struct CoreTests {
             #expect(proof.screenshots.count == (recording ? 2 : 0))
             #expect((proof.recordingPath != nil) == recording)
             #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == (recording ? 2 : visual ? 0 : 1))
+            if requirement == .checksOnly {
+                try await core.openPullRequest(task.id)
+                #expect(try String(contentsOf: f.control.appending(path: "pr-body"), encoding: .utf8) == "Adds the requested feature.")
+            }
             if !visual {
                 try f.marker("always-fail-proof")
                 try await core.steer(task.id, text: "Exercise failed proof recovery")

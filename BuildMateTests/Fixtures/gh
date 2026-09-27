@@ -10,7 +10,7 @@ elif a[:2]==['repo','view']:print(json.dumps({'nameWithOwner':'fixture/repo','de
 elif a[:2]==['pr','list']:print(json.dumps([pr] if (root/'pr-created').exists() else []))
 elif a[:2]==['pr','create']:
  body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
- assert body=='Adds the requested feature.'
+ assert body==('- Adds the requested feature.\n- Preserves **existing behavior**.' if (root/'json-pr-summary').exists() else 'Adds the requested feature.')
  assert a[a.index('--base')+1]=='main'
  (root/'pr-body').write_text(body);(root/'pr-created').touch();print(pr['url'])
 elif a[:2]==['pr','view']:
