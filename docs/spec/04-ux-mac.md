@@ -230,7 +230,7 @@ Queue cards show “Waiting for usage” while held. The usage popover offers Re
 
 Backlog’s Select Tasks action enables native Command-click/Shift-click multiselection. Move to Queue (⌘Return) queues the selection together; ordinary row clicks still open the task when selection mode is off.
 
-While an agent responds, project and task chats show a compact Messages-style three-dot speech bubble in the agent bubble colour, instead of a spinner/status sentence. Waiting for input, queued and paused states retain explicit labels. The bubble is static with Reduce Motion enabled.
+While an agent responds, project and task chats show a compact tailless three-dot bubble in the agent bubble colour. It expands smoothly on appearance and becomes the next agent text bubble in place, growing with streamed text. Waiting for input, queued and paused states retain explicit labels. The bubble is static with Reduce Motion enabled.
 
 ### Conversation model and effort (2026-09-27)
 

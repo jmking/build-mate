@@ -143,3 +143,7 @@ Brand marks are reserved for repository/service-specific actions and information
 - Reduce Motion disables panel movement and pulsing; board updates use opacity instead of geometry travel. Reduced Transparency is handled by native materials.
 
 References checked: [Apple HIG Materials](https://developer.apple.com/design/human-interface-guidelines/materials), [Motion](https://developer.apple.com/design/human-interface-guidelines/motion), [Applying Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views). Apple reserves glass for navigation and functional controls; content cards retain standard surfaces. The reference wallpaper is not an app background, so translucency varies with the actual desktop and system preferences.
+
+### Typing-to-message motion (2026-09-27)
+
+Both chats use a persistent transcript row for the pending agent response. The tailless typing capsule grows/fades into view in 0.28 s. When agent text arrives, the same row becomes the message bubble; its bounds and corner radius expand smoothly over 0.32 s as the dots fade into text. Streamed text updates animate the bubble’s size. Reset the pending indicator only after one second without further text, if the agent is still running; pause, waiting and completion remove it. Loading existing history does not replay message transitions. Reduce Motion disables geometry/scale motion and the dot wave; initial appearance may use a short opacity fade.

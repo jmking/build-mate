@@ -155,7 +155,7 @@ struct Session: Record {
     var startedAt = Date()
     var lastEventAt = Date()
 }
-struct Message: Record {
+struct Message: Record, Equatable {
     static let databaseTableName = "message"
     var id = UUID()
     var sessionId: UUID

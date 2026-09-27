@@ -41,7 +41,7 @@ struct TaskDetailView: View {
                     MessageAttachments(messageID: task.id, ownerType: "task")
                     MarkdownBrief(task.description.isEmpty ? "No additional description." : task.description)
                 }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-                ForEach(messages) { item in
+                ChatTranscript(messages: messages, responding: task.state == .building && activeTurn && !isPaused, spacing: 24) { item in
                     if let question = questions.first(where: { $0.messageId == item.id }) { TaskQuestion(question: question) }
                     else if item.kind == "event" {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -70,9 +70,7 @@ struct TaskDetailView: View {
                 if task.state == .building {
                     if isPaused {
                         Label("Paused", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
-                    } else if activeTurn {
-                        AgentTypingIndicator()
-                    } else if !model.retryNeedsAttention(task) {
+                    } else if !activeTurn && !model.retryNeedsAttention(task) {
                         Text("Waiting for an agent…").font(.caption).foregroundStyle(.secondary)
                     }
                 }

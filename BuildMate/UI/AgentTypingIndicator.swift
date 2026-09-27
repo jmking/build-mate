@@ -3,6 +3,7 @@ import SwiftUI
 /// One quiet, accessible status bubble shared by project and task conversations.
 struct AgentTypingIndicator: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var showsBackground = true
     var body: some View {
         Group {
             if reduceMotion {
@@ -33,6 +34,6 @@ struct AgentTypingIndicator: View {
             }
         }
         .frame(width: 64, height: 36)
-        .background(AppSurface.agentBubble, in: Capsule())
+        .background(AppSurface.agentBubble.opacity(showsBackground ? 1 : 0), in: Capsule())
     }
 }

@@ -26,7 +26,7 @@ struct ProjectChatView: View {
                         ContentUnavailableView("What would you like to build?", systemImage: "bubble.left.and.bubble.right", description: Text("Discuss an idea, ask about your code, or shape the next tasks."))
                             .frame(maxWidth: .infinity).padding(.top, 70)
                     }
-                    ForEach(messages) { message in
+                    ChatTranscript(messages: messages, responding: session?.status == "running" && project?.paused != true && !model.settings.paused) { message in
                         if message.kind == "proposal", let proposal = model.snapshot.proposals.first(where: { $0.messageId == message.id }) {
                             ProjectProposalCard(proposal: proposal)
                         } else if message.kind == "question" {
@@ -41,9 +41,7 @@ struct ProjectChatView: View {
                                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                         } else { ProjectChatBubble(message: message) }
                     }
-                    if session?.status == "running" && project?.paused != true && !model.settings.paused {
-                        AgentTypingIndicator()
-                    } else if busy {
+                    if busy && (session?.status != "running" || project?.paused == true || model.settings.paused) {
                         Text(session?.status == "waiting" ? "Waiting for your answer" : project?.paused == true || model.settings.paused ? "Chat queued · work is paused" : "Waiting for an agent slot")
                             .font(.caption).foregroundStyle(.secondary)
                     }
