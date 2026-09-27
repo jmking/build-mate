@@ -18,6 +18,12 @@ struct AgentInput {
 }
 
 extension Store {
+    func hasUndeliveredMessages(_ session: Session) throws -> Bool {
+        let delivery = try db.read { try AgentDelivery.fetchOne($0, key: session.id) }
+        let sent = Set(delivery?.threadId == session.codexThreadId ? delivery?.deliveredIDs ?? [] : [])
+        return try db.read { try Message.filter(Column("sessionId") == session.id && Column("role") == "user").fetchAll($0) }
+            .contains { !sent.contains($0.id) }
+    }
     func agentInput(session: Session, context: String, attachments: [Attachment]) throws -> AgentInput {
         let delivery = try db.read { try AgentDelivery.fetchOne($0, key: session.id) }
         let sameThread = delivery?.threadId == session.codexThreadId

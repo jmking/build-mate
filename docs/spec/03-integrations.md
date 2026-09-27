@@ -129,3 +129,9 @@ Task description formatting (2026-09-27): project-agent developer instructions a
 ### Publication correctness follow-up — 2026-09-27
 
 GitHub publication pushes `<verified SHA>:refs/heads/<task branch>` rather than a mutable branch name; ordinary non-fast-forward protection remains enabled. An external edit after validation can remain local but cannot silently enter the published PR. Existing PR updates set title and body together. Worktree preparation fetches the host default branch before choosing a base, without updating the user's local branch.
+
+### Project intake and delivery reshaping
+
+Project chat inspects existing briefs and states before proposing work. New proposals include acceptance criteria, relevant attachment IDs, and a supported model/effort recommendation with its rationale. Acceptance saves the task, dependencies, references and recommendation atomically before dispatch. Explicit project/task model choices take precedence over recommendations.
+
+`refine_task` revises queued, running, reviewed and open-PR work, supersedes proof/plans, and resumes automatically unless the user explicitly paused it. Finished work creates a linked follow-up. `reshape_tasks` splits or combines unpublished work into coherent PR-sized tasks. Source worktrees and requirements remain available for reuse; sources record their replacements and dependents are rewired transactionally. Cycles are rejected. Published work remains on its existing PR and is revised there. Historical chat attachments are never copied wholesale: explicit references are used, with the initiating message as a compatibility fallback for old proposals.

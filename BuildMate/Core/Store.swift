@@ -105,6 +105,13 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE task ADD COLUMN requirementsRevision INTEGER NOT NULL DEFAULT 1")
             try db.execute(sql: "ALTER TABLE proof ADD COLUMN requirementsRevision INTEGER NOT NULL DEFAULT 1")
         }
+        migrator.registerMigration("v12-delivery-intake") { db in
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN relatedTaskIds TEXT NOT NULL DEFAULT '[]'")
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN deliveryGroupIds TEXT NOT NULL DEFAULT '[]'")
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN replacedBy TEXT NOT NULL DEFAULT '[]'")
+            try db.execute(sql: "ALTER TABLE agentConfiguration ADD COLUMN recommended BOOLEAN NOT NULL DEFAULT 0")
+            try db.execute(sql: "ALTER TABLE agentConfiguration ADD COLUMN rationale TEXT")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

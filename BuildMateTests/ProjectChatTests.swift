@@ -3,6 +3,45 @@ import Testing
 
 @Suite(.serialized)
 struct ProjectChatTests {
+    @Test func intakePreservesExplicitChoicesReferencesAndDependenciesWhenResizingWork() async throws {
+        var f = try await CoreTests.Fixture()
+        f.project.paused = true; try f.store.save(f.project)
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        let session = try f.store.session(for: f.project.id, ownerType: "project")
+        let message = Message(sessionId: session.id, role: "user", body: "Create a scoped change")
+        let references = try f.store.saveChatMessage(message, files: [f.control.appending(path: "proof.png")], projectID: f.project.id, ownerID: f.project.id)
+        let item = Proposal.Item(title: "Account search", description: "Search active accounts.", dependsOnIndex: [], attachmentIds: references.map(\.id), model: "gpt-6-astra", effort: "high", modelRationale: "Cross-cutting query and UI requirements.", acceptanceCriteria: ["Inactive accounts never appear."])
+        let proposal = try await core.saveProposal(f.project.id, sessionID: session.id, items: [item])
+        let original = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [0])[0]
+        #expect(original.description.contains("## Acceptance criteria"))
+        #expect(try f.store.get(AgentConfiguration.self, original.id).recommended)
+        try await core.setModel(ownerID: original.id, projectChat: false, model: "gpt-5.6-luna", effort: "low")
+        var source = original; source.state = .humanReview; source.paused = true; try f.store.save(source)
+        let dependent = WorkTask(projectId: f.project.id, number: 2, title: "Dependent", dependsOn: [source.id])
+        try f.store.save(dependent)
+        let replacements = try await core.reshapeTasks(projectID: f.project.id, sourceIDs: [source.id], items: [
+            Proposal.Item(title: "Query", description: "Search active accounts efficiently.", dependsOnIndex: []),
+            Proposal.Item(title: "Search UI", description: "Display query results.", dependsOnIndex: [0])
+        ], reason: "Separate query behavior from the independently reviewable UI.")
+        #expect(replacements.count == 2 && replacements.allSatisfy(\.paused))
+        #expect(try f.store.get(WorkTask.self, source.id).replacedBy == replacements.map(\.id))
+        #expect(Set(try f.store.get(WorkTask.self, dependent.id).dependsOn) == Set(replacements.map(\.id)))
+        #expect(replacements[1].dependsOn.contains(replacements[0].id))
+        for replacement in replacements {
+            let config = try f.store.get(AgentConfiguration.self, replacement.id)
+            #expect(config.model == "gpt-5.6-luna" && !config.recommended)
+            #expect(try f.store.all(Attachment.self).contains { $0.ownerId == replacement.id && $0.sourceAttachmentId != nil })
+        }
+        let repeated = try await core.reshapeTasks(projectID: f.project.id, sourceIDs: [source.id], items: [item], reason: "retry")
+        #expect(repeated.map(\.id) == replacements.map(\.id))
+        let updated = try await core.reviseFromProject(replacements[0], title: "Query", description: "Search active accounts with pagination.", attachmentIDs: [])
+        #expect(updated.paused && updated.requirementsRevision == 2)
+        var merged = updated; merged.state = .done; try f.store.save(merged)
+        let followup = try await core.reviseFromProject(merged, title: "Pagination refinement", description: "Retain active-only filtering and add cursor navigation.", attachmentIDs: [])
+        #expect(followup.relatedTaskIds == [merged.id] && followup.id != merged.id && followup.state == .todo)
+        await core.shutdown(); try f.cleanup()
+    }
+
     // Catches duplicate creation, dependency loss, cross-project edits, clone writes and lost chat context after restart.
     @Test func projectChatQueuesEveryCreatedTaskAndRefinesWithoutEditingTheClone() async throws {
         var f = try await CoreTests.Fixture()

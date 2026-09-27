@@ -12,11 +12,14 @@ struct ModelPicker: View {
     private var project: Project? { app.snapshot.projects.first { $0.id == (projectChat ? ownerID : task?.projectId) } }
     private var task: WorkTask? { app.snapshot.tasks.first { $0.id == ownerID } }
     private var configuration: AgentConfiguration? { app.snapshot.agentConfigurations.first { $0.id == ownerID } }
+    private var effectiveConfiguration: AgentConfiguration? {
+        configuration?.recommended == true && !projectChat && project?.settings.model != nil ? nil : configuration
+    }
     private var selectedModel: String? {
-        configuration?.model ?? (projectChat ? "gpt-6-astra" : project?.settings.model) ?? session?.activeModel
+        effectiveConfiguration?.model ?? (projectChat ? "gpt-6-astra" : project?.settings.model) ?? session?.activeModel
     }
     private var selectedEffort: String? {
-        if let effort = configuration?.effort { return effort }
+        if let effort = effectiveConfiguration?.effort { return effort }
         if let effort = projectChat ? "high" : project?.settings.effort { return effort }
         return session?.activeModel == selectedModel ? session?.activeEffort : nil
     }
@@ -65,6 +68,9 @@ struct ModelPicker: View {
                     }
                     if selectedModel != nil && choice == nil && !loading {
                         Text("This model isn’t available in the installed Codex. Choose an available model or update Codex, then refresh.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let config = configuration, config.recommended, let reason = config.rationale {
+                        Text(reason).font(.caption).foregroundStyle(.secondary)
                     }
                     if pending { Text("Your selection applies to the next response.").font(.caption).foregroundStyle(.secondary) }
                     if let error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }

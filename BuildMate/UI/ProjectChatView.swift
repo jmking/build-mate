@@ -127,7 +127,7 @@ struct ProjectChatView: View {
                     .font(.system(size: 14)).lineLimit(1...5).textFieldStyle(.plain).padding(.vertical, 7).frame(minHeight: 32)
                     .focused($focused).accessibilityLabel("Project message").accessibilityIdentifier("project-message")
                     .disabled(sending || question?.payload["allowsFreeText"].bool == false).onSubmit(send)
-                if busy && question == nil {
+                if busy && question == nil && draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty {
                     Button { model.perform { await model.core.stopProjectChat(projectID) } } label: {
                         Image(systemName: "stop.fill").frame(width: 18, height: 18)
                     }.buttonStyle(.bordered).buttonBorderShape(.circle).controlSize(.large)
@@ -146,8 +146,7 @@ struct ProjectChatView: View {
     }
 
     private func send() {
-        // Drafting stays available during a response; only an explicit send when idle submits it.
-        guard !sending, !busy || question != nil else { return }
+        guard !sending else { return }
         let text = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !files.isEmpty else { return }
         let pending = question

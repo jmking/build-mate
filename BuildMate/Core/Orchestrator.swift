@@ -237,18 +237,28 @@ actor Orchestrator {
         task.paused = paused; try store.save(task)
         await tick()
     }
-    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement) async throws {
+    func stopForReshape(_ id: UUID) async {
+        await stopPreview(id)
+        if let worker = workers[id] {
+            worker.cancel(); await clients[id]?.stop(); await worker.value
+        }
+    }
+    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement, automaticallyResume: Bool = false) async throws {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
         guard editingTasks.insert(id).inserted else { throw CoreError.invalid("This task is already being edited.") }
         defer { editingTasks.remove(id) }
         titleJobs[id]?.cancel()
         var task = try store.get(WorkTask.self, id)
+        let explicitlyPaused = task.paused
         let scopeChanged = task.description != description || task.proofRequirement != proofRequirement
         guard scopeChanged || task.title != title else { return }
         if scopeChanged {
-            guard !task.state.terminal, task.state != .inPR, !openingPRs.contains(id) else {
+            guard !task.state.terminal, (task.state != .inPR || automaticallyResume), !openingPRs.contains(id) else {
                 throw CoreError.invalid("Only the title can be edited after a pull request is opening or the task is finished.")
+            }
+            if task.pr != nil {
+                _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: task, project: store.get(Project.self, task.projectId))
             }
             await stopPreview(id)
             if task.worktreePath != nil || workers[id] != nil {
@@ -264,7 +274,7 @@ actor Orchestrator {
                 task = try store.get(WorkTask.self, id)
                 // Replan atomically below, only after the old worker can no longer publish proof.
                 task.state = .todo
-                task.paused = true
+                task.paused = automaticallyResume ? explicitlyPaused : true
             }
             task.retry = nil
             task.requirementsRevision += 1
@@ -286,6 +296,7 @@ actor Orchestrator {
                 try Message(sessionId: session.id, role: "system", kind: "event", body: body).insert(db)
             }
         }
+        if automaticallyResume { editingTasks.remove(id); await tick() }
     }
     func answer(_ id: UUID, text: String, useSuggested: Bool = false, files: [URL] = []) async throws {
         var question = try store.get(Question.self, id)

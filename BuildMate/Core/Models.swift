@@ -127,6 +127,9 @@ struct WorkTask: Record {
     var workspaceReady = false
     var baseCommitSHA: String?
     var requirementsRevision = 1
+    var relatedTaskIds: [UUID] = []
+    var deliveryGroupIds: [UUID] = []
+    var replacedBy: [UUID] = []
     var pr: PullRequest?
     var retry: Retry?
     var createdAt = Date()
@@ -138,6 +141,8 @@ struct AgentConfiguration: Record {
     var id: UUID // Task or project ID; kept separate from mutable lifecycle records.
     var model: String
     var effort: String?
+    var recommended = false
+    var rationale: String?
 }
 struct PullRequest: Codable, Sendable { var number: Int; var url: String; var baseBranch: String }
 struct Retry: Codable, Sendable { var attempt: Int; var dueAt: Date; var error: String }
@@ -335,7 +340,17 @@ struct Attachment: Record {
 }
 struct Proposal: Record {
     static let databaseTableName = "proposal"
-    struct Item: Codable, Sendable, Equatable { var title: String; var description: String; var dependsOnIndex: [Int] }
+    struct Item: Codable, Sendable, Equatable {
+        var title: String
+        var description: String
+        var dependsOnIndex: [Int]
+        var dependsOnTaskIds: [UUID]?
+        var attachmentIds: [UUID]?
+        var model: String?
+        var effort: String?
+        var modelRationale: String?
+        var acceptanceCriteria: [String]?
+    }
     var id = UUID()
     var projectId: UUID
     var messageId: UUID
