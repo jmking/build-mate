@@ -64,8 +64,8 @@ extension Orchestrator {
     }
     func modelSelection(ownerID: UUID, defaultModel: String?, defaultEffort: String?, inheritedModel: String? = nil, inheritedEffort: String? = nil) throws -> (model: String, effort: String?) {
         let saved = try store.db.read { try AgentConfiguration.fetchOne($0, key: ownerID) }
-        if saved?.recommended == true, let defaultModel {
-            return try CodexModel.resolve(availableModels, model: defaultModel, effort: defaultEffort, inheritedEffort: inheritedEffort)
+        if saved?.recommended == true, defaultModel != nil || defaultEffort != nil {
+            return try CodexModel.resolve(availableModels, model: defaultModel ?? saved?.model, effort: defaultEffort ?? (defaultModel == nil ? saved?.effort : nil), inheritedEffort: inheritedEffort)
         }
         return try CodexModel.resolve(availableModels, model: saved?.model ?? defaultModel, effort: saved == nil ? defaultEffort : saved?.effort, inheritedModel: inheritedModel, inheritedEffort: inheritedEffort)
     }

@@ -122,9 +122,13 @@ struct ReviewEvidence: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Review").font(.headline).accessibilityAddTraits(.isHeader)
             if !proof.complete || proof.commitSHA == nil {
-                Label("Fresh proof required", systemImage: "exclamationmark.circle").foregroundStyle(.secondary)
+                Label(proof.qaToken != nil && proof.qaReview == nil ? "Agent is reviewing evidence" : "Fresh proof required", systemImage: "exclamationmark.circle").foregroundStyle(.secondary)
             }
             MarkdownBrief(proof.changeSummary)
+            if let review = proof.qaReview {
+                DisclosureGroup("Agent review") { MarkdownBrief(review).padding(.top, 8) }
+                    .help("Show the agent’s assessment of the collected evidence")
+            }
             if let path = proof.recordingPath {
                 Divider()
                 HStack {

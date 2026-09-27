@@ -66,7 +66,7 @@ struct TaskDetailView: View {
                 ForEach(pendingPlans) { approval in
                     VStack(alignment: .leading, spacing: 12) {
                         Text(approval.kind == "merge" ? "Ready to merge" : "Review plan").font(.headline).accessibilityAddTraits(.isHeader)
-                        if approval.kind == "merge" { Text("Approve merging the current reviewed commit. GitHub’s repository rules still apply.").foregroundStyle(.secondary) }
+                        if approval.kind == "merge" { Text("Approve merging the current reviewed commit. GitHub’s repository rules still apply.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                         else if let plan = approval.planText { MarkdownBrief(plan) }
                         Button(approving.contains(approval.id) ? "Approving…" : (approval.kind == "merge" ? "Approve Merge" : "Approve Plan")) {
                             approving.insert(approval.id)

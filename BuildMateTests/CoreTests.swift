@@ -62,6 +62,26 @@ struct CoreTests {
         await core.shutdown(); try f.cleanup()
     }
 
+    @Test func overlappingScopesYieldWhileIndependentWorkRunsWithinTheAgentLimit() async throws {
+        let f = try await Fixture()
+        var settings = try f.store.settings(); settings.agentsAtOnce = 2; try f.store.saveSettings(settings)
+        try f.marker("stall")
+        var first = try f.store.createTask(projectId: f.project.id, title: "Shared module", rank: 30)
+        first.affectedPaths = ["sources"]; try f.store.save(first)
+        var overlapping = try f.store.createTask(projectId: f.project.id, title: "Same module", rank: 20)
+        overlapping.affectedPaths = ["sources/search.swift"]; try f.store.save(overlapping)
+        var independent = try f.store.createTask(projectId: f.project.id, title: "Independent docs", rank: 10)
+        independent.affectedPaths = ["docs"]; try f.store.save(independent)
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        await core.tick()
+        try await f.wait("independent work alongside shared scope") { try f.store.session(for: first.id).currentTurn != nil && f.store.session(for: independent.id).currentTurn != nil }
+        #expect(try f.store.get(WorkTask.self, overlapping.id).worktreePath == nil)
+        try await core.pause(first.id, paused: true)
+        try await f.wait("overlap proceeds after scope released") { try f.store.session(for: overlapping.id).currentTurn != nil }
+        #expect(try f.store.all(Session.self).filter { $0.currentTurn != nil }.count == 2)
+        await core.shutdown(); try f.cleanup()
+    }
+
     struct Fixture {
         let root: URL
         let repo: URL
@@ -98,6 +118,7 @@ struct CoreTests {
             _ = try await runner.run("git", ["push", "origin", "main"], cwd: repo.path)
             store = try Store(root: root.appending(path: "Application Support/Build Mate"))
             project = Project(name: "Fixture", repoPath: repo.path, remoteSlug: "fixture/repo")
+            project.settings.readTimeoutMs = 15_000 // Allow native subprocess startup under host load; stall/timeout tests override their own limits.
             project.settings.recordingCommand = "cp \"$BUILD_MATE_FIXTURE/proof.mp4\" \"$BUILD_MATE_RECORDING_PATH\""
             project.settings.checks = [CheckDefinition(name: "Feature exists", command: "test -f feature.txt")]
             project.settings.hooks.afterCreate = "echo create >> \"$BUILD_MATE_FIXTURE/hooks\""
@@ -108,11 +129,13 @@ struct CoreTests {
         }
         func marker(_ name: String) throws { try Data().write(to: control.appending(path: name)) }
         func wait(_ description: String, until predicate: () throws -> Bool) async throws {
-            let deadline = ContinuousClock.now + .seconds(20)
-            while !(try predicate()) {
-                guard ContinuousClock.now < deadline else { throw CoreError.invalid("Timed out: \(description)") }
+            // Bound observed polling, not elapsed host time: suspension/clock jumps must not
+            // fail a completed subprocess before the test has had a chance to observe it.
+            for _ in 0..<2000 {
+                if try predicate() { return }
                 try await Task.sleep(for: .milliseconds(30))
             }
+            throw CoreError.invalid("Timed out: \(description)")
         }
         func cleanup() throws { try FileManager.default.removeItem(at: root) }
     }
@@ -602,10 +625,11 @@ struct CoreTests {
         let third = Orchestrator(store: f.store, runner: f.runner)
         await third.tick(now: second.retry!.dueAt.addingTimeInterval(1))
         try await f.wait("question on resumed thread") { try f.store.get(WorkTask.self, high.id).state == .needsClarification }
-        // A question waiting in a live process still reserves the sole concurrency slot.
+        // A durable human wait releases the sole agent slot for independent work.
         var available = try f.store.get(WorkTask.self, low.id); available.paused = false; try f.store.save(available)
         await third.tick()
-        #expect(try f.store.get(WorkTask.self, low.id).worktreePath == nil)
+        try await f.wait("independent work uses the released slot") { try f.store.get(WorkTask.self, low.id).worktreePath != nil }
+        #expect(try f.store.session(for: high.id).currentTurn == nil)
         try await third.pause(high.id, paused: true)
         await third.shutdown()
         #expect(try f.store.get(WorkTask.self, high.id).paused)

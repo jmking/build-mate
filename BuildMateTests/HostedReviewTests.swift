@@ -24,18 +24,31 @@ struct HostedReviewTests {
         _ = try await core.reviewAction(task.id, arguments: retry)
         do { _ = try await core.reviewAction(task.id, arguments: retry); Issue.record("Retried the same CI attempt twice") } catch {}
         _ = try await core.reviewAction(task.id, arguments: .object(["action": .string("finish")]))
+        await core.pollPR(task.id)
+        #expect(try f.store.get(WorkTask.self, task.id).state == .inPR) // An unchanged failed attempt must not trigger endless agent passes.
         try FileManager.default.removeItem(at: f.control.appending(path: "ci-failed"))
         try "[{\"id\":101,\"body\":\"Use blue for this existing requirement.\"}]".write(to: f.control.appending(path: "review-feedback"), atomically: true, encoding: .utf8)
-        try f.marker("hosted-feedback"); try f.marker("pr-revision")
+        try f.marker("lose-reply-response"); try f.marker("thread-feedback"); try f.marker("hosted-feedback"); try f.marker("pr-revision")
         await core.pollPR(task.id)
         #expect(try f.store.get(WorkTask.self, task.id).state == .building)
         await core.tick()
         try await f.wait("automatic same-PR repair and reply") { try f.store.get(WorkTask.self, task.id).state == .inPR && f.store.session(for: task.id).status == "idle" && FileManager.default.fileExists(atPath: f.control.appending(path: "posted-replies").path) }
+        await core.pollPR(task.id) // Recover a posted reply whose CLI response was lost; do not duplicate it.
         let posts = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: f.control.appending(path: "posted-replies")))
-        #expect(posts.array.count == 1)
+        #expect(posts.array.count == 2)
+        #expect(FileManager.default.fileExists(atPath: f.control.appending(path: "thread-resolved").path))
         #expect(try f.store.all(Proof.self).first?.qaReview != nil)
         await core.shutdown()
         let resumed = Orchestrator(store: try Store(root: f.store.root), runner: f.runner)
+        let parent = WorkTask(projectId: f.project.id, number: 2, title: "Merged parent", state: .done)
+        try f.store.save(parent)
+        var child = try f.store.get(WorkTask.self, task.id); child.stackOn = parent.id; child.pr?.baseBranch = "parent-branch"; try f.store.save(child)
+        try "parent-branch".write(to: f.control.appending(path: "pr-base"), atomically: true, encoding: .utf8)
+        await resumed.pollPR(task.id)
+        #expect(try f.store.get(WorkTask.self, task.id).state == .building)
+        #expect(try f.store.all(Proof.self).first?.complete == false)
+        await resumed.tick()
+        try await f.wait("stacked child reverified against main") { try f.store.get(WorkTask.self, task.id).state == .inPR && f.store.session(for: task.id).status == "idle" }
         try f.marker("merge-ready")
         await resumed.pollPR(task.id)
         let approval = try #require(f.store.all(Approval.self).first { $0.kind == "merge" && $0.status == "pending" })
@@ -43,7 +56,7 @@ struct HostedReviewTests {
         try await resumed.approveMerge(approval.id)
         #expect(FileManager.default.fileExists(atPath: f.control.appending(path: "merge-requested").path))
         await resumed.pollPR(task.id)
-        #expect(try JSONDecoder().decode(JSON.self, from: Data(contentsOf: f.control.appending(path: "posted-replies"))).array.count == 1)
+        #expect(try JSONDecoder().decode(JSON.self, from: Data(contentsOf: f.control.appending(path: "posted-replies"))).array.count == 2)
         let calls = try String(contentsOf: f.control.appending(path: "gh-calls.jsonl"), encoding: .utf8)
         let commands = try calls.split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)).array.compactMap(\.string) }
         #expect(commands.filter { $0.prefix(2) == ["pr", "merge"] }.count == 1)

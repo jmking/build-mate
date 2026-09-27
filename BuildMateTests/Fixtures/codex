@@ -199,7 +199,9 @@ for line in sys.stdin:
    assert 'Write task descriptions as readable Markdown' in context
    assert 'Every created task goes straight to Queue.' in context
    if (root/'chat-stall').exists():continue
-   if latest.startswith('Cool'):
+   if 'New answers:\nWhich accounts?: Active' in text:
+    project_reply('Thanks, I will use active accounts.')
+   elif latest.startswith('Cool'):
     event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'itemId':'reaction','delta':'👍'})
     while not (root/'finish-reaction').exists():time.sleep(0.01)
     event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':'reaction','type':'agentMessage','text':'👍🏽'}})
@@ -226,9 +228,11 @@ for line in sys.stdin:
    git=subprocess.check_output(['/usr/bin/xcrun','--find','git'],text=True).strip()
   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
   task_context=p['input'][0]['text']
+  if 'New answers:\nWhich output?: Plain' in task_context:save(answered=True)
   if (root/'hosted-feedback').exists() and 'Feedback ID: comment:' in task_context:
-   feedback=task_context.split('Feedback ID: ',1)[1].split('\n',1)[0]
-   call('review_action',{'action':'reply','feedbackId':feedback,'body':'Updated the implementation and verified the requested behavior.'});continue
+   hosted_replies=[line.removeprefix('Feedback ID: ') for line in task_context.splitlines() if line.startswith('Feedback ID: ')]
+   feedback=hosted_replies.pop(0)
+   call('review_action',{'action':'reply','feedbackId':feedback,'body':'Updated the implementation and verified the requested behavior.','resolve':feedback.startswith('thread:')});continue
   if (root/'subagents').exists():
    delegation()
    if (root/'subagent-hold').exists():continue
@@ -302,7 +306,9 @@ for line in sys.stdin:
   elif tool=='submit_plan':build()
   elif tool=='review_action':
    assert req['result']['success'], req['result']
-   build()
+   if hosted_replies:
+    feedback=hosted_replies.pop(0);call('review_action',{'action':'reply','feedbackId':feedback,'body':'Preserved the account filter and verified it.','resolve':feedback.startswith('thread:')})
+   else:save(revision_answered=True);build()
   elif tool=='complete_qa':
    assert req['result']['success'], req['result']
    complete()

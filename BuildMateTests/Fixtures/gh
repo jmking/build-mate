@@ -3,7 +3,7 @@ import json,os,pathlib,sys,subprocess
 root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);a=sys.argv[1:]
 with (root/'gh-calls.jsonl').open('a') as f:f.write(json.dumps(a)+'\n')
 if (root/'missing-gh').exists():sys.exit(127)
-pr={'number':42,'url':'https://github.com/fixture/repo/pull/42','baseRefName':'main'}
+pr={'number':42,'url':'https://github.com/fixture/repo/pull/42','baseRefName':(root/'pr-base').read_text() if (root/'pr-base').exists() else 'main'}
 if a[:2]==['auth','status']:
  sys.exit(1 if (root/'signed-out').exists() else 0)
 elif a[:2]==['repo','view']:print(json.dumps({'nameWithOwner':'fixture/repo','defaultBranchRef':{'name':'main'},'squashMergeAllowed':True,'mergeCommitAllowed':True,'rebaseMergeAllowed':False}))
@@ -17,6 +17,9 @@ elif a[:2]==['pr','create']:
  assert a[a.index('--base')+1]=='main'
  (root/'pr-sha').write_text(subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip());(root/'pr-body').write_text(body);(root/'pr-head').write_text(a[a.index('--head')+1]);(root/'pr-created').touch();print(pr['url'])
 elif a[:2]==['pr','edit']:
+ if '--body-file' not in a:
+  assert '--base' in a
+  (root/'pr-base').write_text(a[a.index('--base')+1]);sys.exit(0)
  assert a[2]=='42' and (root/'pr-created').exists()
  assert not (root/'merged').exists() and not (root/'pr-closed').exists()
  body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
@@ -31,16 +34,28 @@ elif a[:2]==['pr','merge']:
  assert '--match-head-commit' in a and '--admin' not in a and (root/'merge-ready').exists()
  (root/'merge-requested').touch()
 elif a[0]=='api':
- if a[1]=='graphql':print(json.dumps([{'data':{'repository':{'pullRequest':{'reviewThreads':{'nodes':[],'pageInfo':{'hasNextPage':False}}}}}}]))
+ if a[1]=='graphql':
+  if 'mutation' in a[a.index('-f')+1]:
+   (root/'thread-resolved').touch();print(json.dumps({'data':{'resolveReviewThread':{'thread':{'isResolved':True}}}}))
+  else:
+   nodes=[]
+   if (root/'thread-feedback').exists():
+    posts=json.loads((root/'posted-replies').read_text()) if (root/'posted-replies').exists() else []
+    nodes=[{'id':'thread-7','isResolved':(root/'thread-resolved').exists(),'isOutdated':False,'comments':{'nodes':[{'databaseId':102,'body':'Keep the existing account filter while changing the color.'}]+[{'databaseId':v['id'],'body':v['body']} for v in posts if v.get('kind')=='thread'],'pageInfo':{'hasPreviousPage':False}}}]
+   print(json.dumps([{'data':{'repository':{'pullRequest':{'reviewThreads':{'nodes':nodes,'pageInfo':{'hasNextPage':False}}}}}}]))
  elif '--method' in a and a[a.index('--method')+1]=='POST':
   body=json.loads(pathlib.Path(a[a.index('--input')+1]).read_text())['body']
   posts=json.loads((root/'posted-replies').read_text()) if (root/'posted-replies').exists() else []
-  post={'id':200+len(posts),'body':body};posts.append(post);(root/'posted-replies').write_text(json.dumps(posts));print(json.dumps(post))
+  post={'id':200+len(posts),'body':body,'kind':'thread' if '/pulls/' in a[1] else 'comment'};posts.append(post);(root/'posted-replies').write_text(json.dumps(posts))
+  if (root/'lose-reply-response').exists():
+   (root/'lose-reply-response').unlink();sys.exit(1)
+  print(json.dumps(post))
  elif '/reviews?' in a[1]:print('[[]]')
  elif '/comments?' in a[1]:
   comments=json.loads((root/'review-feedback').read_text()) if (root/'review-feedback').exists() else []
   posts=json.loads((root/'posted-replies').read_text()) if (root/'posted-replies').exists() else []
-  print(json.dumps([comments+posts]))
+  kind='thread' if '/pulls/' in a[1] else 'comment'
+  print(json.dumps([(comments if kind=='comment' else [])+[v for v in posts if v.get('kind')==kind]]))
  else:sys.exit('Unexpected fake API')
 elif a[:2]==['run','view']:
  if '--log-failed' in a:print('Runner temporarily lost its network connection. No tests ran.')

@@ -119,6 +119,12 @@ final class Store: Sendable {
         migrator.registerMigration("v14-hosted-review") { db in
             try db.execute(sql: "CREATE TABLE prWatch (id TEXT PRIMARY KEY REFERENCES task(id) ON DELETE CASCADE, head TEXT NOT NULL, feedback TEXT NOT NULL, seen TEXT NOT NULL, replies TEXT NOT NULL, actions TEXT NOT NULL, repairing BOOLEAN NOT NULL, requirementsRevision INTEGER NOT NULL, mergeHead TEXT)")
         }
+        migrator.registerMigration("v15-work-scope") { db in
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN affectedPaths TEXT NOT NULL DEFAULT '[]'")
+        }
+        migrator.registerMigration("v16-review-resolution") { db in
+            try db.execute(sql: "ALTER TABLE prWatch ADD COLUMN resolutions TEXT NOT NULL DEFAULT '[]'")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

@@ -17,6 +17,7 @@ actor Orchestrator {
     private var clients: [UUID: CodexClient] = [:]
     private var polling: Set<UUID> = []
     private var lastPoll: [UUID: Date] = [:]
+    private var hostJobs: [UUID: Task<Void, Never>] = [:]
     var proofsRunning = 0
     var previews: [UUID: PreviewStatus] = [:]
     var previewProcesses: [UUID: ChildProcess] = [:]
@@ -25,6 +26,7 @@ actor Orchestrator {
     private var openingPRs: Set<UUID> = []
     var editingTasks: Set<UUID> = []
     private var ticking = false
+    private var lastDispatchWasChat = false
     var titleJobs: [UUID: Task<Void, Never>] = [:]
     var chatJobs: [UUID: Task<Void, Never>] = [:]
     var chatClients: [UUID: CodexClient] = [:]
@@ -38,7 +40,7 @@ actor Orchestrator {
     private func clearBackgroundIssue(_ id: String) {
         backgroundIssues[id] = nil; dismissedIssues[id] = nil
     }
-    private func reportBackgroundIssue(_ message: String, id: String, taskID: UUID? = nil, projectID: UUID? = nil) {
+    func reportBackgroundIssue(_ message: String, id: String, taskID: UUID? = nil, projectID: UUID? = nil) {
         let text = runner.redacted(message)
         guard dismissedIssues[id] != text else { return }
         backgroundIssues[id] = BackgroundIssue(id: id, message: text, taskID: taskID, projectID: projectID)
@@ -125,6 +127,9 @@ actor Orchestrator {
         await usageClient?.stop()
         await usageRefresh?.value
         loop?.cancel(); loop = nil
+        let hosted = Array(hostJobs.values)
+        for job in hosted { job.cancel() }
+        for job in hosted { await job.value }
         for id in Array(chatJobs.keys) { await stopProjectChat(id) }
         let pending = Array(workers.values)
         for worker in pending { worker.cancel() }
@@ -147,7 +152,8 @@ actor Orchestrator {
                 for task in initialTasks {
                     guard let worker = workers[task.id], let project = initialProjects[task.projectId] else { continue }
                     let unroutable = (try? dependenciesReady(task)) != true
-                    if initialSettings.paused || project.paused || task.paused || task.state.terminal || unroutable {
+                    let humanWait = (try? openQuestions(task.id)) == true || (try? pendingPlan(task.id)) == true
+                    if initialSettings.paused || project.paused || task.paused || task.state.terminal || unroutable || humanWait {
                         let client = clients[task.id]
                         let session = try? store.session(for: task.id)
                         group.addTask {
@@ -163,12 +169,26 @@ actor Orchestrator {
             }
             // Actor reentrancy permits edits while interruption waits. Never dispatch an old snapshot.
             guard !shuttingDown else { return }
-            let settings = try store.settings()
+            var settings = try store.settings()
+            settings.agentsAtOnce = Self.computeCapacity(settings.agentsAtOnce)
             let tasks = try store.all(WorkTask.self)
             let projects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
-            for task in tasks where (task.pr != nil && !task.state.terminal || (task.state == .done && task.worktreePath != nil)) && !editingTasks.contains(task.id) && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 15 {
+            for task in tasks where !editingTasks.contains(task.id) && hostJobs[task.id] == nil && !polling.contains(task.id) && !openingPRs.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 15 {
+                let project = projects[task.projectId]
+                let watch = try watch(task.id)
+                let publish = task.state == .humanReview && !task.paused && !settings.paused && project?.paused == false && project?.host == .github
+                    && (project?.settings.askBeforeOpenPR == false || watch.repairing && watch.requirementsRevision == task.requirementsRevision)
+                let observe = task.pr != nil && (!task.state.terminal || task.state == .done && task.worktreePath != nil)
+                guard publish || observe else { continue }
                 lastPoll[task.id] = now
-                Task { await pollPR(task.id) }
+                hostJobs[task.id] = Task {
+                    if publish {
+                        do { try await openPullRequest(task.id) }
+                        catch is CancellationError { }
+                        catch { reportBackgroundIssue(runner.redacted(error.localizedDescription), id: "pr-\(task.id)", taskID: task.id) }
+                    } else { await pollPR(task.id) }
+                    hostJobs[task.id] = nil
+                }
             }
             await reconcileProjectChats(settings: settings, projects: projects)
             for project in projects.values where (try? project.settings.validate()) != nil {
@@ -178,21 +198,51 @@ actor Orchestrator {
                 clearBackgroundIssue("scheduler"); return
             }
             guard settings.agentsAtOnce > 0, settings.heavyStepsAtOnce > 0 else { throw CoreError.invalid("Concurrency limits must be positive") }
-            // A waiting worker still owns a process and a slot. Answering cannot overbook the limit.
+            // Waiting processes have been interrupted above; answers resume their durable thread in a free slot.
             var occupied = workers.count + chatJobs.count
-            occupied = try dispatchProjectChats(occupied: occupied, settings: settings, projects: projects)
-            for task in tasks.sorted(by: { $0.rank == $1.rank ? $0.createdAt < $1.createdAt : $0.rank > $1.rank }) {
+            if !lastDispatchWasChat {
+                let before = occupied
+                occupied = try dispatchProjectChats(occupied: occupied, settings: settings, projects: projects, maximum: 1)
+                if occupied > before { lastDispatchWasChat = true }
+            }
+            let dependents = Dictionary(grouping: tasks.flatMap { $0.dependsOn }, by: { $0 }).mapValues(\.count)
+            let ordered = tasks.sorted {
+                let aged0 = now.timeIntervalSince($0.updatedAt) > 600, aged1 = now.timeIntervalSince($1.updatedAt) > 600
+                if aged0 != aged1 { return aged0 }
+                if ($0.pr != nil) != ($1.pr != nil) { return $0.pr != nil }
+                if $0.rank != $1.rank { return $0.rank > $1.rank }
+                if dependents[$0.id, default: 0] != dependents[$1.id, default: 0] { return dependents[$0.id, default: 0] > dependents[$1.id, default: 0] }
+                return $0.createdAt < $1.createdAt
+            }
+            for task in ordered {
                 guard occupied < settings.agentsAtOnce else { break }
-                guard workers[task.id] == nil, !editingTasks.contains(task.id), let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
+                guard workers[task.id] == nil, !scopeIsBusy(task), !editingTasks.contains(task.id), let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
                       (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
                 do { try project.settings.validate(); clearBackgroundIssue("project-\(project.id)") }
                 catch { reportBackgroundIssue(error.localizedDescription, id: "project-\(project.id)", projectID: project.id); continue }
-                occupied += 1
+                occupied += 1; lastDispatchWasChat = false
                 workers[task.id] = Task { await run(task.id) }
             }
+            let beforeChats = occupied
+            occupied = try dispatchProjectChats(occupied: occupied, settings: settings, projects: projects)
+            if occupied > beforeChats { lastDispatchWasChat = true }
             clearBackgroundIssue("scheduler")
         } catch { reportBackgroundIssue(error.localizedDescription, id: "scheduler") }
+    }
+    private func scopeIsBusy(_ task: WorkTask) -> Bool {
+        guard !task.affectedPaths.isEmpty else { return false }
+        return workers.keys.contains { id in
+            guard id != task.id, let other = try? store.get(WorkTask.self, id) else { return false }
+            return task.overlaps(other)
+        }
+    }
+    static func computeCapacity(_ requested: Int) -> Int {
+        switch ProcessInfo.processInfo.thermalState {
+        case .critical: return min(requested, 1)
+        case .serious: return max(1, min(requested / 2, max(1, ProcessInfo.processInfo.activeProcessorCount / 4)))
+        default: return requested
+        }
     }
     private func dependenciesReady(_ task: WorkTask) throws -> Bool {
         for id in Set(task.dependsOn + (task.stackOn.map { [$0] } ?? [])) {
@@ -243,7 +293,7 @@ actor Orchestrator {
             worker.cancel(); await clients[id]?.stop(); await worker.value
         }
     }
-    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement, automaticallyResume: Bool = false) async throws {
+    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement, automaticallyResume: Bool = false, forceRevision: Bool = false) async throws {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
         guard editingTasks.insert(id).inserted else { throw CoreError.invalid("This task is already being edited.") }
@@ -252,7 +302,7 @@ actor Orchestrator {
         titleJobs[id]?.cancel()
         var task = try store.get(WorkTask.self, id)
         let explicitlyPaused = task.paused
-        let scopeChanged = task.description != description || task.proofRequirement != proofRequirement
+        let scopeChanged = forceRevision || task.description != description || task.proofRequirement != proofRequirement
         guard scopeChanged || task.title != title else { return }
         if scopeChanged {
             guard !task.state.terminal, (task.state != .inPR || automaticallyResume), !openingPRs.contains(id) else {
@@ -387,7 +437,7 @@ actor Orchestrator {
         return .saved
     }
     func openPullRequest(_ id: UUID) async throws {
-        guard !editingTasks.contains(id) else { throw CoreError.invalid("Wait for the task edit to finish.") }
+        guard !shuttingDown, !Task.isCancelled, !editingTasks.contains(id) else { throw CoreError.invalid("Wait for the task edit to finish.") }
         let task = try store.get(WorkTask.self, id)
         guard openingPRs.insert(id).inserted else { throw CoreError.invalid("Pull request is already opening") }
         defer { openingPRs.remove(id) }
@@ -416,7 +466,7 @@ actor Orchestrator {
         try await finishHostedPass(store.get(WorkTask.self, id), project: project)
     }
     func pollPR(_ id: UUID) async {
-        guard !editingTasks.contains(id), !openingPRs.contains(id), polling.insert(id).inserted else { return }
+        guard !shuttingDown, !Task.isCancelled, !editingTasks.contains(id), !openingPRs.contains(id), polling.insert(id).inserted else { return }
         defer { polling.remove(id) }
         do {
             let task = try store.get(WorkTask.self, id)
@@ -436,6 +486,8 @@ actor Orchestrator {
                 try await finishHostedPass(task, project: project)
                 try await reconcileHostedReview(task, project: project, status: status)
             } else if status.state == "CLOSED", !task.state.terminal {
+                var paused = try store.get(WorkTask.self, id); paused.paused = true; try store.save(paused)
+                await stopForReshape(id)
                 throw CoreError.invalid("This PR was closed without merging. Review the host decision before continuing.")
             }
             guard !editingTasks.contains(id) else { return }
@@ -585,19 +637,19 @@ actor Orchestrator {
                 try store.acknowledgeInput(session: session, ids: input.ids, context: input.context)
                 session.activeModel = selection.model; session.activeEffort = selection.effort
                 session.currentTurn = response["turn"]["id"].string; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
-                let started = Date()
-                var waitingDuration: TimeInterval = 0
+                let started = SuspendingClock.now
+                var waitingDuration = Duration.zero
                 var complete = false
                 var madeProgress = false
                 var streaming: [String: UUID] = [:]
                 while !complete {
                     try Task.checkCancellation()
-                    guard Date().timeIntervalSince(started) - waitingDuration < Double(p.settings.turnTimeoutMs) / 1000 else { throw CoreError.invalid("Codex turn timed out") }
+                    guard started.duration(to: SuspendingClock.now) - waitingDuration < .milliseconds(p.settings.turnTimeoutMs) else { throw CoreError.invalid("Codex turn timed out") }
                     guard let event = try await client.nextEvent() else {
                         let last = await client.lastEventAt
                         let runningCommand = await client.hasActiveCommands
-                        guard runningCommand || p.settings.stallTimeoutMs <= 0 || Date().timeIntervalSince(last) < Double(p.settings.stallTimeoutMs) / 1000 else { throw CoreError.invalid("Codex stalled") }
-                        guard Date().timeIntervalSince(started) - waitingDuration < Double(p.settings.turnTimeoutMs) / 1000 else { throw CoreError.invalid("Codex turn timed out") }
+                        guard runningCommand || p.settings.stallTimeoutMs <= 0 || last.duration(to: SuspendingClock.now) < .milliseconds(p.settings.stallTimeoutMs) else { throw CoreError.invalid("Codex stalled") }
+                        guard started.duration(to: SuspendingClock.now) - waitingDuration < .milliseconds(p.settings.turnTimeoutMs) else { throw CoreError.invalid("Codex turn timed out") }
                         continue
                     }
                     let method = event["method"].string ?? ""
@@ -621,10 +673,10 @@ actor Orchestrator {
                     try store.save(session)
                     if method == "account/rateLimits/updated" { receiveUsage(params, replacing: false) }
                     if method == "item/tool/call" || method == "item/tool/requestUserInput" {
-                        let before = Date()
+                        let before = SuspendingClock.now
                         let progressed = try await handle(event, taskId: id, client: client)
                         madeProgress = madeProgress || progressed
-                        waitingDuration += Date().timeIntervalSince(before)
+                        waitingDuration += before.duration(to: SuspendingClock.now)
                         let latest = try store.get(WorkTask.self, id)
                         if latest.state == .humanReview || latest.state == .inPR { complete = true }
                     } else if event["id"] != .null {
@@ -703,7 +755,7 @@ actor Orchestrator {
     }
 
     private func prompt(task: WorkTask, project: Project) throws -> String {
-        return "\(Self.hostedInstructions)\n\((try? watch(task.id).feedback.map { "Feedback ID: \($0.id)\n\($0.body)" }.joined(separator: "\n\n")) ?? "")\n\(Self.qaInstructions)\n\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository.\nSubmit a plan before the first edit or after the brief changes; continue an accepted plan without submitting it again. Ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
+        return "\(Self.hostedInstructions)\n\((try? watch(task.id).feedback.map { "Feedback ID: \($0.id)\n\($0.body)" }.joined(separator: "\n\n")) ?? "")\n\(Self.qaInstructions)\n\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nCurrent base commit: \(task.baseCommitSHA ?? "repository default"). Before final QA, ensure your branch incorporates this base; when a stacked parent merges, reconcile its changes rather than submitting them again. This current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository.\nDeclare affectedPaths in submit_plan when known so overlapping edits can be coordinated. Keep builds and tests proportionate to available compute and avoid redundant parallel heavy processes. Submit a plan before the first edit or after the brief changes; continue an accepted plan without submitting it again. Ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {
@@ -765,6 +817,13 @@ actor Orchestrator {
             guard let plan = args["plan"].string, !plan.isEmpty else { try await client.respond(requestId, text: "Plan is required", success: false); return false }
             let task = try store.get(WorkTask.self, taskId)
             let project = try store.get(Project.self, task.projectId)
+            if args["affectedPaths"] != .null {
+                var claimed = task; claimed.affectedPaths = try WorkTask.validatedPaths(args["affectedPaths"].array.compactMap(\.string)); try store.save(claimed)
+                if scopeIsBusy(claimed) {
+                    try await client.respond(requestId, text: "Another task currently owns overlapping paths. Your plan is saved; work will resume when that task yields.", success: false)
+                    throw CancellationError()
+                }
+            }
             let previousPlan = try store.all(Message.self).filter { $0.sessionId == session.id && $0.kind == "plan" }.max { $0.createdAt < $1.createdAt }?.body
             try store.save(Message(sessionId: session.id, role: "agent", kind: "plan", body: plan))
             if !(try planApproved(task, project: project)) {
@@ -790,7 +849,7 @@ actor Orchestrator {
             do { submission = try ProofSubmission(args) }
             catch { try await client.respond(requestId, text: error.localizedDescription, success: false); return false }
             let project = try store.get(Project.self, task.projectId)
-            while proofsRunning >= (try store.settings()).heavyStepsAtOnce {
+            while proofsRunning >= Self.computeCapacity(min(2, (try store.settings()).heavyStepsAtOnce)) {
                 try Task.checkCancellation(); try await Task.sleep(for: .milliseconds(100))
             }
             proofsRunning += 1
@@ -822,7 +881,7 @@ actor Orchestrator {
             do { let result = try await reviewAction(taskId, arguments: args); try await client.respond(requestId, text: result); return true }
             catch { try await client.respond(requestId, text: runner.redacted(error.localizedDescription), success: false); return false }
         case "complete_qa":
-            do { try await completeQA(taskID: taskId, arguments: args); try await client.respond(requestId, text: "QA complete. Waiting for review. Stop now."); return true }
+            do { try await completeQA(taskID: taskId, arguments: args); try await client.respond(requestId, text: "QA complete. The delivery workflow will continue or wait for human review. Stop now."); return true }
             catch { try await client.respond(requestId, text: runner.redacted(error.localizedDescription), success: false); return false }
         case "note":
             guard let text = args["text"].string else { try await client.respond(requestId, text: "Text required", success: false); return false }

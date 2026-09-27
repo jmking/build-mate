@@ -19,6 +19,7 @@ struct ModelPicker: View {
         effectiveConfiguration?.model ?? (projectChat ? "gpt-6-astra" : project?.settings.model) ?? session?.activeModel
     }
     private var selectedEffort: String? {
+        if configuration?.recommended == true, !projectChat, let effort = project?.settings.effort { return effort }
         if let effort = effectiveConfiguration?.effort { return effort }
         if let effort = projectChat ? "high" : project?.settings.effort { return effort }
         return session?.activeModel == selectedModel ? session?.activeEffort : nil

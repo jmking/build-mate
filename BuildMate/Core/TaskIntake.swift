@@ -6,7 +6,9 @@ extension Orchestrator {
         let session = try store.session(for: original.projectId, ownerType: "project")
         let sources = try store.chatAttachments(sessionID: session.id).filter { attachmentIDs.contains($0.id) && $0.removedAt == nil }
         guard Set(sources.map(\.id)) == Set(attachmentIDs) else { throw CoreError.invalid("A reference is no longer available in this project chat.") }
-        if original.state.terminal {
+        let project = try store.get(Project.self, original.projectId)
+        let mergedRemotely = original.pr != nil && project.host == .github ? try await GitHub(runner: runner, root: store.root).status(task: original, project: project).state == "MERGED" : false
+        if original.state.terminal || mergedRemotely {
             let item = Proposal.Item(title: title, description: description, dependsOnIndex: [], attachmentIds: attachmentIDs)
             let proposal = try saveProposal(original.projectId, sessionID: session.id, items: [item])
             return try await acceptProposal(proposal.id, projectID: original.projectId, selected: [0], related: [original.id])[0]
@@ -23,7 +25,7 @@ extension Orchestrator {
                 }
             }
         } catch { store.discardPreparedAttachments(copies); throw error }
-        try await editTask(original.id, title: title, description: description, proofRequirement: original.proofRequirement, automaticallyResume: true)
+        try await editTask(original.id, title: title, description: description, proofRequirement: original.proofRequirement, automaticallyResume: true, forceRevision: !newSources.isEmpty)
         return try store.get(WorkTask.self, original.id)
     }
 

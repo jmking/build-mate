@@ -127,6 +127,9 @@ struct ProjectChatTests {
         try await f.wait("refined description") { try f.store.get(WorkTask.self, tasks[0].id).description.contains("active accounts") && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         try await core.sendProjectMessage(f.project.id, text: "Ask a question")
         try await f.wait("project question") { try f.store.session(for: f.project.id, ownerType: "project").status == "waiting" }
+        await core.tick() // A project question releases its process while retaining the question and thread.
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").currentTurn == nil)
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").status == "waiting")
         let model = await AppModel(store: f.store, runner: f.runner)
         await model.refresh()
         #expect(await model.needsCount == 1)

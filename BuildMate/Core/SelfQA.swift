@@ -13,6 +13,8 @@ extension Orchestrator {
               let assessment = arguments["assessment"].string, !assessment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CoreError.invalid("Run current evidence and inspect it before completing QA.")
         }
+        let session = try store.session(for: taskID)
+        guard try !subagents(session.id).contains(where: \.isActive) else { throw CoreError.invalid("Finish and inspect delegated work before completing QA.") }
         let required = Set(proof.evidencePaths)
         let inspected = Set(arguments["inspectedPaths"].array.compactMap(\.string))
         guard required == inspected, required.allSatisfy({ FileManager.default.fileExists(atPath: $0) }),
@@ -20,16 +22,22 @@ extension Orchestrator {
         let head = try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard proof.commitSHA == head, try await runner.run("git", ["status", "--porcelain"], cwd: cwd).output.isEmpty,
               try store.get(WorkTask.self, taskID).requirementsRevision == proof.requirementsRevision else { throw CoreError.invalid("The work changed after evidence was collected. Run and inspect fresh evidence.") }
+        let currentTask = try store.get(WorkTask.self, taskID)
+        guard currentTask.state == .building, !currentTask.paused, !editingTasks.contains(taskID),
+              try store.get(Proof.self, proof.id).qaToken == token else { throw CoreError.invalid("The task or evidence changed during QA. Inspect the current state before continuing.") }
         let hosted = try watch(taskID)
         if hosted.repairing {
             guard hosted.feedback.filter({ $0.id.hasPrefix("comment:") || $0.id.hasPrefix("thread:") || $0.id.hasPrefix("review:") }).allSatisfy({ hosted.replies[$0.id] != nil }) else { throw CoreError.invalid("Queue a response to each reviewer before completing this review pass.") }
         }
         proof.qaReview = runner.redacted(assessment); proof.complete = true; try store.save(proof)
-        let session = try store.session(for: taskID)
         try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Self-review completed. Ready for review."))
         try transition(taskID, to: .humanReview)
         let project = try store.get(Project.self, task.projectId)
-        if ((hosted.repairing && hosted.requirementsRevision == task.requirementsRevision) || !project.settings.askBeforeOpenPR) && project.host != .local { try await openPullRequest(taskID) }
+        if ((hosted.repairing && hosted.requirementsRevision == task.requirementsRevision) || !project.settings.askBeforeOpenPR) && project.host != .local {
+            do { try await openPullRequest(taskID) }
+            catch is CancellationError { throw CancellationError() }
+            catch { reportBackgroundIssue(runner.redacted(error.localizedDescription), id: "pr-\(taskID)", taskID: taskID) }
+        }
     }
 }
 

@@ -137,6 +137,15 @@ struct ProofRunner: Sendable {
             proof.files += 1; proof.additions += Int(fields[0]) ?? 0; proof.deletions += Int(fields[1]) ?? 0
             proof.changes.append(ChangedFile(path: String(fields[2]), additions: Int(fields[0]), deletions: Int(fields[1])))
         }
+        if let base = task.baseCommitSHA {
+            let incorporated = try await runner.run("git", ["merge-base", "--is-ancestor", base, "HEAD"], cwd: cwd, allowFailure: true)
+            if incorporated.status != 0 {
+                proof.complete = false
+                let log = logs.appending(path: "base-integration.log")
+                try "The branch does not incorporate base commit \(base). Reconcile the current base into this task branch, resolve conflicts without discarding changes, commit, then rerun QA.".write(to: log, atomically: true, encoding: .utf8)
+                proof.checks.append(CheckResult(name: "Current base incorporated", status: "failed", durationSec: 0, logPath: log.path))
+            }
+        }
         let status = try await runner.run("git", ["status", "--porcelain"], cwd: cwd)
         if !status.output.isEmpty { proof.complete = false }
         proof.commitSHA = try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)

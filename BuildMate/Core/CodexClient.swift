@@ -7,7 +7,7 @@ actor CodexClient {
     private var responses: [Int: JSON] = [:]
     private var events: [JSON] = []
     private var failure: String?
-    private(set) var lastEventAt = Date()
+    private(set) var lastEventAt = SuspendingClock.now
     private var timeout: Double = 5
     private var workingDirectory: String?
     private var didReadInheritedConfiguration = false
@@ -60,7 +60,7 @@ actor CodexClient {
         }
     }
     private func receive(_ value: JSON) {
-        lastEventAt = Date()
+        lastEventAt = SuspendingClock.now
         let item = value["params"]["item"]
         if value["method"].string == "item/started", item["type"].string == "subAgentActivity",
            let thread = value["params"]["threadId"].string, let id = item["id"].string {
@@ -83,7 +83,7 @@ actor CodexClient {
     func request(_ method: String, _ parameters: [String: JSON], timeout override: Double? = nil) async throws -> JSON {
         sequence += 1; let id = sequence
         try await child.write(.object(["id": .number(Double(id)), "method": .string(method), "params": .object(parameters)]))
-        let deadline = Date().addingTimeInterval(override ?? timeout)
+        let deadline = SuspendingClock.now.advanced(by: .seconds(override ?? timeout))
         while true {
             try Task.checkCancellation()
             if let value = responses.removeValue(forKey: id) {
@@ -91,7 +91,7 @@ actor CodexClient {
                 return value["result"]
             }
             if let failure { throw CoreError.invalid(failure) }
-            guard Date() < deadline else { throw CoreError.invalid("Codex \(method) timed out") }
+            guard SuspendingClock.now < deadline else { throw CoreError.invalid("Codex \(method) timed out") }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
@@ -103,14 +103,14 @@ actor CodexClient {
         return nil
     }
     func respond(_ id: JSON, text: String, success: Bool = true) async throws {
-        lastEventAt = Date() // Human/proof waiting is excluded from the stall clock.
+        lastEventAt = SuspendingClock.now // Human/proof waiting is excluded from the stall clock.
         try await child.write(.object(["id": id, "result": .object([
             "contentItems": .array([.object(["type": .string("inputText"), "text": .string(text)])]),
             "success": .bool(success)
         ])]))
     }
     func respondUserInput(_ id: JSON, answers: [String: JSON]) async throws {
-        lastEventAt = Date()
+        lastEventAt = SuspendingClock.now
         try await child.write(.object(["id": id, "result": .object(["answers": .object(answers)])]))
     }
     func reject(_ id: JSON) async throws {
@@ -143,13 +143,13 @@ actor CodexClient {
             try await reject(id)
             return nil
         }
-        lastEventAt = Date()
+        lastEventAt = SuspendingClock.now
         try await child.write(.object(["id": id, "result": result]))
         return diagnostic
     }
     func interrupt(thread: String, turn: String) async {
-        let deadline = Date().addingTimeInterval(20)
-        while !activeCommands.isEmpty && Date() < deadline && !Task.isCancelled {
+        let deadline = SuspendingClock.now.advanced(by: .seconds(20))
+        while !activeCommands.isEmpty && SuspendingClock.now < deadline && !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(50))
         }
         _ = try? await request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)], timeout: 4)
@@ -172,8 +172,8 @@ actor CodexClient {
         }
         // Codex can place shell tools in their own process groups. Let its native
         // interruption finish before terminating the app-server's process group.
-        let deadline = Date().addingTimeInterval(2)
-        while !activeTurns.isEmpty, Date() < deadline, failure == nil {
+        let deadline = SuspendingClock.now.advanced(by: .seconds(2))
+        while !activeTurns.isEmpty, SuspendingClock.now < deadline, failure == nil {
             try? await Task.sleep(for: .milliseconds(20))
         }
         reader?.cancel(); reader = nil
@@ -184,9 +184,9 @@ actor CodexClient {
     static let tools: JSON = .array([
         tool("ask_question", "Ask the user before making an unclear decision. Blocking questions wait for an answer. Include suggestedAnswer only when you have a reasonable default for the user to confirm.",
              ["prompt": "string", "allowsFreeText": "boolean", "blocking": "boolean", "suggestedAnswer": "string"], required: ["prompt", "blocking"], options: true),
-        tool("submit_plan", "Submit your plan before editing. Wait for approval when required.", ["plan": "string"], required: ["plan"]),
+        tool("submit_plan", "Submit your plan before editing. Wait for approval when required.", ["plan": "string", "affectedPaths": "array"], required: ["plan"]),
         reviewTool,
-        tool("review_action", "Inspect failed CI, request an evidenced bounded rerun, queue a reviewer reply, or finish a PR triage pass with no code changes.", ["action": "string", "runId": "string", "reason": "string", "feedbackId": "string", "body": "string"], required: ["action"]),
+        tool("review_action", "Inspect failed CI, request an evidenced bounded rerun, queue a reviewer reply, or finish a PR triage pass with no code changes.", ["action": "string", "runId": "string", "reason": "string", "feedbackId": "string", "body": "string", "resolve": "boolean"], required: ["action"]),
         .object(["name": .string("complete_qa"), "description": .string("After inspecting all collected evidence and correcting defects, attest QA of this exact proof revision."), "inputSchema": .object([
             "type": .string("object"), "additionalProperties": .bool(false),
             "properties": .object(["proofToken": .object(["type": .string("string")]), "assessment": .object(["type": .string("string")]), "inspectedPaths": .object(["type": .string("array"), "items": .object(["type": .string("string")])])]),
@@ -215,7 +215,7 @@ actor CodexClient {
         ])
     ])
     private static func tool(_ name: String, _ description: String, _ fields: [String: String], required: [String], options: Bool = false) -> JSON {
-        var properties = fields.mapValues { JSON.object(["type": .string($0)]) }
+        var properties = fields.mapValues { type in type == "array" ? JSON.object(["type": .string("array"), "items": .object(["type": .string("string")])]) : JSON.object(["type": .string(type)]) }
         if options { properties["options"] = .object(["type": .string("array"), "items": .object(["type": .string("string")])]) }
         return .object(["name": .string(name), "description": .string(description), "inputSchema": .object([
             "type": .string("object"), "properties": .object(properties),
@@ -257,9 +257,9 @@ extension Orchestrator {
                     "required": .array([.string("title")]), "additionalProperties": .bool(false)
                 ])
             ])
-            let deadline = Date().addingTimeInterval(20)
+            let deadline = SuspendingClock.now.advanced(by: .seconds(20))
             var output = ""
-            while Date() < deadline {
+            while SuspendingClock.now < deadline {
                 guard let event = try await client.nextEvent() else { continue }
                 if event["id"] != .null { try await client.reject(event["id"]); continue }
                 guard event["params"]["threadId"] == thread else { continue }

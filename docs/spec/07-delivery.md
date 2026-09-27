@@ -189,3 +189,9 @@ See [the runtime audit](../codex-runtime-audit.md) for measured metadata and int
 ## Workflow audit: correctness foundation — 2026-09-27
 
 New work uses the freshly fetched host default branch and retains its base SHA. Proof and publication check requirement revisions. GitHub pushes the reviewed object, refreshes PR titles and descriptions, and repeated review cycles receive new attention identities. A process-boundary regression advances the bare remote beyond the user's local branch, verifies the new task includes it, rejects superseded requirements, and moves HEAD during publication to prove only the reviewed commit reaches the remote. App/test build and all 15 tests passed (126.8 s). Remaining audit implementation is tracked in `docs/workflow-delivery.md`; this does not claim the whole workflow is complete.
+
+## Workflow audit follow-through (27 September 2026)
+
+The current authorization extends delivery beyond the original milestone boundaries: state-aware intake, unpublished task split/combine with provenance, selective references, model recommendations, evidence inspection before human review, same-PR repairs, bounded CI reruns, GitHub-controlled merge, and fair scope-aware scheduling. Bitbucket authenticated integration remains deferred by explicit user choice. No remote daemon is added; monitoring runs while the Mac app is open.
+
+Acceptance covers preserved source/dependency/model data during reshaping, stale-revision QA refusal, exact-commit publishing, feedback/reply recovery, inspected and bounded CI reruns, per-head merge approval, waiting-capacity release, and independent work continuing beside an overlapping scope. Test executables stub the process boundary; no test mutates real hosting services.

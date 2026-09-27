@@ -127,6 +127,7 @@ struct WorkTask: Record {
     var workspaceReady = false
     var baseCommitSHA: String?
     var requirementsRevision = 1
+    var affectedPaths: [String] = []
     var relatedTaskIds: [UUID] = []
     var deliveryGroupIds: [UUID] = []
     var replacedBy: [UUID] = []
@@ -352,6 +353,7 @@ struct Proposal: Record {
         var effort: String?
         var modelRationale: String?
         var acceptanceCriteria: [String]?
+        var affectedPaths: [String]?
     }
     var id = UUID()
     var projectId: UUID

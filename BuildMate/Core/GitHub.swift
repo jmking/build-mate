@@ -1,7 +1,6 @@
 import Foundation
 
-/// Milestone 2 uses only the host operations needed by the first lifecycle.
-/// Full watch mode and the second provider belong to milestone 5.
+/// GitHub publication; review/CI reconciliation is implemented in HostedReview.swift.
 struct GitHub: Sendable {
     let runner: ProcessRunner
     let root: URL
@@ -27,8 +26,8 @@ struct GitHub: Sendable {
         try body.write(to: file, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: file) }
         if let existingPR {
-            _ = try await runner.run("gh", ["pr", "edit", String(existingPR.number), "--repo", project.remoteSlug, "--title", task.title, "--body-file", file.path], cwd: cwd)
-            return existingPR
+            _ = try await runner.run("gh", ["pr", "edit", String(existingPR.number), "--repo", project.remoteSlug, "--title", task.title, "--body-file", file.path, "--base", base], cwd: cwd)
+            return PullRequest(number: existingPR.number, url: existingPR.url, baseBranch: base)
         }
         let result = try await runner.run("gh", ["pr", "create", "--repo", project.remoteSlug, "--base", base, "--head", branch, "--title", task.title, "--body-file", file.path], cwd: cwd)
         let url = result.output.trimmingCharacters(in: .whitespacesAndNewlines)

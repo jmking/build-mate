@@ -62,7 +62,7 @@ actor ChildProcess {
         try input.fileHandleForWriting.write(contentsOf: data)
     }
     func nextLine(timeout: Double) async throws -> Data {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = SuspendingClock.now.advanced(by: .seconds(timeout))
         while true {
             try Task.checkCancellation()
             if let end = bytes.firstIndex(of: 10) {
@@ -70,16 +70,16 @@ actor ChildProcess {
                 return Data(line)
             }
             if eof { throw CoreError.invalid("CLI process closed stdout") }
-            if Date() >= deadline { throw CoreError.invalid("CLI read timed out") }
+            if SuspendingClock.now >= deadline { throw CoreError.invalid("CLI read timed out") }
             try await Task.sleep(for: .milliseconds(10))
         }
     }
     func collect(timeout: Double) async throws -> CommandResult {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = SuspendingClock.now.advanced(by: .seconds(timeout))
         do {
             while isRunning() || !eof {
                 try Task.checkCancellation()
-                guard Date() < deadline else { throw CoreError.invalid("Command timed out") }
+                guard SuspendingClock.now < deadline else { throw CoreError.invalid("Command timed out") }
                 try await Task.sleep(for: .milliseconds(20))
             }
             return CommandResult(output: String(decoding: bytes, as: UTF8.self), status: exitStatus ?? -1)

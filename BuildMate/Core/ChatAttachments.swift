@@ -97,13 +97,21 @@ extension Store {
     }
     func removeCompletedProjectAttachments(_ projectID: UUID) throws {
         let tasks = Dictionary(uniqueKeysWithValues: try all(WorkTask.self).filter { $0.projectId == projectID }.map { ($0.id, $0) })
+        func finished(_ id: UUID, visited: Set<UUID> = []) -> Bool {
+            guard let task = tasks[id], !visited.contains(id) else { return false }
+            return task.state == .done || (task.state == .canceled && !task.replacedBy.isEmpty && task.replacedBy.allSatisfy { finished($0, visited: visited.union([id])) })
+        }
+        for task in tasks.values where task.state == .canceled && finished(task.id) {
+            let session = try session(for: task.id)
+            for var attachment in try taskAttachments(task.id, sessionID: session.id) where attachment.removedAt == nil { try removeAttachmentFiles(&attachment, projectID: projectID) }
+        }
         let attachments = try all(Attachment.self)
         let session = try session(for: projectID, ownerType: "project")
         guard !["running", "waiting", "queued"].contains(session.status) else { return }
         for var source in try chatAttachments(sessionID: session.id) where source.removedAt == nil {
             let copies = attachments.filter { $0.sourceAttachmentId == source.id && $0.ownerType == "task" }
             // Unassigned files stay in chat. One merged task cannot remove references needed by another.
-            if !copies.isEmpty && copies.allSatisfy({ tasks[$0.ownerId]?.state == .done }) {
+            if !copies.isEmpty && copies.allSatisfy({ finished($0.ownerId) }) {
                 try removeAttachmentFiles(&source, projectID: projectID)
             }
         }
