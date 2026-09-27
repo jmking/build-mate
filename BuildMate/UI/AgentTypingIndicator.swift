@@ -34,10 +34,5 @@ struct AgentTypingIndicator: View {
         }
         .frame(width: 64, height: 36)
         .background(AppSurface.agentBubble, in: Capsule())
-        .overlay(alignment: .bottomLeading) {
-            Circle().fill(AppSurface.agentBubble).frame(width: 10, height: 10).offset(x: -1, y: 2)
-            Circle().fill(AppSurface.agentBubble).frame(width: 5, height: 5).offset(x: -5, y: 7)
-        }
-        .padding(.leading, 5).padding(.bottom, 7)
     }
 }
