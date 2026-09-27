@@ -24,7 +24,7 @@ Build with **system** colours, materials, fonts and SF Symbols so light/dark, ac
 |---|---|---|---|---|
 | Accent | `controlAccentColor` (user's choice; default blue) | #007AFF | #0A84FF | Primary buttons, selection, sidebar symbols, progress |
 | Needs you | `systemPurple` | #AF52DE | #BF5AF2 | Questions, approvals, decisions |
-| Success / proof | `systemGreen` | #34C759 | #30D158 | Proof complete, checks passed, road-to-merge done marks |
+| Success / proof | `systemGreen` | #34C759 | #30D158 | Proof complete and passed checks |
 | Warning / retry | `systemOrange` | #FF9500 | #FF9F0A | Retrying, failing check |
 | Paused / neutral | `systemGray` | #8E8E93 | #8E8E93 | Paused marker |
 | Badge (iOS tab) | `systemRed` | #FF3B30 | #FF453A | Tab bar count |
@@ -60,7 +60,7 @@ Do not set custom letter spacing. Support Dynamic Type on iPhone.
 
 ## 4. Layout, spacing, radii
 - Spacing scale: 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40.
-- Sidebar rows use native `Label` icon/title columns, including project disclosure labels; let the sidebar set symbol size and hierarchy indentation. Keep project folders in label colour. Repeated Needs You rows reserve 20 pt for status glyphs and 12 pt for chevrons. Board headers use 16 pt glyph slots and a common 20 pt height so the Queue add control cannot shift its header or content down.
+- Sidebar rows use native `Label` icon/title columns, including project disclosure labels; let the sidebar set symbol size and hierarchy indentation. Keep project folders in label colour. Repeated Needs You rows reserve 20 pt for status glyphs and 12 pt for chevrons. Board headers use 16 pt glyph slots and a common 20 pt height.
 - Align mixed-size text/control rows to their first text baseline: form fields/buttons, footer captions/actions, task number/title/status, transcript metadata, and Needs You glyph/title/chevron. Wrapped titles stay leading aligned; task metadata stays on the first line. List separators start at the row's leading edge, not underneath trailing status labels.
 - Composer: the text field has a minimum 32 pt height with 7 pt optical vertical insets and a large native circular send control. Its single line is vertically centred with the button; when it grows, the last text line remains aligned with the bottom action. Hint and input share a leading edge. Check empty, typed, wrapped and multiline states.
 - **Concentric corners**: inner radius = outer radius − padding. Board column 20 → card 12 (8 padding). Sheet 22 → inner panel 12 (10 padding).
@@ -111,7 +111,7 @@ Brand marks are reserved for repository/service-specific actions and information
 | Toolbar groups | `ToolbarItemGroup` / `ControlGroup` |
 | List/Board switch | segmented `Picker` in toolbar |
 | Open in editor | `Menu` with primary action (pull-down button) |
-| Road to merge checklist | custom vertical list with connecting line |
+| Task state | native label with semantic glyph, separate from pause/blocker text |
 | Proposal card | custom view with `Toggle` (checkbox style) rows |
 | Question card | custom view; answer chips are `Button`s with `.bordered` capsule style |
 | Composer | `TextField(axis: .vertical)` in a glass capsule |
@@ -138,7 +138,7 @@ Brand marks are reserved for repository/service-specific actions and information
 - The composer is a regular Liquid Glass surface in a bottom `safeAreaBar`, allowing the transcript to scroll behind it. Keep the delivery hint inside this surface for legibility. The circular send arrow has an action-specific accessibility label and tooltip. Clear glass is reserved for future media controls.
 - Use the native SwiftUI inspector (340 pt ideal, 280–380 pt resizable), retaining native presentation with the neutral raised-content background. Do not wrap the sidebar, toolbar or inspector in another glass layer.
 - `AppSurface` supplies window (#FFFFFF / #1E1E1E), raised (#FBFBFC / #232325), recessed (#F5F5F7 / #141416), card (#FFFFFF / #2C2C2F), sheet (#F7F7F9 / #2C2C2F) and sidebar (#F3F3F7 / #232325) backgrounds. These opaque light/dark pairs deliberately prevent desktop wallpaper tint from making large surfaces brown. Retain semantic separators, text, accents and card shadows. Toolbar controls and the composer keep native Liquid Glass; no global macOS appearance preferences are changed.
-- Transcript events are compact secondary rows; messages use 14 pt system type with 5 pt line spacing. Following the owner’s chat references, agent bubbles use #EEEEEE / #262626 (light/dark), while user bubbles use #080808 / #595959 with white text and 85% white speaker/time labels. Use opaque fills to avoid wallpaper tint. Agent and user messages share speech bubble geometry with 14 pt padding, 12 pt corners and a maximum content width of 560 pt. Agent bubbles align leading; user bubbles align trailing. Keep speaker/time inside each bubble; events remain compact rows and questions retain their interactive cards. Progress checklist labels stay in label colours; only glyphs carry state colour.
+- Messages use 14 pt system type with 4 pt line spacing. Following the owner’s chat references, agent bubbles use #EEEEEE / #262626 (light/dark), while user bubbles use #080808 / #595959 with white text. Use opaque fills to avoid wallpaper tint. Agent and user bubbles fit their content with 14 pt padding, 14 pt corners and a maximum outer width of 588 pt. Agent bubbles align leading; user bubbles align trailing. Speaker/time remain available through accessibility, tooltip and context actions; visible timestamps separate meaningful gaps. State history is disclosed and questions retain interactive cards. Current-state labels stay in label colours; only glyphs carry state colour.
 - Reduce Motion disables panel movement and pulsing; board updates use opacity instead of geometry travel. Reduced Transparency is handled by native materials.
 
 References checked: [Apple HIG Materials](https://developer.apple.com/design/human-interface-guidelines/materials), [Motion](https://developer.apple.com/design/human-interface-guidelines/motion), [Applying Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views). Apple reserves glass for navigation and functional controls; content cards retain standard surfaces. The reference wallpaper is not an app background, so translucency varies with the actual desktop and system preferences.
@@ -146,3 +146,9 @@ References checked: [Apple HIG Materials](https://developer.apple.com/design/hum
 ### Typing-to-message motion (2026-09-27)
 
 Both chats use a persistent transcript row for the pending agent response. The tailless typing capsule grows/fades into view in 0.28 s. When agent text arrives, the same row becomes the message bubble; its bounds and corner radius expand smoothly over 0.32 s as the dots fade into text. Streamed text updates animate the bubble’s size. Reset the pending indicator only after one second without further text, if the agent is still running; pause, waiting and completion remove it. Loading existing history does not replay message transitions. Reduce Motion disables geometry/scale motion and the dot wave; initial appearance may use a short opacity fade.
+
+## Minimal presentation pass (2026-09-27)
+
+Content-sized chat bubbles keep a readable maximum width. Speaker labels stay in accessibility metadata; visible times group messages at meaningful gaps. One brief disclosure and one truthful status replace duplicated text/checklists. Controls follow scope: navigation in the toolbar, model/effort at the composer, pause beside task status, rare actions in native menus. Model alignment follows the message field; attachment/send hit areas remain stable as the field grows.
+
+Keep motion purposeful: short pickup/insertion transitions for queue reordering, explicit inspector changes, typing-to-response expansion. Preserve the reader's scroll position and avoid replaying history animations. Disable geometry/scale motion under Reduce Motion. Verify long titles, narrow panes, multiline Markdown, attachments and both appearances; isolated static renders are not a substitute for interactive accessibility checks.

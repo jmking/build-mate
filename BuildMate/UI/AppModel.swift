@@ -40,6 +40,7 @@ enum ProjectPage: String, CaseIterable, Identifiable {
 @MainActor @Observable
 final class AppModel {
     var settingsTab = "general"
+    var settingsProjectID: UUID?
     var onRefresh: (([AttentionItem]) -> Void)?
     let store: Store
     let core: Orchestrator
@@ -67,14 +68,56 @@ final class AppModel {
     var editingTask: WorkTask?
     var taskToDelete: WorkTask?
     var deletingTasks: Set<UUID> = []
-    var showInspector = true
+    private struct ViewPreferences: Codable {
+        var inspector = false
+        var listMode = false
+        var projects: [String: Bool] = [:]
+        var briefs: [String: Bool] = [:]
+    }
+    private var viewPreferences = ViewPreferences() {
+        didSet { try? JSONEncoder().encode(viewPreferences).write(to: store.root.appending(path: "view-preferences.json"), options: .atomic) }
+    }
+    var showInspector: Bool {
+        get { viewPreferences.inspector }
+        set { viewPreferences.inspector = newValue }
+    }
     var toggleSidebar = false
-    var listMode = false
-    var search = ""
+    var listMode: Bool {
+        get { viewPreferences.listMode }
+        set { viewPreferences.listMode = newValue }
+    }
+    private var searches: [Destination: String] = [:]
+    var canSearch: Bool {
+        switch destination { case .needsYou, nil, .project(_, .tasks): true; default: false }
+    }
+    var search: String {
+        get { canSearch ? searches[destination ?? .needsYou, default: ""] : "" }
+        set { if canSearch { searches[destination ?? .needsYou] = newValue } }
+    }
     var chatDrafts: [UUID: String] = [:]
     var attachmentDrafts: [UUID: [URL]] = [:]
     var error: String?
-    var schedulerError: String?
+    private var backgroundIssues: [BackgroundIssue] = []
+    private var visibleIssue: BackgroundIssue? {
+        let projectID: UUID?
+        switch destination {
+        case .project(let id, _): projectID = id
+        case .task: projectID = selectedTask?.projectId
+        default: projectID = nil
+        }
+        return backgroundIssues.first { issue in
+            if let taskID = issue.taskID { return selectedTask?.id == taskID || (selectedTask == nil && projectID != nil && projectID == snapshot.tasks.first { $0.id == taskID }?.projectId) }
+            if let owner = issue.projectID { return projectID == owner }
+            return true
+        }
+    }
+    var schedulerError: String? {
+        guard let issue = visibleIssue else { return nil }
+        if let task = snapshot.tasks.first(where: { $0.id == issue.taskID }), selectedTask == nil {
+            return "\(task.title): \(issue.message)"
+        }
+        return issue.message
+    }
     var usage = UsageSnapshot()
     var usageHeld = false
     var previews: [UUID: PreviewStatus] = [:]
@@ -90,7 +133,21 @@ final class AppModel {
         var after = false
     }
 
-    init(store: Store, runner: ProcessRunner = ProcessRunner()) { self.store = store; core = Orchestrator(store: store, runner: runner) }
+    init(store: Store, runner: ProcessRunner = ProcessRunner()) {
+        self.store = store; core = Orchestrator(store: store, runner: runner)
+        if let data = try? Data(contentsOf: store.root.appending(path: "view-preferences.json")),
+           let value = try? JSONDecoder().decode(ViewPreferences.self, from: data) { viewPreferences = value }
+    }
+
+    func isProjectExpanded(_ id: UUID) -> Bool { viewPreferences.projects[id.uuidString] ?? (selectedProject?.id == id) }
+    func setProjectExpanded(_ id: UUID, expanded: Bool) { viewPreferences.projects[id.uuidString] = expanded }
+    func isBriefExpanded(_ task: WorkTask) -> Bool { viewPreferences.briefs[task.id.uuidString] ?? (task.state == .todo && task.worktreePath == nil) }
+    func setBriefExpanded(_ id: UUID, expanded: Bool) { viewPreferences.briefs[id.uuidString] = expanded }
+    func dismissSchedulerError() {
+        guard let issue = visibleIssue else { return }
+        backgroundIssues.removeAll { $0.id == issue.id }
+        Task { await core.dismissBackgroundIssue(issue.id) }
+    }
 
     func observe() async {
         guard !observing else { return }
@@ -114,7 +171,7 @@ final class AppModel {
                             questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db), proposals: try Proposal.fetchAll(db), attachments: try Attachment.fetchAll(db))
             }
             settings = try store.settings()
-            schedulerError = await core.lastError
+            backgroundIssues = await core.backgroundIssues.values.sorted { $0.id < $1.id }
             usage = await core.usage
             usageHeld = await core.usageHeld()
             previews = await core.previews
@@ -157,7 +214,7 @@ final class AppModel {
         return snapshot.tasks.first { $0.id == id }
     }
     func retryNeedsAttention(_ task: WorkTask) -> Bool {
-        guard task.retry != nil, !task.state.terminal else { return false }
+        guard let retry = task.retry, retry.attempt == 0 || retry.attempt >= 3, task.paused, !task.state.terminal else { return false }
         return !snapshot.sessions.contains { $0.ownerId == task.id && $0.status == "running" && $0.currentTurn != nil }
             && !snapshot.questions.contains { $0.taskId == task.id && $0.answer == nil }
             && !snapshot.approvals.contains { $0.taskId == task.id && $0.status == "pending" }
@@ -177,6 +234,42 @@ final class AppModel {
     var needsCount: Int { snapshot.tasks.filter(needsYou).count + projectQuestions.count }
     var workers: Int { snapshot.sessions.filter { ["running", "waiting"].contains($0.status) }.count }
     func projectName(_ id: UUID) -> String { snapshot.projects.first { $0.id == id }?.name ?? "Project" }
+    func projectChatWaitingReason(_ projectID: UUID) -> String? {
+        guard let project = snapshot.projects.first(where: { $0.id == projectID }),
+              let session = snapshot.sessions.first(where: { $0.ownerType == "project" && $0.ownerId == projectID }),
+              ["queued", "running", "waiting"].contains(session.status) else { return nil }
+        if settings.paused { return "All work is paused" }
+        if project.paused { return "Project is paused" }
+        if session.status == "waiting" { return "Waiting for your answer" }
+        if session.status == "running" { return nil }
+        if usageHeld { return "Waiting for usage to reset" }
+        if usage.refreshing && usage.updatedAt == nil { return "Checking account usage…" }
+        return "Waiting for an agent"
+    }
+    func waitingReason(for task: WorkTask) -> String? {
+        guard !task.state.terminal else { return nil }
+        if task.paused { return retryNeedsAttention(task) ? "Review the issue before resuming" : "Paused" }
+        if settings.paused { return "All work is paused" }
+        if let project = snapshot.projects.first(where: { $0.id == task.projectId }) {
+            if project.paused { return "Project is paused" }
+            if let reason = project.runBlockReason { return reason }
+        }
+        if snapshot.sessions.contains(where: { $0.ownerId == task.id && $0.status == "running" && $0.currentTurn != nil }) { return nil }
+        for id in Set(task.dependsOn + (task.stackOn.map { [$0] } ?? [])) {
+            guard let dependency = snapshot.tasks.first(where: { $0.id == id && $0.projectId == task.projectId }) else { return "A dependency is unavailable" }
+            if dependency.state != .done && !(task.stackOn == id && dependency.state == .inPR && dependency.pr != nil) { return "Waiting for \(dependency.title)" }
+        }
+        if task.retry != nil { return "Retrying automatically…" }
+        guard [.todo, .building].contains(task.state) else { return nil }
+        if snapshot.approvals.contains(where: { $0.taskId == task.id && $0.status == "pending" }) { return "Waiting for plan approval" }
+        if usageHeld { return "Waiting for usage to reset" }
+        if usage.refreshing && usage.updatedAt == nil { return "Checking account usage…" }
+        return "Waiting for an agent"
+    }
+    func hasSuggestedAnswers(for taskID: UUID) -> Bool {
+        let pending = snapshot.questions.filter { $0.taskId == taskID && $0.answer == nil && $0.blocking }
+        return !pending.isEmpty && pending.allSatisfy { $0.suggestedAnswer != nil }
+    }
     func tasks(_ id: UUID) -> [WorkTask] {
         var tasks = snapshot.tasks.filter { $0.projectId == id }
         if let drag = priorityDrag, drag.projectID == id,
@@ -187,7 +280,8 @@ final class AppModel {
                 tasks.insert(task, at: target + (drag.after ? 1 : 0))
             }
         }
-        return tasks.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || String($0.number).contains(search) }
+        let query = searches[.project(id, .tasks), default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+        return tasks.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }
     }
     func beginPriorityDrag(_ task: WorkTask) {
         guard task.state == .todo else { return }

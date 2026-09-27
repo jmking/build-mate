@@ -58,7 +58,14 @@ struct NotificationSettings: View {
                     } catch { self.error = error.localizedDescription }
                 }
             }.help("Manage notifications for questions, approvals, review and errors; macOS Focus settings are respected")
-        }.task { allowed = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized }
+        }.task { await refreshPermission() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task { await refreshPermission() }
+            }
         if let error { Text(error).font(.caption).foregroundStyle(.red) }
+    }
+    private func refreshPermission() async {
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        allowed = status == .authorized || status == .provisional
     }
 }

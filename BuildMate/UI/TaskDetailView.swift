@@ -5,206 +5,250 @@ struct TaskDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let task: WorkTask
-    @State private var message = ""
-    @State private var messageStatus: String?
     @State private var sending = false
     @State private var openingPR = false
+    @State private var approving: Set<UUID> = []
+    private var project: Project? { model.snapshot.projects.first { $0.id == task.projectId } }
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
-    private var isPaused: Bool { task.paused || model.settings.paused || model.selectedProject?.paused == true }
+    private var isPaused: Bool { task.paused || model.settings.paused || project?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
     private var acceptsFeedback: Bool { task.state == .humanReview || task.state == .inPR }
-    private var composerTitle: String { openQuestion != nil ? "Answer the question" : (activeTurn || acceptsFeedback) ? "Message the agent" : "Save a message for the next run" }
     private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || acceptsFeedback) ? "Send message" : "Save message" }
-    private var composerExplanation: String? {
-        if let question = openQuestion { return question.allowsFreeText ? "Your answer resolves this question. Paused tasks stay paused." : "Choose one of the answer buttons above." }
-        if task.state == .inPR { return isPaused ? "Tell the agent what to change. Work on this PR’s branch will resume when unpaused." : "Tell the agent what to change. It will continue on this PR’s branch." }
-        if task.state == .humanReview { return isPaused ? "Tell the agent what to change. Work will resume when unpaused." : "Tell the agent what to change. It will continue working." }
-        return activeTurn ? nil : "Messages are saved for when work resumes."
-    }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerId == task.id && $0.ownerType == "task" } }
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
+    private var conversation: [Message] {
+        let pendingQuestions = Set(questions.filter { $0.answer == nil }.map(\.messageId))
+        let pendingPlanMessages = Set(pendingPlans.compactMap { approval in
+            messages.last { $0.kind == "plan" && $0.body == approval.planText }?.id
+        })
+        return messages.filter { $0.kind != "event" && !pendingQuestions.contains($0.id) && !pendingPlanMessages.contains($0.id) }
+    }
     private var questions: [Question] { model.snapshot.questions.filter { $0.taskId == task.id } }
+    private var pendingPlans: [Approval] { model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" } }
     private var proof: Proof? { model.snapshot.proofs.first { $0.taskId == task.id } }
     private var files: [URL] { model.attachmentDrafts[task.id] ?? [] }
+    private var message: Binding<String> { Binding(get: { model.chatDrafts[task.id] ?? "" }, set: { model.chatDrafts[task.id] = $0 }) }
     private var fileBinding: Binding<[URL]> { Binding(get: { model.attachmentDrafts[task.id] ?? [] }, set: { model.attachmentDrafts[task.id] = $0 }) }
+
     var body: some View {
         @Bindable var model = model
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Task brief").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(task.title).font(.title3.weight(.semibold))
-                        Spacer(minLength: 12)
-                        Button("Edit", systemImage: "pencil") { model.editingTask = task }
-                            .buttonStyle(.borderless).help("Edit task (⇧⌘E)")
-                            .accessibilityLabel("Edit task").accessibilityIdentifier("edit-task")
-                    }
-                    MessageAttachments(messageID: task.id, ownerType: "task")
-                    MarkdownBrief(task.description.isEmpty ? "No additional description." : task.description)
-                }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-                ChatTranscript(messages: messages, responding: task.state == .building && activeTurn && !isPaused, spacing: 24) { item in
-                    if let question = questions.first(where: { $0.messageId == item.id }) { TaskQuestion(question: question) }
-                    else if item.kind == "event" {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Image(systemName: "arrow.right").accessibilityHidden(true)
-                            Text(displayText(item))
-                            Text(item.createdAt, style: .time).foregroundStyle(.secondary).fixedSize()
-                        }.font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 0) {
+            taskHeader
+            ChatScrollView(messages: messages.filter { $0.kind != "event" }) {
+                DisclosureGroup(isExpanded: Binding(get: { model.isBriefExpanded(task) }, set: { model.setBriefExpanded(task.id, expanded: $0) })) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        MessageAttachments(messageID: task.id, ownerType: "task")
+                        MarkdownBrief(task.description.isEmpty ? task.title : task.description)
+                        Button("Edit Brief", systemImage: "pencil") { model.editingTask = task }
+                            .buttonStyle(.borderless).help("Edit this task’s brief (⇧⌘E)")
+                            .accessibilityIdentifier("edit-task-brief")
+                    }.padding(.top, 10)
+                } label: { Text("Brief").font(.subheadline.weight(.medium)) }
+                    .help("Show or hide the task brief")
+                ChatTranscript(messages: conversation, responding: task.state == .building && activeTurn && !isPaused && pendingPlans.isEmpty, reactionContext: messages) { item in
+                    if let question = questions.first(where: { $0.messageId == item.id }) {
+                        TaskQuestion(question: question)
+                    } else if item.role == "system" {
+                        Label(item.body, systemImage: item.kind == "error" ? "exclamationmark.triangle" : "info.circle")
+                            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     } else {
-                        let conversation = item.role == "user" || item.role == "agent"
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(alignment: .firstTextBaseline) {
-                                Text(item.role == "agent" ? "Agent" : item.role == "user" ? "You" : "Build Mate").fontWeight(.medium)
-                                Text(item.createdAt, style: .time)
-                            }.font(.caption).foregroundStyle(item.role == "user" ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.secondary))
-                            MessageAttachments(messageID: item.id)
-                            Text(.init(displayText(item))).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .foregroundStyle(item.role == "user" ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
-                        .tint(item.role == "user" ? .white : .accentColor)
-                        .frame(maxWidth: conversation ? 560 : .infinity, alignment: .leading)
-                        .padding(conversation ? 14 : 0)
-                        .background((item.role == "user" ? AppSurface.userBubble : .agentBubble).opacity(conversation ? 1 : 0), in: RoundedRectangle(cornerRadius: 12))
-                        .frame(maxWidth: .infinity, alignment: item.role == "user" ? .trailing : .leading)
+                        ChatMessageBubble(message: item)
                     }
                 }
-                if task.state == .building {
-                    if isPaused {
-                        Label("Paused", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
-                    } else if !activeTurn && !model.retryNeedsAttention(task) {
-                        Text("Waiting for an agent…").font(.caption).foregroundStyle(.secondary)
-                    }
+                ForEach(questions.filter { $0.answer == nil }) { question in
+                    TaskQuestion(question: question)
+                        .modifier(ChatMessageMetadata(message: messages.first { $0.id == question.messageId }))
                 }
-                if let retry = task.retry, model.retryNeedsAttention(task) {
-                    Label(retry.error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
-                    Text(task.paused ? "Resume when you’re ready to try again." : "Next retry: \(retry.dueAt.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(.secondary)
+                ForEach(pendingPlans) { approval in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Review plan").font(.headline).accessibilityAddTraits(.isHeader)
+                        if let plan = approval.planText { MarkdownBrief(plan) }
+                        Button(approving.contains(approval.id) ? "Approving…" : "Approve Plan") {
+                            approving.insert(approval.id)
+                            model.perform {
+                                defer { approving.remove(approval.id) }
+                                try await model.core.approvePlan(approval.id)
+                            }
+                        }.buttonStyle(.borderedProminent).disabled(approving.contains(approval.id))
+                            .help("Approve this plan so work can continue")
+                            .accessibilityIdentifier("approve-task-plan")
+                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
+                        .modifier(ChatMessageMetadata(message: messages.last { $0.kind == "plan" && $0.body == approval.planText }))
                 }
-            }.padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
+            }
         }
         .safeAreaBar(edge: .bottom, spacing: 0) {
-            if !task.state.terminal {
-                VStack(alignment: .leading, spacing: 8) {
-                    ChatAttachmentTray(files: fileBinding, root: model.store.root)
-                    if let explanation = messageStatus ?? composerExplanation {
-                        Text(explanation).font(.caption).foregroundStyle(.secondary)
-                            .accessibilityIdentifier("message-status")
-                    }
-                    HStack(alignment: .bottom, spacing: 12) {
-                    ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
-                        TextField(composerTitle, text: $message, axis: .vertical).lineLimit(1...5).textFieldStyle(.plain).font(.system(size: 14))
-                            .padding(.vertical, 7).frame(minHeight: 32)
-                            .accessibilityLabel(composerTitle).accessibilityIdentifier("task-message").onSubmit(send)
-                            .disabled(sending || openQuestion?.allowsFreeText == false)
-                        Button(action: send) { Label(actionTitle, systemImage: "arrow.up").labelStyle(.iconOnly).frame(width: 18, height: 18) }
-                            .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
-                            .accessibilityLabel(actionTitle).help(actionTitle + " (⌘Return)")
-                            .disabled(sending || openQuestion?.allowsFreeText == false || (message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty))
-                            .keyboardShortcut(.return, modifiers: .command)
-                            .accessibilityIdentifier("send-task-message")
-                    }
-                }.padding(14).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
-                    .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16)
-                    .frame(maxWidth: 776)
-                    .frame(maxWidth: .infinity)
-                .onChange(of: message) { if !message.isEmpty { messageStatus = nil } }
-
-            }
+            if !task.state.terminal { composer }
         }
         .modifier(ChatAttachmentDrop(files: fileBinding, root: model.store.root, enabled: !sending && !task.state.terminal))
         .inspector(isPresented: $model.showInspector) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text("Status").font(.headline).accessibilityAddTraits(.isHeader)
-                    RoadToMerge(task: task)
-                    Divider()
-                    Text("Brief").font(.headline)
-                    MarkdownBrief(task.description.isEmpty ? task.title : task.description)
-                    LabeledContent("Proof", value: task.proofRequirement.title)
-                    if let path = task.worktreePath {
-                        Divider()
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("Worktree").font(.headline).accessibilityAddTraits(.isHeader)
-                                Spacer()
-                                Button("Open in Terminal", systemImage: "terminal") { model.openLocation(task: task, appID: "com.apple.Terminal") }
-                                    .help("Open a new Terminal at this worktree")
-                                    .accessibilityIdentifier("open-worktree-terminal")
-                                Button("Open in Finder", systemImage: "folder") { model.openLocation(task: task) }
-                                    .help("Open this worktree in Finder")
-                                    .accessibilityIdentifier("open-worktree-finder")
-                            }.labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
-                            Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    if let proof { ReviewEvidence(task: task, proof: proof) }
+                    if task.state == .humanReview {
+                        PreviewControls(task: task)
+                        if project?.host == .local {
+                            Text("Changes are committed in the worktree. Pull requests aren’t available for local projects.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                    }
-                    if let proof {
-                        Divider()
-                        ReviewEvidence(task: task, proof: proof)
                     }
                     if let pr = task.pr, let url = URL(string: pr.url) {
                         Link("View Pull Request #\(pr.number)", destination: url).help("Open this pull request in your browser")
                     }
-                    if task.state == .needsClarification {
-                        Button("Let the Agent Decide…") { model.reviewSheet = .defaults(task.id) }
-                            .disabled(questions.filter { $0.answer == nil && $0.blocking }.contains { $0.suggestedAnswer == nil })
-                            .help("Review the agent’s suggested answers before accepting them; unavailable when a question has no suggestion")
-                    }
-                    ForEach(model.snapshot.approvals.filter { $0.taskId == task.id && $0.kind == "plan" && $0.status == "pending" }) { approval in
-                        if let plan = approval.planText { Text("Proposed plan").font(.headline); Text(plan).textSelection(.enabled) }
-                        Button("Approve Plan") { model.perform { try await model.core.approvePlan(approval.id) } }.buttonStyle(.borderedProminent)
-                            .help("Approve this plan so the agent can continue when work is resumed")
-                    }
-                    if task.state == .humanReview {
-                        Divider()
-                        PreviewControls(task: task)
-                        if model.selectedProject?.host == .local {
-                            Text("Changes are committed in the task worktree. Publishing and pull requests are not available for local projects yet.").font(.caption).foregroundStyle(.secondary)
-                        }
+                    DisclosureGroup("Task details") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            LabeledContent("Proof", value: task.proofRequirement.title)
+                            if task.state.terminal { ModelPicker(ownerID: task.id).id(task.id) }
+                            if let path = task.worktreePath {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text("Worktree").font(.subheadline.weight(.medium))
+                                        Spacer()
+                                        Button("Open in Terminal", systemImage: "terminal") { model.openLocation(task: task, appID: "com.apple.Terminal") }
+                                            .help("Open a new Terminal at this worktree").accessibilityIdentifier("open-worktree-terminal")
+                                        Button("Open in Finder", systemImage: "folder") { model.openLocation(task: task) }
+                                            .help("Open this worktree in Finder").accessibilityIdentifier("open-worktree-finder")
+                                    }.labelStyle(.iconOnly).buttonStyle(.borderless).controlSize(.small)
+                                    Text(path).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                                }
+                            }
+                        }.padding(.top, 10)
+                    }.help("Show proof preferences and worktree details")
+                    let events = messages.filter { $0.kind == "event" }
+                    if !events.isEmpty {
+                        DisclosureGroup("History") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(events) { event in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(displayText(event))
+                                        Text(event.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute()).foregroundStyle(.secondary)
+                                    }.font(.caption).textSelection(.enabled)
+                                }
+                            }.padding(.top, 10)
+                        }.help("Show this task’s state changes")
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if task.state == .humanReview && model.selectedProject?.host == .github {
-                    VStack(spacing: 10) {
+                if task.state == .humanReview && project?.host == .github {
+                    VStack(spacing: 12) {
                         Divider()
-                        HStack {
-                            Spacer(minLength: 4)
-                            if model.selectedProject?.host == .github {
-                                Button(openingPR ? (task.pr == nil ? "Opening…" : "Updating…") : (task.pr == nil ? "Open Pull Request" : "Update Pull Request")) {
-                                    openingPR = true
-                                    model.perform {
-                                        defer { openingPR = false }
-                                        try await model.core.openPullRequest(task.id)
-                                    }
-                                }.buttonStyle(.borderedProminent).disabled(openingPR || proof?.complete != true || task.paused)
-                                    .help(task.pr == nil ? "Publish the reviewed changes as a GitHub pull request" : "Push the reviewed changes and update this pull request’s description")
+                        Button(openingPR ? (task.pr == nil ? "Opening…" : "Updating…") : (task.pr == nil ? "Open Pull Request" : "Update Pull Request")) {
+                            openingPR = true
+                            model.perform {
+                                defer { openingPR = false }
+                                try await model.core.openPullRequest(task.id)
                             }
-                        }.padding(.horizontal, 16).padding(.bottom, 16)
-                    }.background(AppSurface.raised)
+                        }.buttonStyle(.borderedProminent).disabled(openingPR || proof?.complete != true || task.paused)
+                            .help(task.pr == nil ? "Publish the reviewed changes as a GitHub pull request" : "Push the reviewed changes and update this pull request’s description")
+                            .padding(.horizontal, 16).padding(.bottom, 16)
+                    }.frame(maxWidth: .infinity).background(AppSurface.raised)
                 }
             }
-            .background(AppSurface.raised).inspectorColumnWidth(min: 320, ideal: 380, max: 440)
+            .background(AppSurface.raised).inspectorColumnWidth(min: 280, ideal: 340, max: 440)
+            .accessibilityIdentifier("task-details")
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
-        .toolbar {
-            ToolbarItem { ModelPicker(ownerID: task.id).id(task.id) }
-            ToolbarItem { OpenInMenu().disabled(task.worktreePath == nil) }
-            ToolbarItem {
-                Button("Delete Task…", systemImage: "trash", role: .destructive) { model.taskToDelete = task }
-                    .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
+    }
+
+    private var taskHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    stateLabel
+                    pauseButton
+                    Spacer(minLength: 8)
+                    reviewButton
+                    taskMenu
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        stateLabel
+                        pauseButton
+                        Spacer(minLength: 8)
+                        taskMenu
+                    }
+                    reviewButton
+                }
             }
-            ToolbarItem {
-                Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal)
-                    .help(task.paused ? "Resume work on this task (⌘.)" : "Pause work on this task (⌘.)")
+            if !model.settings.paused && project?.paused != true, let reason = model.waitingReason(for: task) {
+                Text(reason).font(.caption).foregroundStyle(.secondary)
             }
+            if let retry = task.retry, model.retryNeedsAttention(task) {
+                DisclosureGroup("Error details") { Text(retry.error).font(.caption).textSelection(.enabled) }
+                    .font(.caption).foregroundStyle(.secondary).help("Show the error preventing this task from continuing")
+            }
+        }.padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 776).frame(maxWidth: .infinity)
+    }
+    private var stateLabel: some View {
+        Label { Text(task.state.title).foregroundStyle(.primary) } icon: {
+            Image(systemName: task.state.symbol).foregroundStyle(task.state.color)
+        }.font(.subheadline.weight(.medium)).fixedSize()
+            .accessibilityLabel("Task status: \(task.state.title)")
+    }
+    @ViewBuilder private var pauseButton: some View {
+        if !task.state.terminal {
+            Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") {
+                model.perform { try await model.core.pause(task.id, paused: !task.paused) }
+            }.buttonStyle(.borderless).labelStyle(.iconOnly).frame(width: 28, height: 28)
+                .help(task.paused ? "Resume this task (⌘.)" : "Pause this task (⌘.)")
+                .accessibilityLabel(task.paused ? "Resume task" : "Pause task")
         }
     }
+    @ViewBuilder private var reviewButton: some View {
+        if task.state == .humanReview && !model.showInspector {
+            Button("Review", systemImage: "eye") { model.showInspector = true }
+                .buttonStyle(.bordered).fixedSize().help("Review changes, checks and visual evidence")
+                .accessibilityIdentifier("review-task")
+        }
+    }
+    private var taskMenu: some View {
+        Menu {
+            Button("Edit Task…", systemImage: "pencil") { model.editingTask = task }
+                .help("Edit this task (⇧⌘E)").accessibilityIdentifier("edit-task")
+            if task.state == .needsClarification {
+                Button("Use Suggested Answers…") { model.reviewSheet = .defaults(task.id) }
+                    .disabled(!model.hasSuggestedAnswers(for: task.id))
+                    .help("Review the agent’s suggested answers")
+            }
+            Divider()
+            Button("Delete Task…", systemImage: "trash", role: .destructive) { model.taskToDelete = task }
+                .disabled(model.deletingTasks.contains(task.id))
+                .help("Delete this task, its conversation and worktree (⌘Delete)")
+        } label: { Label("Task actions", systemImage: "ellipsis") }
+            .menuIndicator(.hidden).menuStyle(.borderlessButton).frame(width: 28, height: 28)
+            .labelStyle(.iconOnly).help("Task actions").accessibilityIdentifier("task-actions")
+    }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ChatAttachmentTray(files: fileBinding, root: model.store.root)
+            HStack(alignment: .bottom, spacing: 10) {
+                ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
+                TextField(openQuestion != nil ? "Your answer…" : "Message the agent…", text: message, axis: .vertical)
+                    .lineLimit(1...5).textFieldStyle(.plain).font(.system(size: 14))
+                    .padding(.vertical, 7).frame(minHeight: 32)
+                    .accessibilityLabel(openQuestion != nil ? "Your answer" : "Task message").accessibilityIdentifier("task-message")
+                    .onSubmit(send).disabled(sending || openQuestion?.allowsFreeText == false)
+                Button(action: send) { Image(systemName: "arrow.up").frame(width: 18, height: 18) }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
+                    .accessibilityLabel(actionTitle).help(actionTitle + " (⌘Return)")
+                    .disabled(sending || openQuestion?.allowsFreeText == false || (message.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty))
+                    .keyboardShortcut(.return, modifiers: .command).accessibilityIdentifier("send-task-message")
+            }
+            ModelPicker(ownerID: task.id).id(task.id).padding(.leading, 80)
+        }.padding(12).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
+            .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16)
+            .frame(maxWidth: 776).frame(maxWidth: .infinity)
+    }
+
     private func displayText(_ item: Message) -> String {
         if item.kind == "event", item.body.hasPrefix("Moved to "), let state = TaskState(rawValue: String(item.body.dropFirst(9))) { return "Moved to " + state.title }
         return item.body
     }
     private func send() {
-        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = message.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!text.isEmpty || !files.isEmpty), !sending, openQuestion?.allowsFreeText != false else { return }
         let question = openQuestion
         let attached = files
@@ -213,51 +257,45 @@ struct TaskDetailView: View {
             defer { sending = false }
             if let question {
                 try await model.core.answer(question.id, text: text.isEmpty ? "See attached files." : text, files: attached)
-                messageStatus = "Answer saved."
             } else {
-                let delivery = try await model.core.steer(task.id, text: text, files: attached)
-                switch delivery {
-                case .sent: messageStatus = nil
-                case .saved: messageStatus = "Saved. The agent will read this when work resumes."
-                case .queued: messageStatus = isPaused ? "Feedback saved. Work will resume when unpaused." : "Feedback sent. The agent will continue working."
-                }
+                _ = try await model.core.steer(task.id, text: text, files: attached)
             }
-            message = ""
+            model.chatDrafts[task.id] = ""
             model.attachmentDrafts[task.id] = []
             for url in attached { removeDraftCapture(url, root: model.store.root) }
         }
     }
 }
-private struct FlowOptions: View {
-    @Environment(AppModel.self) private var model
-    let question: Question
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack { options }
-            VStack(alignment: .leading) { options }
-        }
-    }
-    private var options: some View {
-        ForEach(question.options, id: \.self) { option in
-            Button(option) { model.perform { try await model.core.answer(question.id, text: option) } }
-                .help("Answer this question with “\(option)”")
-                .buttonStyle(.bordered).accessibilityLabel("\(question.prompt): \(option)")
-        }
-    }
-}
 
 private struct TaskQuestion: View {
+    @Environment(AppModel.self) private var model
     let question: Question
+    @State private var answering = false
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(question.prompt, systemImage: "questionmark.circle").fontWeight(.medium)
-            if let answer = question.answer { Text(answer).foregroundStyle(.secondary) }
-            else {
-                FlowOptions(question: question)
-                if question.allowsFreeText { Text("Or type your answer below.").font(.caption).foregroundStyle(.secondary) }
+            if let answer = question.answer {
+                MarkdownBrief(answer)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack { options }
+                    VStack(alignment: .leading) { options }
+                }
             }
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.purple.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.purple.opacity(0.25)))
+            .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
+    }
+    private var options: some View {
+        ForEach(question.options, id: \.self) { option in
+            Button(option) {
+                answering = true
+                model.perform {
+                    defer { answering = false }
+                    try await model.core.answer(question.id, text: option)
+                }
+            }.disabled(answering)
+                .help("Answer this question with “\(option)”")
+                .buttonStyle(.bordered).accessibilityLabel("\(question.prompt): \(option)")
+        }
     }
 }

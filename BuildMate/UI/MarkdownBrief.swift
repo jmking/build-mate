@@ -3,7 +3,11 @@ import SwiftUI
 /// Foundation parses Markdown; native text views supply block spacing and hanging list indents.
 struct MarkdownBrief: View {
     let source: String
-    init(_ source: String) { self.source = source }
+    var fillsWidth = true
+    init(_ source: String, fillsWidth: Bool = true) {
+        self.source = source
+        self.fillsWidth = fillsWidth
+    }
 
     private struct Block: Identifiable {
         var id: Int
@@ -37,6 +41,7 @@ struct MarkdownBrief: View {
                 }
             }
             if let item, seenItems.insert(item.id).inserted { block.marker = ordered == true ? "\(item.ordinal)." : "•" }
+            if block.code { block.text = AttributedString(String(block.text.characters).trimmingCharacters(in: .newlines)) }
             result.append(block)
         }
         return result
@@ -51,7 +56,8 @@ struct MarkdownBrief: View {
                     Text(block.text)
                         .font(block.code ? .system(size: 13, design: .monospaced) : block.heading != nil ? .system(size: block.heading == 1 ? 17 : 14, weight: .semibold) : .system(size: 14))
                         .lineSpacing(4).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
                         .accessibilityAddTraits(block.heading == nil ? [] : .isHeader)
                 }
                 .padding(block.code ? 10 : 0)
@@ -60,6 +66,6 @@ struct MarkdownBrief: View {
                 .padding(.top, block.heading == nil || block.id == 0 ? 0 : 4)
                 .accessibilityElement(children: .combine)
             }
-        }.font(.system(size: 14)).frame(maxWidth: .infinity, alignment: .leading)
+        }.font(.system(size: 14)).frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
     }
 }

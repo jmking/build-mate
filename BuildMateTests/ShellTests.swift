@@ -206,11 +206,27 @@ struct ShellTests {
         try uiStore.save(Message(sessionId: session.id, role: "agent", body: "A persisted transcript"))
         await model.refresh()
         #expect(model.snapshot.messages.contains { $0.body == "A persisted transcript" })
+        // Navigation must retain drafts and collection-specific searches without filtering unrelated views.
+        model.chatDrafts[task.id] = "A draft to finish after checking the queue"
+        model.destination = .project(discovered.project.id, .tasks)
+        model.search = "no matching task"
+        #expect(model.tasks(discovered.project.id).isEmpty)
+        model.destination = .needsYou
+        #expect(model.search.isEmpty)
+        model.destination = .project(discovered.project.id, .tasks)
+        #expect(model.search == "no matching task")
+        model.search = ""
+        model.destination = .task(task.id)
+        #expect(!model.canSearch && model.chatDrafts[task.id] == "A draft to finish after checking the queue")
+        model.showInspector = true
+        model.setBriefExpanded(task.id, expanded: false)
+        model.setProjectExpanded(discovered.project.id, expanded: false)
         let restored = AppModel(store: uiStore, runner: f.runner)
         let observer = Task { await restored.observe() }
         let deadline = Date().addingTimeInterval(5)
         while restored.selectedTask?.id != task.id && Date() < deadline { try await Task.sleep(for: .milliseconds(30)) }
         #expect(restored.selectedTask?.id == task.id)
+        #expect(restored.showInspector && !restored.isBriefExpanded(task) && !restored.isProjectExpanded(discovered.project.id))
         observer.cancel(); await observer.value; await restored.core.shutdown()
         #expect(restored.snapshot.messages.contains { $0.body == "A persisted transcript" })
         #expect(restored.selectedTask?.description == edited.description && restored.selectedTask?.proofRequirement == .checksOnly)

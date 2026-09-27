@@ -103,6 +103,10 @@ for line in sys.stdin:
    text='not JSON' if (root/'title-failure').exists() else json.dumps({'title':'Keep command output compact'})
    event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':'title','type':'agentMessage','text':text}})
    complete();continue
+  if (root/'empty-responses').exists():
+   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
+   event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':turn+'-idle','type':'agentMessage','text':'I will continue.'}})
+   complete();continue
   if project_mode:
    assert p['sandboxPolicy']=={'type':'readOnly','networkAccess':False}
    reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})

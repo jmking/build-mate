@@ -35,13 +35,20 @@ struct ModelPicker: View {
                 Text(name)
                 if let selectedEffort { Text("· \(effortName(selectedEffort))").foregroundStyle(.secondary) }
                 Image(systemName: "chevron.down").font(.caption2)
-            }.font(.callout).lineLimit(1)
-        }.help("Choose the model and reasoning effort; changes apply on the next turn")
+            }.font(.caption).lineLimit(1)
+        }.buttonStyle(.borderless).controlSize(.small).foregroundStyle(.secondary)
+            .help("Choose the model and reasoning effort; changes apply on the next turn")
             .accessibilityLabel("Model and effort: \(name), \(selectedEffort.map(effortName) ?? "model default")")
             .accessibilityIdentifier("model-effort-picker")
             .popover(isPresented: $expanded) {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Model and effort").font(.headline)
+                    HStack {
+                        Text("Model and effort").font(.headline)
+                        Spacer()
+                        Button("Refresh Models", systemImage: "arrow.clockwise") { load(refresh: true) }
+                            .labelStyle(.iconOnly).buttonStyle(.borderless).disabled(loading || saving)
+                            .help("Refresh available models and effort levels")
+                    }
                     Picker("Model", selection: Binding(get: { selectedModel ?? choice?.id ?? "" }, set: chooseModel)) {
                         if let selectedModel, !models.contains(where: { $0.id == selectedModel }) {
                             Text("\(name) · unavailable").tag(selectedModel)
@@ -56,15 +63,10 @@ struct ModelPicker: View {
                     if choice == nil && !loading {
                         Text("This model isn’t available in the installed Codex. Choose an available model or update Codex, then refresh.").font(.caption).foregroundStyle(.secondary)
                     }
-                    Text(pending ? "Change saved. The current response keeps its model; your selection applies on the next turn." : "Changes apply on the next turn and keep this conversation’s history.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    if pending { Text("Your selection applies to the next response.").font(.caption).foregroundStyle(.secondary) }
                     if let error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
-                    HStack {
-                        if loading || saving { ProgressView().controlSize(.small).accessibilityLabel(loading ? "Loading models" : "Saving model") }
-                        Spacer()
-                        Button("Refresh Models") { load(refresh: true) }.disabled(loading || saving).help("Read the available models and effort levels from Codex")
-                    }
-                }.padding(20).frame(width: 340).presentationBackground(AppSurface.sheet)
+                    if loading || saving { ProgressView().controlSize(.small).accessibilityLabel(loading ? "Loading models" : "Saving model") }
+                }.padding(20).frame(width: 340).foregroundStyle(.primary).presentationBackground(AppSurface.sheet)
             }
             .onAppear { load() }
     }

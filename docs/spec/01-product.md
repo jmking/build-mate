@@ -8,13 +8,13 @@ The app’s macOS display name, including its application menu, is **Build Mate*
 
 A Mac app where you **manage work instead of supervising agents**:
 - You talk to a **project chat**. It reads the codebase and proposes a set of **tasks** (with dependencies and how they ship).
-- Tasks wait in a **Backlog** until you move them to **Queue** (or you tell the chat to start now).
+- Tasks created manually or accepted from project chat enter **Queue** directly. Shape ideas in chat before creating tasks; pause a task or project to hold work.
 - Each task gets its own **agent** in its own **git worktree**. The agent asks questions when unclear, builds, and produces **proof of work** (relevant checks and visual evidence when appropriate).
 - You do a **human review** with the evidence and a one-click **Run locally**, then the agent opens a **pull request** and looks after it until it is **merged**.
 - Everything that needs you lands in one place: **Needs You**, on the Mac, in the menu bar and on your iPhone.
 
 ## Principles
-1. **Merged is the finish line.** Every task shows where it is on its road to merge, not how many turns an agent has taken.
+1. **Merged is the finish line.** Every task shows its actual current state. Internal agent turns are not a user-managed budget.
 2. **Needs You is home.** The app's job is to minimise and batch the moments a human is needed.
 3. **Ask, don't guess.** Agents ask clarifying questions before building and at decision points, and never silently expand scope.
 4. **Prove it.** A task cannot reach human review without proof (passing checks plus any task-required recording).
@@ -35,7 +35,6 @@ A Mac app where you **manage work instead of supervising agents**:
 | **Task** | A unit of work with a title, description, attachments, dependencies and a lifecycle state. Numbered per project (`#427`). |
 | **Task agent** | The Codex session that works on one task inside that task's worktree. |
 | **Worktree** | A `git worktree` for the task's branch, stored in Build Mate's storage, never inside the repo. |
-| **Backlog** | Tasks you are not ready to start. Agents never pick these up. |
 | **Queue** | Tasks ready for an agent. Picked up in order, respecting dependencies and limits. |
 | **Needs Clarification** | The agent has blocking questions for you. |
 | **Building** | The agent is implementing. |
@@ -43,7 +42,7 @@ A Mac app where you **manage work instead of supervising agents**:
 | **In PR** | A PR is open. The agent watches it: fixes failing builds, addresses review comments, asks you only for decisions. |
 | **Merged** | Pull request merged. |
 | **Proof of work** | Evidence produced for review: check results, a change summary, and a recording when appropriate to the task or explicitly requested. |
-| **Road to merge** | The five checkpoints every task passes: Clarified → Built → Proof of work → Human review → Merged. |
+| **Task status** | The actual lifecycle state, with separate paused, blocked or attention information when relevant. No inferred completion checklist. |
 | **Approval checkpoint** | A point where the agent must wait for you: before building (plan approval), before opening a PR (human review), before merging. Configurable. |
 | **Needs You** | The cross-project inbox of everything waiting on you: questions, approvals, PR decisions, reviews. |
 | **Instructions** | Rules every agent follows. Per project, plus global ones, plus the repo's own `AGENTS.md` if it has one. |

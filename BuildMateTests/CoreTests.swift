@@ -320,7 +320,7 @@ struct CoreTests {
         await resumed.pollPR(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).worktreePath == nil)
         #expect(!FileManager.default.fileExists(atPath: mergedPath))
-        #expect(await resumed.lastError == nil)
+        #expect(await resumed.backgroundIssues.isEmpty)
         #expect(try reopened.all(Proof.self).contains { $0.taskId == task.id })
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
@@ -469,6 +469,9 @@ struct CoreTests {
         await core.tick()
         try await f.wait("retry after process exit") { try f.store.get(WorkTask.self, high.id).retry != nil }
         let first = try f.store.get(WorkTask.self, high.id)
+        await ordering.refresh()
+        #expect(await ordering.needsYou(first) == false) // Automatic recovery must not create a human-action alert.
+        #expect(await ordering.attentionItems.isEmpty)
         #expect(try f.store.get(WorkTask.self, low.id).worktreePath == nil)
         #expect(try f.store.get(WorkTask.self, dependency.id).worktreePath == nil)
         #expect(try f.store.get(WorkTask.self, held.id).worktreePath == nil)
@@ -552,18 +555,44 @@ struct CoreTests {
             try f.store.get(WorkTask.self, task.id).retry?.attempt == 3 && f.store.all(RunAttempt.self).allSatisfy { $0.endedAt != nil }
         }
         #expect(try f.store.get(WorkTask.self, task.id).retry!.error.contains("turn timed out"))
+        #expect(try f.store.get(WorkTask.self, task.id).paused)
+        let attentionModel = await AppModel(store: f.store, runner: f.runner)
+        await attentionModel.refresh()
+        #expect(await attentionModel.attentionItems.count == 1) // Exhausted recovery, unlike scheduled retries, needs the user.
         await flood.shutdown()
         let worktrees = f.store.root.appending(path: "worktrees")
         try FileManager.default.moveItem(at: worktrees, to: f.store.root.appending(path: "retained-worktrees"))
         try FileManager.default.createSymbolicLink(at: worktrees, withDestinationURL: f.repo)
         let escaped = Orchestrator(store: f.store, runner: f.runner)
-        await escaped.tick(now: Date().addingTimeInterval(400))
+        try await escaped.pause(task.id, paused: false)
         try await f.wait("reject escaped root before any hook or git mutation") {
-            try f.store.get(WorkTask.self, task.id).retry?.attempt == 4 && f.store.all(RunAttempt.self).allSatisfy { $0.endedAt != nil }
+            try f.store.get(WorkTask.self, task.id).retry?.attempt == 1 && f.store.all(RunAttempt.self).allSatisfy { $0.endedAt != nil }
         }
         #expect(try f.store.get(WorkTask.self, task.id).retry!.error.contains("outside Build Mate storage"))
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
         await escaped.shutdown()
+        try f.cleanup()
+    }
+
+    @Test func repeatedEmptyResponsesStopWithoutImposingALifetimeTurnBudget() async throws {
+        let f = try await Fixture()
+        let task = try f.store.createTask(projectId: f.project.id, title: "Recover an idle agent")
+        var session = try f.store.session(for: task.id)
+        session.turnCount = 25; try f.store.save(session)
+        try f.marker("empty-responses")
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        await core.tick()
+        try await f.wait("empty responses stop instead of looping") {
+            try f.store.get(WorkTask.self, task.id).paused && f.store.all(RunAttempt.self).last?.endedAt != nil
+        }
+        #expect(try f.store.session(for: task.id).turnCount == 28)
+        #expect(try f.store.get(WorkTask.self, task.id).retry?.error.contains("without taking action") == true)
+        let thread = try f.store.session(for: task.id).codexThreadId
+        try FileManager.default.removeItem(at: f.control.appending(path: "empty-responses"))
+        try await core.pause(task.id, paused: false)
+        try await f.wait("resume retains context past the former turn budget") { try f.store.get(WorkTask.self, task.id).state == .needsClarification }
+        #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        await core.shutdown()
         try f.cleanup()
     }
 

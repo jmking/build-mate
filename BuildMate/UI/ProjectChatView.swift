@@ -9,6 +9,7 @@ struct ProjectChatView: View {
     private var project: Project? { model.snapshot.projects.first { $0.id == projectID } }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerType == "project" && $0.ownerId == projectID } }
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
+    private var conversation: [Message] { messages.filter { $0.kind != "activity" && $0.kind != "event" } }
     private var busy: Bool { ["queued", "running", "waiting"].contains(session?.status ?? "") }
     private var question: Message? { messages.last { $0.kind == "question" && $0.payload["answer"] == .null } }
     private var fromChat: [WorkTask] {
@@ -16,130 +17,134 @@ struct ProjectChatView: View {
             .sorted { $0.createdAt == $1.createdAt ? $0.number > $1.number : $0.createdAt > $1.createdAt }
     }
     private var files: [URL] { model.attachmentDrafts[projectID] ?? [] }
+    private var draft: Binding<String> { Binding(get: { model.chatDrafts[projectID] ?? "" }, set: { model.chatDrafts[projectID] = $0 }) }
     private var fileBinding: Binding<[URL]> { Binding(get: { model.attachmentDrafts[projectID] ?? [] }, set: { model.attachmentDrafts[projectID] = $0 }) }
+
     var body: some View {
         @Bindable var model = model
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
-                    if messages.isEmpty {
-                        ContentUnavailableView("What would you like to build?", systemImage: "bubble.left.and.bubble.right", description: Text("Discuss an idea, ask about your code, or shape the next tasks."))
-                            .frame(maxWidth: .infinity).padding(.top, 70)
-                    }
-                    ChatTranscript(messages: messages, responding: session?.status == "running" && project?.paused != true && !model.settings.paused) { message in
-                        if message.kind == "proposal", let proposal = model.snapshot.proposals.first(where: { $0.messageId == message.id }) {
-                            ProjectProposalCard(proposal: proposal)
-                        } else if message.kind == "question" {
-                            ProjectQuestionCard(message: message, projectID: projectID)
-                        } else if message.kind == "activity" {
-                            DisclosureGroup {
-                                Text(message.payload["output"].string ?? "").font(.caption.monospaced()).textSelection(.enabled)
-                            } label: { Label(message.body, systemImage: "terminal").font(.caption).lineLimit(2) }
-                                .foregroundStyle(.secondary).help("Show the project inspection output")
-                        } else if message.role == "system" {
-                            Label(message.body, systemImage: message.kind == "error" ? "exclamationmark.triangle" : "arrow.right")
-                                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                        } else { ProjectChatBubble(message: message) }
-                    }
-                    if busy && (session?.status != "running" || project?.paused == true || model.settings.paused) {
-                        Text(session?.status == "waiting" ? "Waiting for your answer" : project?.paused == true || model.settings.paused ? "Chat queued · work is paused" : "Waiting for an agent slot")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if ["failed", "interrupted"].contains(session?.status ?? "") {
-                        Button("Retry Response", systemImage: "arrow.clockwise") { model.perform { try await model.core.retryProjectChat(projectID) } }
-                            .help("Continue this project conversation using the same Codex thread")
-                    }
-                    Color.clear.frame(height: 1).id("latest")
-                }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: session?.status)
-                    .padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
+        ChatScrollView(messages: conversation) {
+            if messages.isEmpty {
+                Text("What would you like to build?").font(.title2.weight(.medium))
+                    .frame(maxWidth: .infinity).padding(.top, 70)
             }
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .onChange(of: messages.count) { if sending || busy { withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { proxy.scrollTo("latest", anchor: .bottom) } } }
+            ChatTranscript(messages: conversation, responding: session?.status == "running" && project?.paused != true && !model.settings.paused) { message in
+                if message.kind == "proposal", let proposal = model.snapshot.proposals.first(where: { $0.messageId == message.id }) {
+                    ProjectProposalCard(proposal: proposal)
+                } else if message.kind == "question" {
+                    ProjectQuestionCard(message: message, projectID: projectID)
+                } else if message.role == "system" {
+                    Label(message.body, systemImage: message.kind == "error" ? "exclamationmark.triangle" : "info.circle")
+                        .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                } else { ChatMessageBubble(message: message) }
+            }
+            if !model.settings.paused && project?.paused != true && question == nil,
+               let reason = model.projectChatWaitingReason(projectID) {
+                Text(reason).font(.caption).foregroundStyle(.secondary)
+            }
+            if ["failed", "interrupted"].contains(session?.status ?? "") {
+                Button("Retry Response", systemImage: "arrow.clockwise") { model.perform { try await model.core.retryProjectChat(projectID) } }
+                    .help("Continue this project conversation")
+            }
         }
-        .safeAreaBar(edge: .bottom, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                ChatAttachmentTray(files: fileBinding, root: model.store.root)
-                if question != nil {
-                    Text("Answer the question to continue.").font(.caption).foregroundStyle(.secondary)
-                }
-                HStack(alignment: .bottom, spacing: 12) {
-                    ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
-                    TextField(question != nil ? "Your answer…" : "Describe what you want built…", text: Binding(get: { model.chatDrafts[projectID] ?? "" }, set: { model.chatDrafts[projectID] = $0 }), axis: .vertical)
-                        .font(.system(size: 14)).lineLimit(1...5).textFieldStyle(.plain).padding(.vertical, 7).frame(minHeight: 32)
-                        .focused($focused).accessibilityLabel("Project message").accessibilityIdentifier("project-message")
-                        .disabled(sending || (busy && question == nil) || question?.payload["allowsFreeText"].bool == false).onSubmit(send)
-                    if busy && question == nil {
-                        Button { model.perform { await model.core.stopProjectChat(projectID) } } label: { Image(systemName: "stop.fill").frame(width: 18, height: 18) }
-                            .buttonStyle(.bordered).buttonBorderShape(.circle).controlSize(.large)
-                            .accessibilityLabel("Stop response").help("Stop this project response")
-                    } else {
-                        Button(action: send) { Image(systemName: "arrow.up").frame(width: 18, height: 18) }
-                            .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
-                            .disabled(sending || (model.chatDrafts[projectID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty || question?.payload["allowsFreeText"].bool == false)
-                            .keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send project message")
-                            .accessibilityIdentifier("send-project-message").help("Send message (⌘Return)")
-                    }
-                }
-            }.padding(14).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
-                .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16).frame(maxWidth: 776).frame(maxWidth: .infinity)
-        }
+        .safeAreaBar(edge: .bottom, spacing: 0) { composer }
         .modifier(ChatAttachmentDrop(files: fileBinding, root: model.store.root, enabled: !sending))
         .inspector(isPresented: $model.showInspector) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     Text("From this chat").font(.headline).accessibilityAddTraits(.isHeader)
-                    if fromChat.isEmpty {
-                        Text("Tasks you create here will appear here.").foregroundStyle(.secondary)
-                    }
-                    ForEach(fromChat) { task in
+                    if fromChat.isEmpty { Text("No tasks created yet").font(.callout).foregroundStyle(.secondary) }
+                    ForEach(Array(fromChat.prefix(5))) { task in
                         Button { model.destination = .task(task.id) } label: {
                             HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: task.state.symbol).foregroundStyle(task.state.color).frame(width: 16)
+                                Image(systemName: task.state.symbol).foregroundStyle(task.state.color).frame(width: 16).accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(task.title).foregroundStyle(.primary)
+                                    Text(task.title).foregroundStyle(.primary).lineLimit(2)
                                     Text(task.state.title).font(.caption).foregroundStyle(.secondary)
-                                    ForEach(task.dependsOn, id: \.self) { id in
-                                        if let parent = model.snapshot.tasks.first(where: { $0.id == id }) { Text("Waits on \(parent.title)").font(.caption).foregroundStyle(.secondary) }
-                                    }
                                 }
                                 Spacer(minLength: 0)
-                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                             }.contentShape(Rectangle())
                         }.buttonStyle(.plain).help("Open \(task.title)")
+                            .accessibilityLabel("\(task.title), \(task.state.title)")
                             .contextMenu {
                                 Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
                                     .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
                             }
-                        if task.id != fromChat.last?.id { Divider() }
+                    }
+                    if !fromChat.isEmpty {
+                        Button("View All Tasks", systemImage: "arrow.right") { model.destination = .project(projectID, .tasks) }
+                            .buttonStyle(.borderless).help("Show all tasks in this project (⌘3)")
+                    }
+                    let activity = messages.filter { $0.kind == "activity" || $0.kind == "event" }
+                    if !activity.isEmpty {
+                        DisclosureGroup("Activity") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(activity) { item in
+                                    if item.kind == "activity" {
+                                        DisclosureGroup(item.body) {
+                                            Text(item.payload["output"].string ?? "").font(.caption.monospaced()).textSelection(.enabled)
+                                        }.help("Show this inspection’s output")
+                                    } else { Text(item.body) }
+                                }
+                            }.font(.caption).foregroundStyle(.secondary).padding(.top, 8)
+                        }.help("Show project inspection history")
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
             }.background(AppSurface.raised)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    VStack(spacing: 0) {
-                        Divider()
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Project").font(.headline).accessibilityAddTraits(.isHeader)
-                            if let project {
-                                Text(project.repoPath).font(.caption.monospaced()).textSelection(.enabled)
-                                Text("\(project.defaultBranch) · Codex").foregroundStyle(.secondary)
-                                Text(project.host == .local ? "Local Git repository" : project.remoteSlug).foregroundStyle(.secondary)
-                            }
-                            Text("The project agent reads code in its own checkout. Task agents build changes in separate worktrees.").font(.caption).foregroundStyle(.secondary)
-                            Button("Open Tasks", systemImage: "rectangle.split.3x1") { model.destination = .project(projectID, .tasks) }
-                                .help("Show this project’s task board (⌘4)")
-                        }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-                    }.background(AppSurface.raised)
-                }.inspectorColumnWidth(min: 300, ideal: 340, max: 440)
-        }
-        .toolbar {
-            ToolbarItem { ModelPicker(ownerID: projectID, projectChat: true).id(projectID) }
-            ToolbarItem { Button { model.showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }.help("Toggle Inspector (⌥⌘I)") }
+                    if let project {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Divider()
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(project.name).font(.subheadline.weight(.medium))
+                                Text((project.repoPath as NSString).abbreviatingWithTildeInPath)
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                    .help(project.repoPath)
+                                DisclosureGroup("Project details") {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        LabeledContent("Branch", value: project.defaultBranch)
+                                        Text(project.host == .local ? "Local Git repository" : project.remoteSlug)
+                                        Text(project.repoPath).textSelection(.enabled)
+                                    }.font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+                                }.font(.caption).help("Show this project’s branch, repository and full path")
+                            }.padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
+                        }.frame(maxWidth: .infinity, alignment: .leading).background(AppSurface.raised)
+                    }
+                }.inspectorColumnWidth(min: 280, ideal: 320, max: 400)
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
     }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ChatAttachmentTray(files: fileBinding, root: model.store.root)
+            HStack(alignment: .bottom, spacing: 10) {
+                ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
+                TextField(question != nil ? "Your answer…" : "Message the agent…", text: draft, axis: .vertical)
+                    .font(.system(size: 14)).lineLimit(1...5).textFieldStyle(.plain).padding(.vertical, 7).frame(minHeight: 32)
+                    .focused($focused).accessibilityLabel("Project message").accessibilityIdentifier("project-message")
+                    .disabled(sending || question?.payload["allowsFreeText"].bool == false).onSubmit(send)
+                if busy && question == nil {
+                    Button { model.perform { await model.core.stopProjectChat(projectID) } } label: {
+                        Image(systemName: "stop.fill").frame(width: 18, height: 18)
+                    }.buttonStyle(.bordered).buttonBorderShape(.circle).controlSize(.large)
+                        .accessibilityLabel("Stop response").help("Stop this response; keep your draft")
+                } else {
+                    Button(action: send) { Image(systemName: "arrow.up").frame(width: 18, height: 18) }
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
+                        .disabled(sending || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty || question?.payload["allowsFreeText"].bool == false)
+                        .keyboardShortcut(.return, modifiers: .command).accessibilityLabel("Send project message")
+                        .accessibilityIdentifier("send-project-message").help("Send message (⌘Return)")
+                }
+            }
+            ModelPicker(ownerID: projectID, projectChat: true).id(projectID).padding(.leading, 80)
+        }.padding(12).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
+            .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16).frame(maxWidth: 776).frame(maxWidth: .infinity)
+    }
+
     private func send() {
-        guard !sending else { return }
-        let text = (model.chatDrafts[projectID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Drafting stays available during a response; only an explicit send when idle submits it.
+        guard !sending, !busy || question != nil else { return }
+        let text = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !files.isEmpty else { return }
         let pending = question
         let attached = files
@@ -155,42 +160,29 @@ struct ProjectChatView: View {
     }
 }
 
-private struct ProjectChatBubble: View {
-    let message: Message
-    private var user: Bool { message.role == "user" }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(user ? "You" : "Agent").fontWeight(.medium)
-                Text(message.createdAt, style: .time)
-            }.font(.caption).foregroundStyle(user ? AnyShapeStyle(Color.white.opacity(0.85)) : AnyShapeStyle(.secondary))
-            MessageAttachments(messageID: message.id)
-            Text(.init(message.body)).font(.system(size: 14)).lineSpacing(5).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-        }.foregroundStyle(user ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary)).tint(user ? .white : .accentColor)
-            .frame(maxWidth: 560, alignment: .leading).padding(14)
-            .background(user ? AppSurface.userBubble : .agentBubble, in: RoundedRectangle(cornerRadius: 12))
-            .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
-    }
-}
-
 private struct ProjectQuestionCard: View {
     @Environment(AppModel.self) private var model
     let message: Message
     let projectID: UUID
+    @State private var answering = false
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(message.body, systemImage: "questionmark.circle").fontWeight(.medium)
-            if let answer = message.payload["answer"].string { Text(answer).foregroundStyle(.secondary) }
+            if let answer = message.payload["answer"].string { MarkdownBrief(answer) }
             else {
                 ForEach(message.payload["options"].array.compactMap(\.string), id: \.self) { option in
-                    Button(option) { model.perform { try await model.core.answerProjectQuestion(message.id, projectID: projectID, answer: option) } }
+                    Button(option) {
+                        answering = true
+                        model.perform {
+                            defer { answering = false }
+                            try await model.core.answerProjectQuestion(message.id, projectID: projectID, answer: option)
+                        }
+                    }.disabled(answering)
                         .help("Answer: \(option)").accessibilityLabel("\(message.body): \(option)")
                 }
-                if message.payload["allowsFreeText"].bool != false { Text("Or answer in the message field below.").font(.caption).foregroundStyle(.secondary) }
             }
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.purple.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.purple.opacity(0.3)))
+            .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -209,14 +201,15 @@ private struct ProjectProposalCard: View {
                         Button { model.destination = .task(id) } label: { Label(task.title, systemImage: task.state.symbol) }.help("Open \(task.title)")
                     }
                 }
-            } else {
+            } else if proposal.status != "dismissed" {
                 ForEach(proposal.tasks.indices, id: \.self) { index in
                     let item = proposal.tasks[index]
                     VStack(alignment: .leading, spacing: 6) {
                         Toggle(item.title, isOn: Binding(get: { !excluded.contains(index) }, set: { if $0 { excluded.remove(index) } else { excluded.insert(index) } }))
                             .toggleStyle(.checkbox).fontWeight(.medium).disabled(proposal.status != "open" || saving)
                             .help("Include \(item.title) when creating tasks")
-                        MarkdownBrief(item.description).padding(.leading, 20)
+                        DisclosureGroup("Brief") { MarkdownBrief(item.description).padding(.top, 6) }
+                            .font(.callout).padding(.leading, 20).help("Read the proposed task’s brief")
                         ForEach(item.dependsOnIndex, id: \.self) { dependency in
                             if proposal.tasks.indices.contains(dependency) { Label("After \(proposal.tasks[dependency].title)", systemImage: "link").font(.caption).foregroundStyle(.secondary).padding(.leading, 20) }
                         }
@@ -232,8 +225,7 @@ private struct ProjectProposalCard: View {
                 }
             }
         }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
+            .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
     }
     @ViewBuilder private var actions: some View {
         Button("Dismiss") { model.perform { try await model.core.dismissProposal(proposal.id, projectID: proposal.projectId) } }.help("Dismiss this proposal without creating tasks")

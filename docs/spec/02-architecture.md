@@ -62,7 +62,7 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 **Project**: `id, name (display, e.g. acme/web), repoPath, host (local|github|bitbucket), remoteSlug (owner/repo or workspace/repo), defaultBranch, instructions (markdown), settings (Settings), paused (bool), createdAt`.
 
 **Settings** (per project; global defaults in app settings):
-- `agentsAtOnce` (global, default 4), `heavyStepsAtOnce` (global, default 2), `maxTurnsPerTask` (default 20), `retryBackoffMaxMs` (300000), timeouts (turn 3 600 000 ms, stall 300 000 ms, read 5 000 ms).
+- `agentsAtOnce` (global, default 4), internal `heavyStepsAtOnce` capacity (default 2; legacy stored values retained), `retryBackoffMaxMs` (300000), timeouts (turn 3 600 000 ms, stall 300 000 ms, read 5 000 ms).
 - `askBefore`: `{ build: false, openPR: true, merge: false }`.
 - `prStrategy`: `separateStacked` (default) | `onePR` (v1.1).
 - `branchPrefix` (default empty, meaning `<number>-<slug>`; e.g. `427-report-permissions`).
@@ -130,8 +130,8 @@ Existing legacy backlog tasks migrate to Queue after already queued work, preser
 ### Task edits
 Title-only edits preserve lifecycle and proof. A scope edit (brief or proof preference) is an atomic replan operation: block dispatch/publication during the edit, pause any started task, interrupt and await its worker, then save the new fields, invalidate proof, supersede prior plan approvals and resolve pending questions as superseded. Started tasks return to Queue paused; unstarted drafts keep their state and pause flag. Resume reuses the existing thread/worktree with the current task prompt. Old answers remain historical context; superseded unanswered questions are excluded from the new prompt. Scope edits are rejected once a PR is opening/open or the task is terminal. This does not add a general-purpose Building → Queue transition.
 
-### Road to merge (display)
-Five checkpoints derived from state and data: **Clarified** (no open blocking questions and, if needed, plan approved), **Built** (agent requested review), **Proof of work** (proof complete, with sub-items Checks and, when applicable, Recording), **Human review** (approved, or skipped by settings), **Merged**. Each is `done`, `current`, `needsYou` or `todo`. The 5-segment bar on cards and the vertical checklist in the task inspector are two renderings of the same data.
+### Task state display
+Show the persisted lifecycle state once in task detail and use state-grouped board/list headings. Pause, dependency, usage hold and actionable failure are additional conditions, not completed milestones. Do not infer Planning or Testing from tool events; a future lifecycle expansion must define real transitions first. Routine state-change messages are retained in history, outside the main conversation.
 
 ## 6. Orchestration loop
 Follow Symphony's loop with these specifics:
@@ -139,15 +139,15 @@ Follow Symphony's loop with these specifics:
 - **Dispatch**: pick dispatchable Queue tasks by rank; respect `agentsAtOnce` across all projects and per-project pause.
 - **Workspace**: on first dispatch, create the branch from `defaultBranch` (or from the stack base branch) and a worktree; run `afterCreate`. Before every run attempt run `beforeRun`; after, `afterRun`. Hook subprocesses run in private process groups; timeout/cancellation terminates their descendants too. Failed setup is retried in the existing worktree; `afterCreate` is retried until it succeeds, then never repeated for that worktree.
 - **Session**: one Codex thread per task, resumed across attempts and across human-in-the-loop pauses so the agent keeps its context (verify thread resume in spike, see 08). If resume is not possible, start a new thread and replay the task's message history as context.
-- **Turns**: each turn continues until the agent ends it, then the next turn starts automatically up to `maxTurnsPerTask`, unless the agent is waiting (question, approval, review) or the task is paused.
-- **Stall detection**: no Codex event for `stall` ms marks the attempt stalled and schedules a retry.
+- **Turns**: continue automatically unless waiting for a question, approval or review, or paused. Remove the lifetime 20-turn budget; old persisted `maxTurnsPerTask` keys are ignored. Three consecutive completed responses without tool activity pause the task with an actionable explanation. Explicit Resume resets this run-local counter and retains the same thread. Turn deadlines and event-stall detection remain active.
+- **Stall detection**: no Codex event for `stall` ms marks the attempt stalled and schedules a retry. Automatic failures retry with exponential backoff; the third consecutive failed attempt pauses for human attention. Resume clears retry history. Scheduled retries do not enter Needs You or generate notifications; exhausted failures do. A manual pause during an earlier retry is not an exhausted failure.
 - **Reconciliation** every tick: stop sessions for tasks that are paused, canceled, or whose project is paused.
 
 ## 7. Prompt assembly
 For each task session Build Mate builds the initial prompt from, in order:
 1. **Build Mate system brief**: the lifecycle, the tools available (03, section 5), the rules (ask, don't guess; stay in scope; proof is required; never write outside the worktree).
 2. **Global instructions** (Settings › Instructions).
-3. **Project instructions** (sidebar › Instructions). Project instructions override global ones on conflict.
+3. **Project instructions** (Project menu › Instructions). Project instructions override global ones on conflict.
 4. **Task**: title, description, attachments (images inline; videos as key frames and transcript, see 03), answers to questions so far, approved plan, dependency context (what the tasks it depends on changed), and the current goal for its state.
 
 The repo's own `AGENTS.md` is read by Codex natively from the worktree; Build Mate does not copy it. Instruction changes apply from the next turn of every running session. In Codex 0.151, the fixed developer brief delegates current project/global instructions to the freshly assembled text input each turn; the resume override did not replace existing instructions in the spike (08).
@@ -218,3 +218,9 @@ The main SwiftUI Window, Settings and MenuBarExtra share one AppModel and one or
 Deleting a task pauses it, blocks dispatch/edits/publishing/previews, cancels background naming and stops/awaits its agent and preview. Wait for any already-started publish/PR poll before touching the worktree. Run beforeRemove, then remove the owned worktree with `git worktree remove --force` only for explicit deletion. Automatic merged-worktree cleanup still refuses dirty worktrees. Cleanup failure leaves the task paused and available for retry. Never remove the user’s clone or delete branches/remote PRs.
 
 Remove local messages, session, task-owned attachments/media/logs/proof, model preference and task records. Shared source attachments in project chat are retained. Remove references from dependent tasks and pause those tasks with an explanatory event; never silently unblock them. Proposal created-task IDs remain as historical references and acceptance stays idempotent, skipping deleted tasks. A persistent per-project task-number high-water mark, initialized from existing tasks, prevents deleted branch/worktree numbers being reused by either New Task or proposal creation.
+
+## UX state and background errors (2026-09-27)
+
+Inspector visibility, board/list preference, project expansion and brief disclosures persist in `view-preferences.json` under the app data root. Unsent task/project chat drafts survive navigation in memory; task search is held independently per project and Needs You. No task query silently filters another collection.
+
+Background errors carry their task/project scope; only global errors appear globally. Errors clear after the relevant recovery succeeds, and dismissing an unchanged diagnostic suppresses it until it changes or a successful recovery resets it. Cleanup failure does not imply coding has failed. Project settings validation, PR polling, worktree cleanup and after-run hooks are handled separately.

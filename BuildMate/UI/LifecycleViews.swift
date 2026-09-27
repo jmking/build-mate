@@ -120,27 +120,11 @@ struct ReviewEvidence: View {
     let proof: Proof
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Proof of work").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Review").font(.headline).accessibilityAddTraits(.isHeader)
             if !proof.complete || proof.commitSHA == nil {
                 Label("Fresh proof required", systemImage: "exclamationmark.circle").foregroundStyle(.secondary)
-                Text("Ask the agent in chat for fresh proof before opening a pull request.").font(.caption).foregroundStyle(.secondary)
             }
-            MarkdownBrief(proof.reviewSummary)
-            if let rationale = proof.rationale { Text(rationale).font(.caption).foregroundStyle(.secondary) }
-            ForEach(Array(proof.checks.enumerated()), id: \.offset) { _, check in
-                Button { model.reviewSheet = .log(check.logPath) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Image(systemName: check.status == "passed" ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(check.status == "passed" ? Color.green : .red)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(check.name).foregroundStyle(.primary)
-                            Text("\(check.status.capitalized) · \(check.durationSec, specifier: "%.1f")s").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain).help("Read output for \(check.name)")
-            }
+            MarkdownBrief(proof.changeSummary)
             if let path = proof.recordingPath {
                 Divider()
                 HStack {
@@ -151,8 +135,8 @@ struct ReviewEvidence: View {
                 }
                 RecordingPlayer(path: path).aspectRatio(16 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 12))
                 if let seconds = proof.recordingDuration { Text(Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond))).font(.caption).foregroundStyle(.secondary) }
-            } else {
-                Text(proof.recordingRequired ? "Required recording is missing" : "Recording not required for this task").font(.caption).foregroundStyle(.secondary)
+            } else if proof.recordingRequired {
+                Label("Required recording is missing", systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary)
             }
             if !proof.screenshots.isEmpty {
                 Divider()
@@ -176,7 +160,41 @@ struct ReviewEvidence: View {
                     Image(systemName: "chevron.right").font(.caption)
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).help("Review the summary and changed files")
+            ForEach(Array(proof.checks.filter { $0.status != "passed" }.enumerated()), id: \.offset) { _, check in
+                checkRow(check)
+            }
+            let passed = proof.checks.filter { $0.status == "passed" }
+            if !passed.isEmpty {
+                DisclosureGroup("\(passed.count) \(passed.count == 1 ? "check" : "checks") passed") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(passed.enumerated()), id: \.offset) { _, check in checkRow(check) }
+                    }.padding(.top, 8)
+                }.help("Show passed checks and their output")
+            }
+            if proof.reviewSummary != proof.changeSummary || proof.rationale?.isEmpty == false {
+                DisclosureGroup("Evidence details") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if proof.reviewSummary != proof.changeSummary { MarkdownBrief(proof.reviewSummary) }
+                        if let rationale = proof.rationale, !rationale.isEmpty { Text(rationale).font(.caption).foregroundStyle(.secondary) }
+                    }.padding(.top, 8)
+                }.help("Show the agent’s evidence explanation and saved report")
+            }
         }
+    }
+    private func checkRow(_ check: CheckResult) -> some View {
+        Button { model.reviewSheet = .log(check.logPath) } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: check.status == "passed" ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(check.status == "passed" ? Color.green : .red).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(check.name).foregroundStyle(.primary)
+                    Text("\(check.status.capitalized) · \(check.durationSec, specifier: "%.1f")s").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+            }.contentShape(Rectangle())
+        }.buttonStyle(.plain).help("Read output for \(check.name)")
+            .accessibilityElement(children: .combine)
     }
 }
 
@@ -187,16 +205,21 @@ struct PreviewControls: View {
     private var preview: PreviewStatus? { model.previews[task.id] }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Try it yourself").font(.headline).accessibilityAddTraits(.isHeader)
             HStack {
                 Button { model.runPreview(task) } label: {
                     Label(preview?.phase == "ready" ? "Open Preview" : preview?.phase == "starting" ? "Starting…" : "Run locally", systemImage: "play.fill").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).disabled(preview?.phase == "starting")
+                }.buttonStyle(.bordered).disabled(preview?.phase == "starting")
                     .help("Run this worktree locally and open it in your browser")
                 if preview != nil && preview?.phase != "failed" {
                     Button("Stop Preview", systemImage: "stop.fill") { model.perform { await model.core.stopPreview(task.id) } }
                         .labelStyle(.iconOnly).help("Stop this preview and free its port")
                 }
+                Menu {
+                    Button("Configure Preview…") { model.reviewSheet = .previewSetup(task.projectId) }
+                        .help("Set this project’s preview command, port variable and ready path")
+                } label: { Label("Preview options", systemImage: "ellipsis") }
+                    .labelStyle(.iconOnly).menuIndicator(.hidden).help("Preview options")
+                    .accessibilityLabel("Preview options")
             }
             if preview?.phase == "starting" { ProgressView().controlSize(.small).accessibilityLabel("Starting local preview") }
             if let error = preview?.error { Text(error).font(.caption).foregroundStyle(.secondary) }
@@ -204,8 +227,6 @@ struct PreviewControls: View {
                 DisclosureGroup("Preview output") { ScrollView { Text(preview.log).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 140) }
                     .help("Show output from the preview command")
             }
-            Button("Configure Preview…") { model.reviewSheet = .previewSetup(task.projectId) }.buttonStyle(.borderless)
-                .help("Set this project’s preview command, port variable and ready path")
         }.animation(reduceMotion ? nil : .smooth(duration: 0.2), value: preview?.phase)
     }
 }

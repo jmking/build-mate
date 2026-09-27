@@ -32,7 +32,7 @@ extension Orchestrator {
               !["PATH", "HOME", "TMPDIR", "SHELL"].contains(variable) else { throw CoreError.invalid("Use a port variable such as PORT.") }
         let path = project.settings.previewReadyPath
         guard path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("#") else { throw CoreError.invalid("The ready path must be a local path beginning with /.") }
-        guard heavySteps < (try store.settings()).heavyStepsAtOnce else { throw CoreError.invalid("All heavy-work slots are busy. Stop another preview or wait for proof to finish.") }
+        guard heavySteps < (try store.settings()).heavyStepsAtOnce else { throw CoreError.invalid("Preview capacity is busy. Stop another preview or wait for the checks to finish.") }
         let used = Set(previewProcesses.keys.compactMap { previews[$0]?.port })
         guard let port = (4100...4199).first(where: { !used.contains($0) && Self.portAvailable($0) }),
               let url = URL(string: "http://127.0.0.1:\(port)/"),

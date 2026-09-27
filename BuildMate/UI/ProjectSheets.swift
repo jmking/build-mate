@@ -9,6 +9,7 @@ struct AddProjectSheet: View {
     @State private var checking = false
     @State private var creatingNew = false
     @State private var failure: String?
+    @State private var inspection: Task<Void, Never>?
     @FocusState private var pathFocused: Bool
 
     var body: some View {
@@ -23,7 +24,7 @@ struct AddProjectSheet: View {
             Text(creatingNew ? "Choose a new or empty folder for your Git repository." : "Choose a local Git repository on this Mac.").foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline) {
                 TextField(creatingNew ? "Project folder" : "Repository folder", text: $path).textFieldStyle(.roundedBorder).focused($pathFocused).onSubmit {
-                    if !path.isEmpty && !checking { if creatingNew { createProject() } else { inspect() } }
+                    if !path.isEmpty && !checking { if creatingNew { createProject() } else { inspect(addWhenReady: true) } }
                 }.accessibilityIdentifier("repository-path")
                     .onChange(of: path) { discovered = nil; failure = nil }
                 Button("Choose…") { chooseFolder() }
@@ -32,11 +33,7 @@ struct AddProjectSheet: View {
             if creatingNew {
                 Text("Creates a local repository on main, ready for your first task.").font(.caption).foregroundStyle(.secondary)
                 if checking { ProgressView("Creating project…").controlSize(.small) }
-            } else { HStack {
-                Button("Check Repository") { inspect() }.disabled(path.isEmpty || checking).accessibilityIdentifier("check-repository")
-                    .help("Check the repository, its default branch and Git hosting sign-in")
-                if checking { ProgressView().controlSize(.small); Text("Checking repository and CLI…").foregroundStyle(.secondary) }
-            } }
+            } else if checking { ProgressView("Checking repository…").controlSize(.small) }
             if let discovered {
                 GroupBox {
                     Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 12) {
@@ -51,6 +48,8 @@ struct AddProjectSheet: View {
                         Text("Run in Terminal: \(command)").font(.caption.monospaced()).textSelection(.enabled)
                         Button("Copy Command") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(command, forType: .string) }
                             .help("Copy this setup command to the clipboard")
+                        Button("Check Again") { inspect() }.disabled(checking)
+                            .help("Check Git hosting sign-in again after running the setup command")
                     }
                 }
             }
@@ -63,11 +62,13 @@ struct AddProjectSheet: View {
                 Button(creatingNew ? "Create Project" : "Add Project") {
                     if creatingNew { createProject() }
                     else if let discovered { model.perform { try model.add(discovered) } }
+                    else { inspect(addWhenReady: true) }
                 }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .help(creatingNew ? "Create a local Git repository in the selected folder (Return)" : "Add the checked repository to Build Mate (Return)")
-                    .disabled(checking || (creatingNew ? path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : discovered == nil)).accessibilityIdentifier("confirm-add-project")
+                    .help(creatingNew ? "Create a local Git repository in the selected folder (Return)" : "Check and add this repository to Build Mate (Return)")
+                    .disabled(checking || path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityIdentifier("confirm-add-project")
             }
         }.padding(28).frame(width: 610).frame(minHeight: 370).accessibilityElement(children: .contain).interactiveDismissDisabled(creatingNew && checking).onAppear { pathFocused = true }
+            .onDisappear { inspection?.cancel() }
     }
     private func createProject() {
         guard !checking else { return }
@@ -79,15 +80,20 @@ struct AddProjectSheet: View {
             catch { failure = error.localizedDescription }
         }
     }
-    private func inspect() {
+    private func inspect(addWhenReady: Bool = false) {
         let requested = path
         checking = true; discovered = nil; failure = nil
-        Task {
+        inspection = Task {
+            defer { checking = false }
             do {
                 let result = try await ProjectDiscovery().inspect(path: requested)
-                if path == requested { discovered = result }
+                try Task.checkCancellation()
+                if path == requested {
+                    discovered = result
+                    if addWhenReady && result.authenticated { try model.add(result); await model.refresh() }
+                }
+            } catch is CancellationError {
             } catch { if path == requested { failure = error.localizedDescription } }
-            checking = false
         }
     }
     private func chooseFolder() {
@@ -195,28 +201,28 @@ struct NewTaskSheet: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
                     .focused($descriptionFocused).disabled(creation != nil)
                     .accessibilityLabel("Task description").accessibilityIdentifier("task-description")
-                Text("Your task opens immediately. Its title is refined from the brief in the background. You can rename it anytime.").font(.caption).foregroundStyle(.secondary)
             }
             ChatAttachmentTray(files: $files, root: model.store.root)
-            ChatAttachmentControls(files: $files, root: model.store.root)
-            DisclosureGroup("Set a title yourself") {
-                TextField("Task title (optional)", text: $title).textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Task title (optional)").accessibilityIdentifier("task-title").padding(.top, 6)
-            }.disabled(creation != nil)
-                .help("Enter your own title instead of generating one from the brief")
-            VStack(alignment: .leading, spacing: 6) {
-                Picker("Proof", selection: $proofRequirement) {
-                    ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
-                }.fixedSize().disabled(creation != nil).accessibilityIdentifier("task-proof")
-                    .help("Choose the evidence the agent must provide for this task")
-                Text("Automatic lets the agent choose relevant checks and a recording for visual changes. You can also describe the evidence you want in the brief.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Picker("Plan approval", selection: $askBeforeBuild) {
-                Text("Project default (\(selectedProject?.settings.askBeforeBuild == true ? "ask first" : "build automatically"))").tag(Optional<Bool>.none)
-                Text("Ask me before building").tag(Optional(true))
-                Text("Build automatically").tag(Optional(false))
-            }.disabled(creation != nil).help("Choose whether to review the plan before this task starts building")
+            ChatAttachmentControls(files: $files, root: model.store.root).disabled(creation != nil)
+            DisclosureGroup("Options") {
+                VStack(alignment: .leading, spacing: 16) {
+                    LabeledContent("Title") {
+                        TextField("Automatic", text: $title).textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Task title (optional)").accessibilityIdentifier("task-title")
+                            .help("Leave blank to generate a title from the brief")
+                    }
+                    Picker("Proof", selection: $proofRequirement) {
+                        ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }.accessibilityIdentifier("task-proof")
+                        .help("Automatic chooses relevant checks and records visual changes; choose an override when needed")
+                    Picker("Plan approval", selection: $askBeforeBuild) {
+                        Text("Project default (\(selectedProject?.settings.askBeforeBuild == true ? "ask first" : "build automatically"))").tag(Optional<Bool>.none)
+                        Text("Ask me before building").tag(Optional(true))
+                        Text("Build automatically").tag(Optional(false))
+                    }.help("Choose whether to review the plan before this task starts building")
+                }.padding(.top, 12)
+            }.disabled(creation != nil).accessibilityIdentifier("task-options")
+                .help("Set an optional title, proof requirements or plan approval")
             if creation != nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -224,10 +230,8 @@ struct NewTaskSheet: View {
                 }.accessibilityElement(children: .combine)
             }
             if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-            Text(selectedProject?.runBlockReason ?? "Queued tasks run when the project is resumed and an agent slot is available.")
-                .font(.caption).foregroundStyle(.secondary)
+            if let blocker { Text(blocker).font(.caption).foregroundStyle(.secondary) }
             HStack(alignment: .firstTextBaseline) {
-                Text("Agents only pick up tasks in Queue.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { creation?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
                     .help("Cancel task creation and close (Esc)")
@@ -241,6 +245,13 @@ struct NewTaskSheet: View {
             .onDisappear { if model.showNewTask { creation?.cancel() } }
     }
     private var selectedProject: Project? { model.snapshot.projects.first { $0.id == projectID } }
+    private var blocker: String? {
+        if let reason = selectedProject?.runBlockReason { return reason }
+        if model.settings.paused { return "All agents are paused. This task will wait in the queue." }
+        if selectedProject?.paused == true { return "This project is paused. The task will wait in the queue." }
+        if model.usageHeld { return "New work is on hold until Codex usage resets or you resume it." }
+        return nil
+    }
     private var valid: Bool { projectID != nil && creation == nil && !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private func create() {
         guard valid, let projectID else { return }

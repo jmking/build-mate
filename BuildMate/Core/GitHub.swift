@@ -47,7 +47,7 @@ struct GitHub: Sendable {
     }
 
     /// A PR contains only the change description, never the full review-evidence report.
-    private static func changeDescription(_ summary: String) throws -> String {
+    static func changeDescription(_ summary: String) throws -> String {
         var text = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         // Durable older threads may have encoded the report more than once.
         for _ in 0..<5 {

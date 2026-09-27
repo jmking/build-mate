@@ -25,7 +25,6 @@ enum ProofRequirement: String, Codable, CaseIterable, Sendable {
 }
 
 struct ProjectSettings: Codable, Sendable {
-    var maxTurnsPerTask = 20
     var retryBackoffMaxMs = 300_000
     var turnTimeoutMs = 3_600_000
     var stallTimeoutMs = 300_000
@@ -48,9 +47,9 @@ struct ProjectSettings: Codable, Sendable {
 }
 extension ProjectSettings {
     func validate() throws {
-        guard maxTurnsPerTask > 0, retryBackoffMaxMs > 0, turnTimeoutMs > 0, readTimeoutMs > 0, stallTimeoutMs >= 0,
+        guard retryBackoffMaxMs > 0, turnTimeoutMs > 0, readTimeoutMs > 0, stallTimeoutMs >= 0,
               hooks.timeoutSeconds.isFinite, hooks.timeoutSeconds > 0 else {
-            throw CoreError.invalid("Turns, retry limits and timeouts must be positive")
+            throw CoreError.invalid("Retry limits and timeouts must be positive")
         }
     }
 }
@@ -241,6 +240,8 @@ struct Proof: Record {
         default: return summary
         }
     }
+
+    var changeSummary: String { (try? GitHub.changeDescription(summary)) ?? reviewSummary }
 
     private static func formatReviewReport(_ value: JSON, level: Int = 3) -> String {
         switch value {

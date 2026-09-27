@@ -1,10 +1,96 @@
+import AppKit
 import SwiftUI
+
+private struct TranscriptHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Both conversations follow output only while the reader is already at the end.
+struct ChatScrollView<Content: View>: View {
+    let messages: [Message]
+    @ViewBuilder let content: () -> Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var followsLatest = true
+    @State private var hasUnread = false
+    @State private var scrolling = false
+    @State private var nearBottom = true
+
+    private struct Position: Equatable {
+        let height: CGFloat
+        let offset: CGFloat
+        let viewport: CGFloat
+        let nearBottom: Bool
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    content()
+                    Color.clear.frame(height: 1).id("chat-latest")
+                }
+                .padding(24).frame(maxWidth: 776).frame(maxWidth: .infinity)
+            }
+            .defaultScrollAnchor(messages.isEmpty ? .top : .bottom, for: .initialOffset)
+            .defaultScrollAnchor(.top, for: .alignment)
+            .onScrollGeometryChange(for: Position.self) { geometry in
+                Position(height: geometry.contentSize.height, offset: geometry.contentOffset.y,
+                         viewport: geometry.containerSize.height,
+                         nearBottom: geometry.contentSize.height - geometry.visibleRect.maxY < 80)
+            } action: { old, new in
+                nearBottom = new.nearBottom
+                // A growing response must not make a reader who was at the end appear to have scrolled away.
+                if scrolling || (old.height == new.height && old.viewport == new.viewport && abs(old.offset - new.offset) > 1) {
+                    followsLatest = new.nearBottom
+                    if followsLatest { hasUnread = false }
+                }
+                if followsLatest && !scrolling && old.viewport != new.viewport {
+                    proxy.scrollTo("chat-latest", anchor: .bottom)
+                }
+            }
+            .onScrollPhaseChange { _, phase in
+                let moving = phase == .interacting || phase == .decelerating || phase == .animating
+                if moving {
+                    scrolling = true
+                    followsLatest = false
+                } else if scrolling {
+                    scrolling = false
+                    followsLatest = nearBottom
+                    if nearBottom { hasUnread = false }
+                }
+            }
+            .onChange(of: messages) {
+                if followsLatest && !scrolling { proxy.scrollTo("chat-latest", anchor: .bottom) }
+                else { hasUnread = true }
+            }
+            .onPreferenceChange(TranscriptHeight.self) { _ in
+                // Follow streamed text/typing geometry, but never an expanded brief or history disclosure.
+                if followsLatest && !scrolling { proxy.scrollTo("chat-latest", anchor: .bottom) }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !followsLatest && hasUnread {
+                    Button("Latest", systemImage: "arrow.down") {
+                        followsLatest = true
+                        hasUnread = false
+                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
+                            proxy.scrollTo("chat-latest", anchor: .bottom)
+                        }
+                    }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                        .help("Go to the latest message").accessibilityIdentifier("chat-latest-message")
+                        .padding(12)
+                }
+            }
+        }
+    }
+}
 
 /// The pending row keeps its identity when the next agent message arrives, so its bubble can grow in place.
 struct ChatTranscript<Content: View>: View {
     let messages: [Message]
     let responding: Bool
     var spacing: CGFloat = 20
+    var reactionContext: [Message]? = nil
     @ViewBuilder let content: (Message) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppModel.self) private var model
@@ -23,8 +109,15 @@ struct ChatTranscript<Content: View>: View {
     private func isSpeech(_ message: Message) -> Bool { message.role == "agent" && message.kind == "text" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            ForEach(rows) { row in
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                let previous = index > 0 ? rows[index - 1].message : nil
+                let timestamp = row.message.map { showsTimestamp($0, after: previous) } ?? false
+                if timestamp, let message = row.message {
+                    Text(message.createdAt, format: Calendar.current.isDateInToday(message.createdAt) ? .dateTime.hour().minute() : .dateTime.month(.abbreviated).day().hour().minute())
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.top, index == 0 ? 0 : 16).padding(.bottom, 12)
+                }
                 Group {
                     if row.message == nil || row.message.map(isSpeech) == true {
                         AgentResponseBubble(message: row.message)
@@ -47,18 +140,31 @@ struct ChatTranscript<Content: View>: View {
                     }
                 }
                 .padding(.bottom, row.reactions.isEmpty ? 0 : 14)
-                .accessibilityElement(children: .contain)
+                .modifier(ChatMessageMetadata(message: row.message))
+                .padding(.top, index == 0 || timestamp ? 0 : previous?.role == row.message?.role ? 8 : spacing)
                 .transition(reduceMotion ? .opacity : .scale(scale: 0.8, anchor: .bottomLeading).combined(with: .opacity))
             }
         }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: TranscriptHeight.self, value: geometry.size.height)
+            }
+        }
         .onChange(of: messages, initial: true) { update() }
+        .onChange(of: reactionContext) { update() }
         .onChange(of: responding) { update() }
         .onChange(of: attachmentMessageIDs) { update() }
         .onDisappear { nextIndicator?.cancel(); nextIndicator = nil; loaded = false }
     }
 
+    private func showsTimestamp(_ message: Message, after previous: Message?) -> Bool {
+        guard let previous else { return true }
+        return message.createdAt.timeIntervalSince(previous.createdAt) >= 300
+            || !Calendar.current.isDate(message.createdAt, inSameDayAs: previous.createdAt)
+    }
+
     private func update() {
-        let reactions = ChatReactions.targets(in: messages, attachmentMessageIDs: attachmentMessageIDs)
+        let reactions = ChatReactions.targets(in: reactionContext ?? messages, attachmentMessageIDs: attachmentMessageIDs)
         let reactionIDs = Set(reactions.values.flatMap { $0.map(\.id) })
         let visible = messages.filter { !reactionIDs.contains($0.id) }
         let previous = Dictionary(uniqueKeysWithValues: observedMessages.map { ($0.id, $0) })
@@ -83,10 +189,8 @@ struct ChatTranscript<Content: View>: View {
         if responding && !changedSpeech && nextIndicator == nil {
             updated.append(Row(id: pending?.id ?? UUID(), message: nil))
         }
-        // Reduce Motion updates geometry immediately, without size or scale animation.
         withAnimation(reduceMotion ? nil : motion) { rows = updated }
         if responding && changedSpeech {
-            // Wait for a pause in incoming text before showing that more work is underway.
             nextIndicator = Task { @MainActor in
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 guard !Task.isCancelled else { return }
@@ -97,32 +201,68 @@ struct ChatTranscript<Content: View>: View {
     }
 }
 
+struct ChatMessageMetadata: ViewModifier {
+    let message: Message?
+    func body(content: Content) -> some View {
+        if let message {
+            let sender = message.role == "user" ? "You" : message.role == "agent" ? "Agent" : "Build Mate"
+            let timestamp = message.createdAt.formatted(date: .complete, time: .standard)
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(sender), \(timestamp)")
+                .help("\(sender) · \(timestamp)")
+                .contextMenu {
+                    Text("\(sender) · \(timestamp)")
+                    Button("Copy Message", systemImage: "doc.on.doc") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(message.body, forType: .string)
+                    }.help("Copy this message’s text")
+                    Button("Copy Timestamp", systemImage: "clock") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(timestamp, forType: .string)
+                    }.help("Copy the exact time this message was sent")
+                }
+        } else { content }
+    }
+}
+
+struct ChatMessageBubble: View {
+    let message: Message
+    private var user: Bool { message.role == "user" }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MessageAttachments(messageID: message.id)
+            if !message.body.isEmpty { MarkdownBrief(message.body, fillsWidth: false) }
+        }
+        .padding(14)
+        .foregroundStyle(user ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
+        .tint(user ? .white : .accentColor)
+        .background(user ? AppSurface.userBubble : .agentBubble, in: RoundedRectangle(cornerRadius: 14))
+        .frame(maxWidth: 588, alignment: user ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
+    }
+}
+
 struct AgentResponseBubble: View {
     let message: Message?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             if let message {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Agent").fontWeight(.medium)
-                    Text(message.createdAt, style: .time)
-                }.font(.caption).foregroundStyle(.secondary)
                 MessageAttachments(messageID: message.id)
-                Text(.init(message.body)).font(.system(size: 14)).lineSpacing(5)
-                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity)
+                if !message.body.isEmpty { MarkdownBrief(message.body, fillsWidth: false).transition(.opacity) }
             } else {
                 AgentTypingIndicator(showsBackground: false).transition(.opacity)
             }
         }
         .padding(message == nil ? 0 : 14)
-        .frame(maxWidth: message == nil ? 64 : 588, alignment: .leading)
-        .background(AppSurface.agentBubble, in: RoundedRectangle(cornerRadius: message == nil ? 18 : 12))
-        .clipped()
+        .background(AppSurface.agentBubble, in: RoundedRectangle(cornerRadius: message == nil ? 18 : 14))
+        .clipShape(RoundedRectangle(cornerRadius: message == nil ? 18 : 14))
         .scaleEffect(!reduceMotion && !appeared && message == nil ? 0.8 : 1, anchor: .bottomLeading)
         .opacity(!appeared && message == nil ? 0 : 1)
+        .frame(maxWidth: 588, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .smooth(duration: 0.28)) { appeared = true }

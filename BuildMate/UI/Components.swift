@@ -19,39 +19,65 @@ extension TaskState {
     }
 }
 
-struct StateLabel: View {
+/// Only exceptions belong on a card or row; the section already names its state.
+struct TaskNotices: View {
     @Environment(AppModel.self) private var model
-    var task: WorkTask
-    var body: some View {
-        Label(task.paused ? "Paused" : model.retryNeedsAttention(task) ? "Retry scheduled" : task.state.title,
-              systemImage: task.paused ? "pause.circle" : model.retryNeedsAttention(task) ? "clock.arrow.circlepath" : task.state.symbol)
-        .foregroundStyle(.secondary)
+    let task: WorkTask
+    private var activeTurn: Bool {
+        model.snapshot.sessions.contains { $0.ownerId == task.id && $0.status == "running" && $0.currentTurn != nil }
     }
-}
-struct RoadToMerge: View {
-    var task: WorkTask
-    private var completed: Int {
-        switch task.state { case .building: 1; case .humanReview: 3; case .inPR: 4; case .done: 5; default: 0 }
-    }
-    private let names = ["Clarified", "Built", "Proof of work", "Human review", "Merged"]
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(names.enumerated()), id: \.offset) { index, name in
-                HStack(spacing: 8) {
-                    Image(systemName: index < completed ? "checkmark.circle.fill" : index == completed ? "circle.inset.filled" : "circle")
-                        .foregroundStyle(index < completed ? Color.green : index == completed ? .accentColor : .secondary)
-                        .frame(width: 18)
-                    Text(name).foregroundStyle(index <= completed ? .primary : .secondary)
-                }.font(.callout)
-                if index < names.count - 1 {
-                    Rectangle().fill(.separator).frame(width: 1, height: 12).padding(.leading, 8.5)
-                }
+    private var retrying: Bool { task.retry != nil && !activeTurn }
+    private var dependencyNotice: String? {
+        guard !activeTurn else { return nil }
+        for id in task.dependsOn + (task.stackOn.map { [$0] } ?? []) {
+            guard let dependency = model.snapshot.tasks.first(where: { $0.id == id && $0.projectId == task.projectId }) else { return "A dependency is unavailable" }
+            if dependency.state != .done && !(task.stackOn == id && dependency.state == .inPR && dependency.pr != nil) {
+                return "Waits on \(dependency.title)"
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Status: \(completed) of 5 complete, \(task.state.title)")
+        return nil
+    }
+    var body: some View {
+        if !task.state.terminal && (task.paused || retrying || (task.state == .todo && model.usageHeld) || dependencyNotice != nil) {
+            VStack(alignment: .leading, spacing: 4) {
+                if model.retryNeedsAttention(task) {
+                    Label("Needs attention", systemImage: "exclamationmark.triangle")
+                } else if task.paused {
+                    Label("Paused", systemImage: "pause.circle")
+                } else if retrying {
+                    Label("Retrying…", systemImage: "clock.arrow.circlepath")
+                } else if task.state == .todo && model.usageHeld {
+                    Label("Waiting for usage", systemImage: "hourglass")
+                }
+                if let dependencyNotice {
+                    Label(dependencyNotice, systemImage: "link").lineLimit(2)
+                }
+            }.font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
+
+struct TaskContextActions: View {
+    @Environment(AppModel.self) private var model
+    let task: WorkTask
+    var body: some View {
+        Button("Open") { model.destination = .task(task.id) }.help("Open this task")
+        Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief and proof requirements")
+        if task.state == .todo {
+            Button("Refine with Agent") { model.refineInChat(task) }.help("Refine this task’s description in project chat")
+        }
+        TaskPriorityActions(task: task)
+        if !task.state.terminal {
+            Button(task.paused ? "Resume Task" : "Pause Task", systemImage: task.paused ? "play" : "pause") {
+                model.perform { try await model.core.pause(task.id, paused: !task.paused) }
+            }.help(task.paused ? "Resume work on this task" : "Pause work on this task")
+        }
+        Divider()
+        Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
+            .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
+    }
+}
+
 struct TaskCard: View {
     @Environment(AppModel.self) private var model
     let task: WorkTask
@@ -59,15 +85,7 @@ struct TaskCard: View {
         Button { model.destination = .task(task.id) } label: {
             VStack(alignment: .leading, spacing: 12) {
                 Text(task.title).font(.body.weight(.medium)).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(3)
-                if task.state == .todo && model.usageHeld {
-                    Label("Waiting for usage", systemImage: "hourglass").font(.caption).foregroundStyle(.secondary)
-                }
-                if task.paused || model.retryNeedsAttention(task) {
-                    StateLabel(task: task).font(.caption).frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                if let id = task.dependsOn.first, let dependency = model.snapshot.tasks.first(where: { $0.id == id }), dependency.state != .done {
-                    Label("Waits on \(dependency.title)", systemImage: "link").font(.caption).foregroundStyle(.secondary)
-                }
+                TaskNotices(task: task)
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))
@@ -76,18 +94,10 @@ struct TaskCard: View {
         }
         .buttonStyle(.plain)
         .help("Open \(task.title)")
-        .accessibilityLabel("\(task.title), \(task.state.title)")
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(task.state.title)
         .accessibilityIdentifier("task-\(task.number)")
-        .contextMenu {
-            Button("Open") { model.destination = .task(task.id) }.help("Open this task")
-            Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief and proof requirements")
-            TaskPriorityActions(task: task)
-            Button(task.paused ? "Resume" : "Pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }
-                .help(task.paused ? "Resume work on this task" : "Pause work on this task")
-            Divider()
-            Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
-                .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
-        }
+        .contextMenu { TaskContextActions(task: task) }
         .modifier(TaskPriorityDrag(task: task))
     }
 }
@@ -110,20 +120,27 @@ struct TaskPriorityActions: View {
 struct TaskPriorityDrag: ViewModifier {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var height: CGFloat = 1
+    @State private var size: CGSize = .zero
     let task: WorkTask
     func body(content: Content) -> some View {
         if task.state == .todo {
             content
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-                .opacity(model.priorityDrag?.taskID == task.id ? 0.25 : 1)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+                .opacity(model.priorityDrag?.taskID == task.id ? 0 : 1)
+                .overlay {
+                    if model.priorityDrag?.taskID == task.id {
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.accentColor.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                            .accessibilityHidden(true)
+                    }
+                }
                 .draggable("build-mate-task:" + task.id.uuidString) {
                     content
+                        .frame(width: size.width > 0 ? size.width : nil, height: size.height > 0 ? size.height : nil)
                         .background(AppSurface.card, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
                         .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
                         .scaleEffect(reduceMotion ? 1 : 1.025)
-                        .padding(16)
                 }
                 .dragConfiguration(DragConfiguration(operationsWithinApp: .init(allowCopy: false, allowMove: true), operationsOutsideApp: .init(allowCopy: false)))
                 .onDragSessionUpdated { session in
@@ -133,7 +150,7 @@ struct TaskPriorityDrag: ViewModifier {
                     default: break
                     }
                 }
-                .onDrop(of: [UTType.text], delegate: TaskPriorityDrop(model: model, task: task, height: height, reduceMotion: reduceMotion))
+                .onDrop(of: [UTType.text], delegate: TaskPriorityDrop(model: model, task: task, height: max(1, size.height), reduceMotion: reduceMotion))
                 .accessibilityAction(named: "Move earlier") { model.perform { try model.movePriority(task, earlier: true) } }
                 .accessibilityAction(named: "Move later") { model.perform { try model.movePriority(task, earlier: false) } }
                 .help("Open \(task.title). Drag above or below another task to change priority.")

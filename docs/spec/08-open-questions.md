@@ -241,3 +241,16 @@ The optional native UI scenario now uses the single Add to queue action and Task
 ## Screenshot review controls — 2026-09-27
 
 The screenshot sheet now offers Open in Preview and native full-screen expansion. SwiftUI owns the separate screenshot window; a small AppKit view requests full screen when that window becomes key and closes it when full screen ends. Native transitions, Preview launching, keyboard interaction and spoken VoiceOver still need manual verification because the UI automation/access limitation above remains. Build and the existing process-boundary regression suite are the automated checks for this change.
+
+## UX review implementation — 2026-09-27
+
+The owner approved all recommendations in `docs/design/ux-review-2026-09-27.md`. This supersedes earlier presentation notes that describe an always-open inspector, a lifecycle checklist, all chat-created tasks at once, per-message speaker labels, repeated state events, heavy-step settings or a user-maintained turn budget.
+
+- Preserve the actual task state machine. Planning and Testing still need defined transitions; do not infer stages from tool activity. Show the current state and a useful waiting reason instead of the misleading checklist.
+- Start with details closed, then remember the choice. Remember brief disclosure, board/list choice and project expansion in app-owned `view-preferences.json`. Unsent drafts and per-collection searches survive navigation within the app; they are not promised to survive a restart.
+- Show the five newest chat-created tasks. View All Tasks opens the existing project collection; it does not introduce another filter or expandable archive. Keep compact Project information pinned below the scroll area.
+- Keep internal proof/preview capacity and existing security controls. Remove the lifetime turn limit. Existing turn/read/stall timeouts remain; three consecutive tool-free task turns or three failed attempts pause for a human decision. Automatic recovery before that threshold stays out of Needs You. Explicit resume resets failure recovery.
+- Background issues belong to their task/project or the global scheduler. Dismissal suppresses the same issue until it changes or succeeds; success clears stale issues. Do not show one project’s error on another project’s screen.
+- SwiftUI owns native toolbar grouping, inspector transitions and controls. Use consistent composer spacing, content-sized Markdown bubbles and Reduce Motion-aware movement rather than new appearance preferences.
+
+Static offscreen SwiftUI rendering can verify text wrapping and component geometry. It cannot establish native toolbar/material rendering, live drag smoothness, keyboard focus or spoken VoiceOver acceptance. The previously denied preview-app automation access was not bypassed.

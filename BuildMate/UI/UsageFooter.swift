@@ -5,28 +5,32 @@ struct UsageFooter: View {
     @State private var expanded = false
     private var window: UsageWindow? { model.usage.limitingWindow }
     private func tint(_ remaining: Int) -> Color { remaining < model.settings.usageHoldThreshold ? .red : remaining < 25 ? .orange : .accentColor }
+    private var accessibilityStatus: String {
+        var parts = [window.map { "\($0.remaining) percent remaining in the \($0.duration)" } ?? (model.usage.refreshing ? "Checking usage" : "Usage unavailable")]
+        if model.usageHeld { parts.append("New work on hold") }
+        if model.usage.error != nil { parts.append(window == nil ? "Couldn’t refresh usage" : "Last known usage; couldn’t refresh") }
+        return parts.joined(separator: ". ")
+    }
     var body: some View {
         Button { expanded.toggle() } label: {
             VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text("Codex usage")
+                HStack(spacing: 6) {
+                    Text("Codex")
                     Spacer(minLength: 4)
-                    Image(systemName: "chevron.right").font(.caption2).accessibilityHidden(true)
+                    if let window {
+                        Text("\(window.remaining)% left").monospacedDigit().foregroundStyle(tint(window.remaining))
+                    } else {
+                        Text(model.usage.refreshing ? "Checking…" : "Usage unavailable").foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary).accessibilityHidden(true)
                 }
-                if let window {
-                    ProgressView(value: Double(window.remaining), total: 100).tint(tint(window.remaining))
-                    Text("\(window.remaining)% left · \(window.duration)").monospacedDigit()
-                    if model.usageHeld { Text("New tasks on hold").foregroundStyle(.orange) }
-                    if model.usage.error != nil { Text("Last known usage").foregroundStyle(.secondary) }
-                    else if let reset = window.resetsAt { Text("Resets \(reset.formatted(date: Calendar.current.isDateInToday(reset) ? .omitted : .abbreviated, time: .shortened))").foregroundStyle(.secondary) }
-                } else {
-                    Text(model.usage.refreshing ? "Checking usage…" : "Usage unavailable").foregroundStyle(.secondary)
-                }
+                if model.usageHeld { Text("New work on hold").foregroundStyle(.orange) }
+                if window != nil && model.usage.error != nil { Text("Last known usage").foregroundStyle(.secondary) }
             }.font(.caption).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(.plain).help("View account usage and reset times")
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Codex usage")
-            .accessibilityValue(window.map { "\($0.remaining) percent remaining in the \($0.duration)" } ?? "Usage unavailable")
+            .accessibilityValue(accessibilityStatus)
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("usage-details")
             .popover(isPresented: $expanded, arrowEdge: .trailing) {

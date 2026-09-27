@@ -4,8 +4,8 @@ struct MainWindow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columnVisibility = NavigationSplitViewVisibility.all
-    @FocusState private var searchFocused: Bool
-    @State private var collapsedProjects: Set<UUID> = []
+    @Environment(\.openSettings) private var openSettings
+    @State private var showErrorDetails = false
     var body: some View {
         @Bindable var model = model
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -13,10 +13,8 @@ struct MainWindow: View {
                 Label("Needs You", systemImage: "tray").badge(model.needsCount).tag(Destination.needsYou)
                 Section {
                     ForEach(model.snapshot.projects) { project in
-                        DisclosureGroup(isExpanded: Binding(get: { !collapsedProjects.contains(project.id) }, set: { expanded in
-                            if expanded { collapsedProjects.remove(project.id) } else { collapsedProjects.insert(project.id) }
-                        })) {
-                            ForEach(ProjectPage.allCases) { page in
+                        DisclosureGroup(isExpanded: Binding(get: { model.isProjectExpanded(project.id) }, set: { model.setProjectExpanded(project.id, expanded: $0) })) {
+                            ForEach([ProjectPage.chat, .tasks]) { page in
                                 Label(page.rawValue, systemImage: page.symbol)
                                     .badge(page == .tasks ? model.snapshot.tasks.filter { $0.projectId == project.id && model.needsYou($0) }.count : page == .chat ? model.chatQuestionCount(project.id) : 0)
                                     .tag(Destination.project(project.id, page))
@@ -32,6 +30,7 @@ struct MainWindow: View {
                             }
                             .padding(.leading, 4)
                         }
+                        .contextMenu { projectActions(project) }
                     }
                 } header: {
                     HStack {
@@ -45,17 +44,21 @@ struct MainWindow: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: collapsedProjects)
             .navigationSplitViewColumnWidth(min: 210, ideal: 232, max: 300)
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("\(model.workers) of \(model.settings.agentsAtOnce) agents busy").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(model.workers == 0 ? "No agents working" : "\(model.workers) working")
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            .accessibilityLabel("\(model.workers) of \(model.settings.agentsAtOnce) agents working")
+                        Spacer(minLength: 8)
+                        Button(model.settings.paused ? "Resume All" : "Pause All", systemImage: model.settings.paused ? "play.fill" : "pause.fill") {
+                            model.perform { try model.pauseAll() }
+                        }.buttonStyle(.borderless).font(.caption)
+                            .help(model.settings.paused ? "Resume eligible work across all projects (⌥⌘P)" : "Pause all work across all projects (⌥⌘P)")
+                    }
                     UsageFooter()
-                    Button(model.settings.paused ? "Resume All" : "Pause All", systemImage: model.settings.paused ? "play.fill" : "pause.fill") {
-                        model.perform { try model.pauseAll() }
-                    }.buttonStyle(.borderless)
-                        .help(model.settings.paused ? "Resume eligible tasks across all projects (⌥⌘P)" : "Pause all agents across all projects (⌥⌘P)")
-                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(AppSurface.sidebar)
         } detail: {
@@ -68,8 +71,30 @@ struct MainWindow: View {
                             .help("Resume eligible tasks across all projects (⌥⌘P)")
                     }.padding(12).background(AppSurface.raised)
                 }
+                if let project = contextProject, project.paused, !model.settings.paused {
+                    HStack {
+                        Label("Project paused", systemImage: "pause.circle")
+                        Spacer()
+                        Button("Resume Project") { model.perform { try model.pauseProject(project) } }
+                            .help("Resume eligible work in \(project.name)")
+                    }.padding(12).background(AppSurface.raised)
+                }
                 if let error = model.schedulerError {
-                    Label(error, systemImage: "exclamationmark.triangle").padding(12).frame(maxWidth: .infinity, alignment: .leading).background(AppSurface.raised)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Background action needs attention", systemImage: "exclamationmark.triangle")
+                            Spacer()
+                            Button("Dismiss", systemImage: "xmark") { model.dismissSchedulerError() }
+                                .labelStyle(.iconOnly).buttonStyle(.borderless).help("Dismiss this background action error")
+                        }
+                        DisclosureGroup("Details", isExpanded: $showErrorDetails) {
+                            ScrollView {
+                                Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }.frame(maxHeight: 120)
+                        }.font(.caption)
+                    }.padding(12).background(AppSurface.raised)
+                        .onChange(of: error) { showErrorDetails = false }
                 }
                 if let project = model.selectedProject, let reason = project.runBlockReason,
                    case .project(_, .tasks) = model.destination {
@@ -85,33 +110,48 @@ struct MainWindow: View {
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .toolbar {
-                if model.selectedTask == nil {
-                    ToolbarItemGroup {
-                        if case .project(_, .tasks) = model.destination {
-                            Picker("Task layout", selection: $model.listMode) {
-                                Image(systemName: "square.grid.2x2").tag(false).help("Show tasks as a board (⌘L)")
-                                Image(systemName: "list.bullet").tag(true).help("Show tasks as a list (⌘L)")
-                            }.pickerStyle(.segmented).frame(width: 78).help("Toggle List/Board (⌘L)")
-                        }
-                        if model.selectedProject != nil { OpenInMenu() }
-                        Button { model.showNewTask = true } label: { Label("New Task", systemImage: "plus") }
-                            .disabled(model.snapshot.projects.isEmpty).help("New Task (⌘N)")
+                ToolbarItemGroup(placement: .navigation) {
+                    Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
+                        .disabled(!model.canGoBack).help("Back (⌘[)")
+                    Button { model.goForward() } label: { Label("Forward", systemImage: "chevron.right") }
+                        .disabled(!model.canGoForward).help("Forward (⌘])")
+                }
+                if case .project(_, .tasks) = model.destination {
+                    ToolbarItem(placement: .primaryAction) {
+                        Picker("Task layout", selection: $model.listMode) {
+                            Image(systemName: "square.grid.2x2").tag(false).help("Show tasks as a board (⌘L)")
+                            Image(systemName: "list.bullet").tag(true).help("Show tasks as a list (⌘L)")
+                        }.pickerStyle(.segmented).frame(width: 78).help("Toggle List/Board (⌘L)")
                     }
-                } else {
-                    ToolbarItemGroup {
-                        Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }.disabled(!model.canGoBack).help("Back (⌘[)")
-                        Button { model.goForward() } label: { Label("Forward", systemImage: "chevron.right") }.disabled(!model.canGoForward).help("Forward (⌘])")
-                        Button { model.showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }.help("Toggle Inspector (⌥⌘I)")
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { model.showNewTask = true } label: { Label("New Task", systemImage: "plus") }
+                            .help("New Task (⌘N)")
+                    }
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                }
+                if let project = contextProject {
+                    if model.selectedTask == nil {
+                        ToolbarItem(placement: .primaryAction) {
+                            Menu("Project") { projectActions(project) }.help("Project actions and instructions")
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        OpenInMenu().disabled(model.selectedTask != nil && model.selectedTask?.worktreePath == nil)
+                    }
+                }
+                if showsInspector {
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { model.showInspector.toggle() } label: { Label("Details", systemImage: "sidebar.right") }
+                            .help("Show or hide details (⌥⌘I)")
                     }
                 }
             }
+            .modifier(TaskCollectionSearch())
         }
-        .searchable(text: $model.search, prompt: "Search tasks")
-        .searchFocused($searchFocused)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: columnVisibility)
         .onChange(of: model.toggleSidebar) { columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly }
-        .onChange(of: model.findRequested) { searchFocused = true }
-        .frame(minWidth: 1100, minHeight: 700)
+        .frame(minWidth: 900, minHeight: 620)
         .sheet(isPresented: $model.showAddProject) { AddProjectSheet().presentationBackground(AppSurface.sheet) }
         .sheet(isPresented: $model.showNewTask) { NewTaskSheet().presentationBackground(AppSurface.sheet) }
         .sheet(item: $model.reviewSheet) { LifecycleSheet(sheet: $0).presentationBackground(AppSurface.sheet) }
@@ -127,6 +167,40 @@ struct MainWindow: View {
             Button("OK") { model.error = nil }.help("Dismiss this error")
         } message: { Text(model.error ?? "") }
 
+    }
+    private var contextProject: Project? {
+        switch model.destination {
+        case .project, .task: model.selectedProject
+        default: nil
+        }
+    }
+    private var showsInspector: Bool {
+        switch model.destination {
+        case .task, .project(_, .chat): true
+        default: false
+        }
+    }
+    @ViewBuilder private func projectActions(_ project: Project) -> some View {
+        Button(project.paused ? "Resume Project" : "Pause Project", systemImage: project.paused ? "play" : "pause") {
+            model.perform { try model.pauseProject(project) }
+        }.help(project.paused ? "Resume work in \(project.name)" : "Pause work in \(project.name)")
+        Divider()
+        Button("Instructions…", systemImage: "doc.text") { model.destination = .project(project.id, .instructions) }
+            .help("Edit instructions for \(project.name) (⌘4)")
+        Button("Project Settings…", systemImage: "gearshape") {
+            if model.selectedProject?.id != project.id { model.destination = .project(project.id, .chat) }
+            model.settingsProjectID = project.id
+            model.settingsTab = "general"
+            openSettings()
+        }.help("Edit settings for \(project.name)")
+        Divider()
+        Button("Open Project in Finder", systemImage: "folder") {
+            model.perform {
+                guard NSWorkspace.shared.open(URL(fileURLWithPath: project.repoPath)) else {
+                    throw CoreError.invalid("This project folder could not be opened.")
+                }
+            }
+        }.help("Open this project’s checkout in Finder")
     }
     @ViewBuilder private var content: some View {
         switch model.destination {
@@ -152,5 +226,20 @@ struct MainWindow: View {
         if let task = model.selectedTask { return model.projectName(task.projectId) }
         if case .project = model.destination { return model.selectedProject?.name ?? "" }
         return "\(model.needsCount) waiting across \(model.snapshot.projects.count) projects"
+    }
+}
+
+private struct TaskCollectionSearch: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @FocusState private var focused: Bool
+    func body(content: Content) -> some View {
+        @Bindable var model = model
+        if model.canSearch {
+            content.searchable(text: $model.search, prompt: "Search tasks")
+                .searchFocused($focused)
+                .onChange(of: model.findRequested) { focused = true }
+        } else {
+            content
+        }
     }
 }

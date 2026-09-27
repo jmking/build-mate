@@ -1,6 +1,13 @@
 import Foundation
 import GRDB
 
+struct BackgroundIssue: Identifiable, Equatable, Sendable {
+    var id: String
+    var message: String
+    var taskID: UUID?
+    var projectID: UUID?
+}
+
 actor Orchestrator {
     var availableModels: [CodexModel] = []
     let store: Store
@@ -22,7 +29,20 @@ actor Orchestrator {
     var chatJobs: [UUID: Task<Void, Never>] = [:]
     var chatClients: [UUID: CodexClient] = [:]
     var shuttingDown = false
-    private(set) var lastError: String?
+    private(set) var backgroundIssues: [String: BackgroundIssue] = [:]
+    private var dismissedIssues: [String: String] = [:]
+    func dismissBackgroundIssue(_ id: String) {
+        dismissedIssues[id] = backgroundIssues[id]?.message
+        backgroundIssues[id] = nil
+    }
+    private func clearBackgroundIssue(_ id: String) {
+        backgroundIssues[id] = nil; dismissedIssues[id] = nil
+    }
+    private func reportBackgroundIssue(_ message: String, id: String, taskID: UUID? = nil, projectID: UUID? = nil) {
+        let text = runner.redacted(message)
+        guard dismissedIssues[id] != text else { return }
+        backgroundIssues[id] = BackgroundIssue(id: id, message: text, taskID: taskID, projectID: projectID)
+    }
     private(set) var rateLimits: JSON = .null
     private(set) var usage = UsageSnapshot()
     private var usageOverride = false
@@ -74,7 +94,8 @@ actor Orchestrator {
         shuttingDown = false
         await refreshUsage()
         guard !shuttingDown else { return }
-        do { try recover() } catch { lastError = error.localizedDescription; return }
+        do { try recover(); clearBackgroundIssue("recovery") }
+        catch { reportBackgroundIssue(error.localizedDescription, id: "recovery"); return }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tick()
@@ -149,7 +170,12 @@ actor Orchestrator {
                 Task { await pollPR(task.id) }
             }
             await reconcileProjectChats(settings: settings, projects: projects)
-            guard !settings.paused, !usageHeld(), !(usage.refreshing && usage.updatedAt == nil) else { return }
+            for project in projects.values where (try? project.settings.validate()) != nil {
+                clearBackgroundIssue("project-\(project.id)")
+            }
+            guard !settings.paused, !usageHeld(), !(usage.refreshing && usage.updatedAt == nil) else {
+                clearBackgroundIssue("scheduler"); return
+            }
             guard settings.agentsAtOnce > 0, settings.heavyStepsAtOnce > 0 else { throw CoreError.invalid("Concurrency limits must be positive") }
             // A waiting worker still owns a process and a slot. Answering cannot overbook the limit.
             var occupied = workers.count + chatJobs.count
@@ -159,12 +185,13 @@ actor Orchestrator {
                 guard workers[task.id] == nil, !editingTasks.contains(task.id), let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
                       (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
-                do { try project.settings.validate() }
-                catch { lastError = error.localizedDescription; continue }
+                do { try project.settings.validate(); clearBackgroundIssue("project-\(project.id)") }
+                catch { reportBackgroundIssue(error.localizedDescription, id: "project-\(project.id)", projectID: project.id); continue }
                 occupied += 1
                 workers[task.id] = Task { await run(task.id) }
             }
-        } catch { lastError = runner.redacted(error.localizedDescription) }
+            clearBackgroundIssue("scheduler")
+        } catch { reportBackgroundIssue(error.localizedDescription, id: "scheduler") }
     }
     private func dependenciesReady(_ task: WorkTask) throws -> Bool {
         for id in Set(task.dependsOn + (task.stackOn.map { [$0] } ?? [])) {
@@ -298,6 +325,7 @@ actor Orchestrator {
         guard [.humanReview, .inPR].contains(current.state) else { throw CoreError.invalid("Only a task awaiting review or in an open pull request can receive review feedback.") }
         if current.pr != nil {
             _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: current, project: store.get(Project.self, current.projectId))
+            clearBackgroundIssue("pr-\(id)")
         }
         await stopPreview(id)
         if let worker = workers[id] { worker.cancel(); await clients[id]?.stop(); await worker.value }
@@ -356,6 +384,7 @@ actor Orchestrator {
             }
         }
         let pr = try await GitHub(runner: runner, root: store.root).open(task: task, project: project, summary: proof.summary, base: base)
+        clearBackgroundIssue("pr-\(id)")
         var current = try store.get(WorkTask.self, id)
         current.pr = pr; try store.save(current)
         try transition(id, to: .inPR)
@@ -378,16 +407,16 @@ actor Orchestrator {
             }
             if merged.state == .done, merged.worktreePath != nil, workers[id] == nil {
                 await stopPreview(id)
-                let prefix = "Worktree cleanup for task #\(merged.number): "
                 do {
                     try await Workspace(store: store, runner: runner).remove(merged, project: project)
                     try await store.db.write { db in
                         try db.execute(sql: "UPDATE task SET worktreePath = NULL, workspaceReady = 0 WHERE id = ?", arguments: [id])
                     }
-                    if lastError?.hasPrefix(prefix) == true { lastError = nil }
-                } catch { lastError = prefix + runner.redacted(error.localizedDescription) }
+                    clearBackgroundIssue("cleanup-\(id)")
+                } catch { reportBackgroundIssue("Worktree cleanup: " + error.localizedDescription, id: "cleanup-\(id)", taskID: id) }
             }
-        } catch { lastError = runner.redacted(error.localizedDescription) }
+            clearBackgroundIssue("pr-\(id)")
+        } catch { reportBackgroundIssue(error.localizedDescription, id: "pr-\(id)", taskID: id) }
     }
     func deleteTask(_ id: UUID) async throws {
         guard editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
@@ -432,6 +461,7 @@ actor Orchestrator {
             _ = try WorkTask.deleteOne(db, key: id)
         }
         lastPoll[id] = nil
+        backgroundIssues = backgroundIssues.filter { $0.value.taskID != id }
         await tick()
     }
     func deleteProject(_ id: UUID) async throws {
@@ -491,6 +521,7 @@ actor Orchestrator {
             }
             session.status = "running"; try store.save(session)
             if let limits = try? await client.request("account/rateLimits/read", [:]) { receiveUsage(limits) }
+            var idleResponses = 0
             while true {
                 try Task.checkCancellation()
                 let current = try store.get(WorkTask.self, id)
@@ -501,10 +532,6 @@ actor Orchestrator {
                 let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort)
                 let writableRoots = try await Workspace(store: store, runner: runner).agentWritableRoots(current, project: p)
                 session = try store.session(for: id)
-                if session.turnCount >= p.settings.maxTurnsPerTask {
-                    var paused = current; paused.paused = true; try store.save(paused)
-                    throw CoreError.invalid("Turn limit reached; review and resume with an increased limit")
-                }
                 let response = try await client.request("turn/start", [
                     "threadId": .string(session.codexThreadId!), "cwd": .string(cwd!), "input": .chatInput(input, attachments: try store.taskAttachments(id, sessionID: session.id)),
                     "model": .string(selection.model), "effort": selection.effort.map(JSON.string) ?? .null,
@@ -516,6 +543,7 @@ actor Orchestrator {
                 let started = Date()
                 var waitingDuration: TimeInterval = 0
                 var complete = false
+                var usedTools = false
                 while !complete {
                     try Task.checkCancellation()
                     guard Date().timeIntervalSince(started) - waitingDuration < Double(p.settings.turnTimeoutMs) / 1000 else { throw CoreError.invalid("Codex turn timed out") }
@@ -527,6 +555,11 @@ actor Orchestrator {
                     }
                     let method = event["method"].string ?? ""
                     let params = event["params"]
+                    if method == "item/tool/call" || method == "item/tool/requestUserInput" ||
+                        ((method == "item/started" || method == "item/completed") &&
+                         params["item"]["type"].string.map { !["agentMessage", "userMessage", "reasoning", "plan"].contains($0) } == true) {
+                        usedTools = true
+                    }
                     session = try store.session(for: id); session.lastEventAt = Date()
                     if method == "thread/tokenUsage/updated" {
                         session.tokensIn = params["tokenUsage"]["total"]["inputTokens"].int ?? session.tokensIn
@@ -550,10 +583,18 @@ actor Orchestrator {
                 }
                 let latest = try store.get(WorkTask.self, id)
                 if latest.state == .humanReview || latest.state == .inPR { break }
+                idleResponses = usedTools ? 0 : idleResponses + 1
+                if idleResponses >= 3 {
+                    var paused = latest; paused.paused = true
+                    paused.retry = Retry(attempt: 0, dueAt: Date(), error: "The agent replied repeatedly without taking action. Review the conversation, then resume when ready.")
+                    try store.save(paused)
+                    throw CancellationError()
+                }
                 try await Task.sleep(for: .seconds(1))
             }
             attempt?.status = "succeeded"
             var finishedTask = try store.get(WorkTask.self, id); finishedTask.retry = nil; try store.save(finishedTask)
+            clearBackgroundIssue("task-\(id)")
         } catch is CancellationError {
             attempt?.status = "canceled"
         } catch {
@@ -565,10 +606,11 @@ actor Orchestrator {
                 if !task.state.terminal && !task.paused {
                     let number = (task.retry?.attempt ?? 0) + 1
                     let delay = min(10 * pow(2, Double(min(number - 1, 20))), Double(project?.settings.retryBackoffMaxMs ?? 300_000) / 1000)
-                    task.retry = Retry(attempt: number, dueAt: Date().addingTimeInterval(delay), error: message)
+                    task.paused = number >= 3
+                    task.retry = Retry(attempt: number, dueAt: Date().addingTimeInterval(delay), error: number >= 3 ? "The agent couldn’t continue after three attempts. " + message : message)
                     try store.save(task)
                 }
-            } catch { lastError = error.localizedDescription }
+            } catch { reportBackgroundIssue(error.localizedDescription, id: "task-\(id)", taskID: id) }
         }
         await client.stop()
         // Cleanup hooks must run even after cancellation of the worker task.
@@ -579,7 +621,8 @@ actor Orchestrator {
                 catch { return runner.redacted(error.localizedDescription) }
             }.value
             // Cleanup diagnostics must not rerun an already successful coding attempt.
-            if let result { lastError = "After run: " + result }
+            if let result { reportBackgroundIssue("After-run cleanup: " + result, id: "hook-\(id)", taskID: id) }
+            else { clearBackgroundIssue("hook-\(id)") }
         }
         if var attempt { attempt.endedAt = Date(); try? store.save(attempt) }
         if var session = try? store.session(for: id) { session.status = "idle"; session.currentTurn = nil; try? store.save(session) }
