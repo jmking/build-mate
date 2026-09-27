@@ -70,6 +70,11 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE attachment ADD COLUMN removedAt DATETIME")
             try db.execute(sql: "ALTER TABLE attachment ADD COLUMN sourceAttachmentId TEXT")
         }
+        migrator.registerMigration("v6-model-selection") { db in
+            try db.execute(sql: "CREATE TABLE agentConfiguration (id TEXT PRIMARY KEY, model TEXT NOT NULL, effort TEXT)")
+            try db.execute(sql: "ALTER TABLE session ADD COLUMN activeModel TEXT")
+            try db.execute(sql: "ALTER TABLE session ADD COLUMN activeEffort TEXT")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

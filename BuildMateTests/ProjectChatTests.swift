@@ -20,6 +20,7 @@ struct ProjectChatTests {
         try await f.wait("project proposal and final response") { try f.store.all(Proposal.self).count == 1 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let session = try f.store.session(for: f.project.id, ownerType: "project")
         let thread = try #require(session.codexThreadId)
+        #expect(session.activeModel == "gpt-6-astra" && session.activeEffort == "high")
         let requests = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
         #expect(requests.contains("GLOBAL instruction marker") && requests.contains("PROJECT instruction marker"))
         try f.store.saveInstructions("UPDATED instruction marker", projectID: f.project.id)
@@ -48,6 +49,10 @@ struct ProjectChatTests {
         await model.refresh()
         #expect(await model.needsCount == 1)
         let question = try #require(f.store.all(Message.self).last { $0.kind == "question" })
+        let activeTurn = try f.store.session(for: f.project.id, ownerType: "project").currentTurn
+        try await core.setModel(ownerID: f.project.id, projectChat: true, model: "gpt-5.6-luna", effort: "low")
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").currentTurn == activeTurn)
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").activeModel == "gpt-6-astra")
         try await core.answerProjectQuestion(question.id, projectID: f.project.id, answer: "Active")
         try await f.wait("answer delivered") { try f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         await core.shutdown()
@@ -56,6 +61,11 @@ struct ProjectChatTests {
         try await resumed.sendProjectMessage(f.project.id, text: "Plan more account work")
         try await f.wait("second proposal after restart") { try f.store.all(Proposal.self).count == 2 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         #expect(try f.store.session(for: f.project.id, ownerType: "project").codexThreadId == thread)
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").activeModel == "gpt-5.6-luna")
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").activeEffort == "low")
+        let turns = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }.filter { $0["method"].string == "turn/start" }
+        #expect(turns.last?["params"]["model"].string == "gpt-5.6-luna")
+        #expect(turns.last?["params"]["effort"].string == "low")
         try await resumed.sendProjectMessage(f.project.id, text: "Start the first two now, backlog the rest")
         try await f.wait("mixed creation") { try f.store.all(WorkTask.self).count == 6 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let routed = try f.store.all(WorkTask.self).sorted { $0.number < $1.number }.suffix(3)
@@ -89,6 +99,12 @@ struct ProjectChatTests {
         #expect(originals.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
         #expect(try f.store.all(Message.self).contains { $0.body == "Plan account search" })
         await cleanup.shutdown()
+        try f.marker("no-astra")
+        let unavailable = Orchestrator(store: f.store, runner: f.runner)
+        _ = try await unavailable.models()
+        do { try await unavailable.setModel(ownerID: f.project.id, projectChat: true, model: "gpt-6-astra", effort: "high"); Issue.record("Silently substituted unavailable Astra") } catch {}
+        #expect(try f.store.get(AgentConfiguration.self, f.project.id).model == "gpt-5.6-luna")
+        await unavailable.shutdown()
         try f.cleanup()
     }
 }

@@ -4,7 +4,7 @@
 | Version | Scope |
 |---|---|
 | **v1 — Mac** | Single app process; local Git projects plus projects on **GitHub and Bitbucket Cloud**; Codex app-server runner; built-in tracker; Needs You; project chat with proposals; Backlog; board (+ list view); New Task; task views for every state; clarification questions; plan/PR/merge approvals; proof of work (checks + recording); Run locally previews; Open in editor/Terminal/Finder; stacked PRs; PR watch mode; pause (task/project/all); project and global instructions; Settings (General, Hooks, Instructions); menu bar extra; notifications; usage meter and hold; light and dark mode. |
-| **v1.1** | Ship as one PR (feature branch); `<n>.localhost` preview proxy; per-task model picker; list-view polish. |
+| **v1.1** | Ship as one PR (feature branch); `<n>.localhost` preview proxy; list-view polish. |
 | **v2 — Remote** | Settings › Remote, device pairing, private-network API, CloudKit push, iPhone Pro app, iPhone Duo layouts. |
 | **v3** | Claude agent runner; Linear/Jira tracker adapters; Export to repository (`WORKFLOW.md`). |
 
@@ -120,3 +120,9 @@ User-directed additions: remove clean worktrees after confirmed merge (retain ta
 - Demo: ⌘, → change Agents at once → edit project settings or global Instructions. Open the menu-bar hammer to navigate an attention item or pause agents. Below the usage threshold, Queue cards wait; Resume Anyway permits dispatch. Backlog → Select Tasks → Command/Shift-click → Move to Queue.
 - Ten process-boundary/state-machine tests pass in approximately 68 seconds (including the initial usage-read gate). Added coverage verifies legacy settings defaults, low-usage dispatch gating, failed-read hold retention, explicit override/recovery, stable attention identities and bounded pause with a fake app-server that ignores interrupts while the configured read timeout is 60 seconds.
 - Manual acceptance is still pending: Computer Use denied access to the isolated preview app. Light/dark screenshots, native menu/Settings interaction, OS notification permission/delivery/deep-link, keyboard-only and spoken VoiceOver/Reduce Motion/Transparency checks have not been claimed to pass. A request to enable access remains pending. Milestone 5’s Bitbucket/stacking/watch/merge work is not included in this handoff.
+
+## Conversation model selection brought forward (2026-09-27)
+
+- Per-task and project-chat model/effort selectors are now v1. Project chat defaults to Astra High. Selections persist independently of lifecycle writes and apply to subsequent turns on the same thread, including after restart.
+- Build and all ten tests pass in approximately 71 seconds. Extended existing process-boundary lifecycle/chat flows verify default Astra High, actual turn overrides, active-turn preservation, unsupported effort/model rejection, proof preservation and restart persistence. No new test suite or real inference calls were added.
+- Installed Codex 0.151.0 currently does not advertise Astra, including hidden models. The default remains Astra High, with an explicit availability error; select an available model to chat on this installation. Native light/dark, keyboard-only and spoken VoiceOver acceptance remain pending because preview-app Computer Use access was previously denied.

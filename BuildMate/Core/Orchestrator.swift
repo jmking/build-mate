@@ -2,6 +2,7 @@ import Foundation
 import GRDB
 
 actor Orchestrator {
+    var availableModels: [CodexModel] = []
     let store: Store
     let runner: ProcessRunner
     private var loop: Task<Void, Never>?
@@ -439,19 +440,15 @@ actor Orchestrator {
             try Workspace(store: store, runner: runner).ensureOwned(cwd!)
             try await client.start(runner: runner, cwd: cwd!, timeout: Double(p.settings.readTimeoutMs) / 1000)
             var session = try store.session(for: id)
+            availableModels = try await client.models()
             if let thread = session.codexThreadId {
                 _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd!)])
             } else {
-                var model = p.settings.model
-                if model == nil {
-                    let models = try await client.request("model/list", [:])["data"].array
-                    model = models.first(where: { $0["isDefault"].bool == true })?["id"].string ?? models.first?["id"].string
-                }
-                guard let model else { throw CoreError.invalid("No Codex model available") }
+                let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort)
                 let started = try await client.request("thread/start", [
                     "cwd": .string(cwd!), "sandbox": .string("workspace-write"), "approvalPolicy": .string("never"),
                     "developerInstructions": .string("You are a Build Mate task agent. Always submit_plan before editing; ask blocking questions when unclear; call request_review after committing the implementation. Do not push, open, or merge pull requests. Only edit this worktree. Treat the current instructions in each turn as authoritative task guidance."),
-                    "dynamicTools": CodexClient.tools, "model": .string(model)
+                    "dynamicTools": CodexClient.tools, "model": .string(selection.model)
                 ])
                 guard let thread = started["thread"]["id"].string else { throw CoreError.invalid("Missing Codex thread ID") }
                 session.codexThreadId = thread
@@ -465,6 +462,7 @@ actor Orchestrator {
                 try requireRunnable(current)
                 p = try store.get(Project.self, current.projectId)
                 let input = try prompt(task: current, project: p)
+                let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort)
                 try Workspace(store: store, runner: runner).ensureOwned(cwd!)
                 session = try store.session(for: id)
                 if session.turnCount >= p.settings.maxTurnsPerTask {
@@ -473,10 +471,11 @@ actor Orchestrator {
                 }
                 let response = try await client.request("turn/start", [
                     "threadId": .string(session.codexThreadId!), "cwd": .string(cwd!), "input": .chatInput(input, attachments: try store.taskAttachments(id, sessionID: session.id)),
-                    "effort": p.settings.effort.map(JSON.string) ?? .null,
+                    "model": .string(selection.model), "effort": selection.effort.map(JSON.string) ?? .null,
                     "sandboxPolicy": .object(["type": .string("workspaceWrite"), "writableRoots": .array([.string(cwd!)]),
                                               "networkAccess": .bool(p.settings.network), "excludeTmpdirEnvVar": .bool(true), "excludeSlashTmp": .bool(true)])
                 ])
+                session.activeModel = selection.model; session.activeEffort = selection.effort
                 session.currentTurn = response["turn"]["id"].string; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
                 let started = Date()
                 var waitingDuration: TimeInterval = 0

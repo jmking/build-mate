@@ -96,24 +96,28 @@ extension Orchestrator {
             try Task.checkCancellation()
             try await client.start(runner: runner, cwd: cwd, timeout: Double(project.settings.readTimeoutMs) / 1000)
             var session = try store.session(for: projectID, ownerType: "project")
+            availableModels = try await client.models()
+            var currentProject = try store.get(Project.self, projectID)
+            var selection = try modelSelection(ownerID: projectID, defaultModel: "gpt-6-astra", defaultEffort: "high")
             if let thread = session.codexThreadId {
                 _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd)])
             } else {
-                let models = try await client.request("model/list", [:])["data"].array
-                guard let model = project.settings.model ?? models.first(where: { $0["isDefault"].bool == true })?["id"].string ?? models.first?["id"].string else { throw CoreError.invalid("No Codex model available") }
                 session.codexThreadId = try await client.request("thread/start", [
-                    "cwd": .string(cwd), "model": .string(model), "sandbox": .string("read-only"), "approvalPolicy": .string("never"),
+                    "cwd": .string(cwd), "model": .string(selection.model), "sandbox": .string("read-only"), "approvalPolicy": .string("never"),
                     "developerInstructions": .string(Self.projectBrief), "dynamicTools": Self.projectTools
                 ])["thread"]["id"].string
                 guard session.codexThreadId != nil else { throw CoreError.invalid("Missing project thread ID") }
                 try store.save(session)
             }
             session.status = "running"; try store.save(session)
+            currentProject = try store.get(Project.self, projectID)
+            selection = try modelSelection(ownerID: projectID, defaultModel: "gpt-6-astra", defaultEffort: "high")
             let response = try await client.request("turn/start", [
-                "threadId": .string(session.codexThreadId!), "cwd": .string(cwd), "input": .chatInput(try projectContext(project, session: session), attachments: try store.chatAttachments(sessionID: session.id)),
-                "effort": project.settings.effort.map(JSON.string) ?? .null,
+                "threadId": .string(session.codexThreadId!), "cwd": .string(cwd), "input": .chatInput(try projectContext(currentProject, session: session), attachments: try store.chatAttachments(sessionID: session.id)),
+                "model": .string(selection.model), "effort": selection.effort.map(JSON.string) ?? .null,
                 "sandboxPolicy": .object(["type": .string("readOnly"), "networkAccess": .bool(false)])
             ])
+            session.activeModel = selection.model; session.activeEffort = selection.effort
             session.currentTurn = response["turn"]["id"].string; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
             var deadline = Date().addingTimeInterval(Double(project.settings.turnTimeoutMs) / 1000)
             var streaming: [String: UUID] = [:]

@@ -131,6 +131,12 @@ struct WorkTask: Record {
     var updatedAt = Date()
     var doneAt: Date?
 }
+struct AgentConfiguration: Record {
+    static let databaseTableName = "agentConfiguration"
+    var id: UUID // Task or project ID; kept separate from mutable lifecycle records.
+    var model: String
+    var effort: String?
+}
 struct PullRequest: Codable, Sendable { var number: Int; var url: String; var baseBranch: String }
 struct Retry: Codable, Sendable { var attempt: Int; var dueAt: Date; var error: String }
 struct Session: Record {
@@ -141,6 +147,8 @@ struct Session: Record {
     var codexThreadId: String?
     var status = "idle"
     var currentTurn: String?
+    var activeModel: String?
+    var activeEffort: String?
     var turnCount = 0
     var tokensIn = 0
     var tokensOut = 0

@@ -56,7 +56,7 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
   - Task chips after creation: glass capsules "● #427 Building" that open the task.
 - Composer (floating glass, bottom): attach (paperclip; also drag-and-drop and paste images/video), text field "Describe what you want built…", send (accent circle, ⌘↩ or ↩).
 - Natural-language routing: "start now", "go straight to Queue" → Add to queue; "backlog the rest" etc. The agent echoes the outcome as an event.
-- Inspector: **From this chat** (tasks created here, live state, "Backlog · waiting for you to refine", "then waits on #427") and **Project** (checkout path, branch, agent/model, host mark + remote slug), footer **Open Tasks**.
+- Inspector: **From this chat** (tasks created here, live state, "Backlog · waiting for you to refine", "then waits on #427") and **Project** (checkout path, branch, agent, host mark + remote slug), footer **Open Tasks**.
 
 ## 5. Backlog — `mac-03-backlog`
 **Purpose:** refine tasks before any agent starts them.
@@ -201,7 +201,7 @@ Editor-icon refinement (2026-09-27): the Open in control shows only a centred 16
 
 The Chat page now supports persistent text conversations, streamed agent bubbles, expandable inspection output, inline questions/answers, selectable proposals, Add to queue/Add N to Backlog, and live task links in the From this chat inspector. Proposal dependencies are shown by task title. Unselected tasks are not created; dependencies of selected tasks must also be selected. Dismiss makes a proposal inactive. Natural-language routing supports mixed destinations through the project agent. Backlog task details, row context menus and the Task menu expose Refine with Agent, opening project chat without starting coding. Project questions appear in Needs You and the Chat badge.
 
-The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector shows project checkout, branch and model plus live created-task states and dependencies.
+The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector shows project checkout and branch plus live created-task states and dependencies.
 
 This pulls forward text project chat and backlog refinement, not all of milestone 6: image/video attachment entry and instruction editing remain separate remaining work. Proposal Ship as controls remain hidden until the related SCM capability exists. Spoken VoiceOver and reduced-transparency validation are not inferred from accessibility labels alone.
 
@@ -231,3 +231,7 @@ Queue cards show “Waiting for usage” while held. The usage popover offers Re
 Backlog’s Select Tasks action enables native Command-click/Shift-click multiselection. Move to Queue (⌘Return) queues the selection together; ordinary row clicks still open the task when selection mode is off.
 
 While an agent responds, project and task chats show a compact Messages-style three-dot speech bubble in the agent bubble colour, instead of a spinner/status sentence. Waiting for input, queued and paused states retain explicit labels. The bubble is static with Reduce Motion enabled.
+
+### Conversation model and effort (2026-09-27)
+
+Task and project chat toolbars show the selected model and effort. The native popover provides model/effort pickers, supported choices from Codex, refresh, errors, tooltips and accessibility labels. Choices can be changed in any task state or during a response, persist across restart, and apply at the next turn without discarding history or interrupting work. A pending-change explanation appears when the current turn uses a different choice. Project chat defaults to Astra High; tasks inherit project/Codex defaults until changed. An unavailable configured model remains visible with guidance to choose another or update Codex; no silent fallback.

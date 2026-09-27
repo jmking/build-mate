@@ -68,6 +68,8 @@ struct CoreTests {
         let core = Orchestrator(store: f.store, runner: f.runner)
         let task = try f.store.createTask(projectId: f.project.id, title: "Add plain output", state: .todo, proofRequirement: .checksAndRecording, askBeforeBuild: true)
         #expect(task.state == .todo)
+        _ = try await core.models()
+        do { try await core.setModel(ownerID: task.id, projectChat: false, model: "gpt-5.6-luna", effort: "ultra"); Issue.record("Accepted unsupported effort") } catch {}
         await core.tick()
         try await f.wait("blocking question") { try f.store.get(WorkTask.self, task.id).state == .needsClarification }
         #expect(try await core.steer(task.id, text: "Keep the output compact", files: [f.control.appending(path: "proof.png")]) == .sent)
@@ -76,6 +78,12 @@ struct CoreTests {
         #expect(try String(contentsOf: f.control.appending(path: "image-inputs.jsonl"), encoding: .utf8).contains("turn/steer"))
         let question = try #require(f.store.all(Question.self).first)
         let thread = try #require(f.store.session(for: task.id).codexThreadId)
+        let currentTurn = try f.store.session(for: task.id).currentTurn
+        try await core.setModel(ownerID: task.id, projectChat: false, model: "gpt-6-astra", effort: "high")
+        #expect(try f.store.session(for: task.id).currentTurn == currentTurn)
+        #expect(try f.store.session(for: task.id).activeModel == "fake-model")
+        #expect(try f.store.get(WorkTask.self, task.id).state == .needsClarification)
+        #expect(try Store(root: f.store.root).get(AgentConfiguration.self, task.id).model == "gpt-6-astra")
         // A human may take longer than the stall window; answering must still resume.
         try await Task.sleep(for: .seconds(1))
         #expect(question.suggestedAnswer == "Plain")
@@ -107,6 +115,13 @@ struct CoreTests {
         try await f.wait("fresh proof after edit") { try f.store.get(WorkTask.self, task.id).state == .humanReview }
         #expect(try f.store.session(for: task.id).codexThreadId == thread)
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Preserve errors in the compact output"))
+        #expect(try f.store.session(for: task.id).activeModel == "gpt-6-astra")
+        #expect(try f.store.session(for: task.id).activeEffort == "high")
+        let turnRequests = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }.filter { $0["method"].string == "turn/start" }
+        #expect(turnRequests.last?["params"]["model"].string == "gpt-6-astra")
+        #expect(turnRequests.last?["params"]["effort"].string == "high")
+        try await core.setModel(ownerID: task.id, projectChat: false, model: "gpt-6-astra", effort: "low")
+        #expect(try f.store.all(Proof.self).first?.complete == true) // Preferences do not invalidate reviewed work.
         // Chat review feedback preserves context and pause, and a changed reviewed commit cannot be published.
         do { try await core.steer(task.id, text: "  "); Issue.record("Accepted empty feedback") } catch {}
         let worktree = try #require(f.store.get(WorkTask.self, task.id).worktreePath)
@@ -124,6 +139,7 @@ struct CoreTests {
         #expect(try f.store.session(for: task.id).codexThreadId == thread)
         #expect(try f.store.all(Approval.self).filter { $0.status == "approved" }.count == 1)
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Please verify the revised commit"))
+        #expect(try f.store.session(for: task.id).activeEffort == "low")
         await core.shutdown()
 
         // Reopen SQLite and the orchestrator at the human-review boundary.

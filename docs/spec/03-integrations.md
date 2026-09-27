@@ -8,7 +8,9 @@ Build Mate runs agents through `codex app-server` (JSON-RPC over stdio), the sam
 - Usage meter: `account/rateLimits/read` on launch and the `account/rateLimits/updated` notification afterwards (see 02 §12). `account/usage/read` MAY back a usage detail popover.
 
 ### Models
-- `model/list` populates the model pickers (Settings › General and per task in v1.1). Never hard-code model IDs; the list depends on the account.
+- Task and project-chat toolbar pickers use paginated `model/list`, excluding hidden models. Use each entry’s `model` slug (falling back to `id`), display name, supported reasoning efforts and default effort. Cache metadata for the app session, refresh on agent startup, and offer Refresh Models.
+- Tasks inherit their project/default Codex model until explicitly changed. Project chat defaults to `gpt-6-astra` with `high` effort, as requested. Validate availability and supported effort; an unavailable explicit model produces an actionable error, never a silent substitution. Switching models preserves the chosen effort when supported, otherwise uses the new model’s reported default.
+- Persist choices immediately and send explicit `model` and `effort` on every `turn/start`, including resumed threads. Changes during a turn apply to the next turn; `turn/steer` cannot change model/effort. Preserve conversation history and lifecycle/proof state. Title generation retains its separate economical-model policy.
 
 ### Sessions (one Codex thread per task, one for each project chat)
 | Build Mate action | App-server call |

@@ -71,13 +71,15 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 - `proof`: `{ checks: [{ name, command, required }], recording: { command | agentDriven }, screenshotsForUI: bool }`.
 - `preview`: `{ command, portEnvVar (default PORT), readyPath (default /) }`.
 - `sandbox`: `{ network: true }`.
-- `model`: Codex model id and reasoning effort for task agents and the project agent.
+- `model`: default Codex model and reasoning effort for task agents. A task-specific choice overrides these defaults; project chat has its own choice, defaulting to Astra High.
 
 **Task**: `id, projectId, number (int, unique per project), title, description (markdown), state (see 5), paused (bool), rank (float, ordering within backlog/todo), dependsOn [taskId], shipAs (own | stackOn(taskId) | featureBranch(name) v1.1), askBeforeBuild (inherit|on|off), proofRequirement (automatic|checksOnly|checksAndRecording), origin (chat|sheet|phone|backlog), branchName, worktreePath, pr { number, url, baseBranch } ?, retry { attempt, dueAt, error } ?, createdAt, updatedAt, doneAt`.
 
 **Attachment**: `id, ownerType (task|message), ownerId, kind (image|file), path, filename, byteSize, durationSec?, frames [path]?, transcript?, sourceAttachmentId?, removedAt?`.
 
-**Session**: `id, ownerType (task|project), ownerId, codexThreadId, status (idle|running|waiting|stalled|failed|ended), currentTurn, turnCount, tokensIn, tokensOut, startedAt, lastEventAt`.
+**AgentConfiguration**: `id (task or project UUID), model, effort?`. Store explicit conversation choices separately from task/project lifecycle records so concurrent lifecycle writes cannot overwrite them. Missing task configuration inherits project/default Codex settings; missing project-chat configuration means `gpt-6-astra` / `high`.
+
+**Session**: `id, ownerType (task|project), ownerId, codexThreadId, status (idle|running|waiting|stalled|failed|ended), currentTurn, activeModel?, activeEffort?, turnCount, tokensIn, tokensOut, startedAt, lastEventAt`. Active model/effort describe the last started turn, allowing the UI to distinguish a saved change from a response already in progress.
 
 **Message** (the chat log for tasks and projects): `id, sessionId, role (user|agent|system), kind (text|question|plan|proposal|activity|event|proof), body (markdown), payload (JSON per kind), createdAt`.
 - `activity` groups tool calls into one collapsible row ("Worked for 12 min · 18 commands · 3 files edited") with the raw events kept for the expanded view.

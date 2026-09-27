@@ -192,6 +192,7 @@ struct TaskDetailView: View {
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)
         .toolbar {
+            ToolbarItem { ModelPicker(ownerID: task.id).id(task.id) }
             ToolbarItem { OpenInMenu().disabled(task.worktreePath == nil) }
             ToolbarItem {
                 Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal)

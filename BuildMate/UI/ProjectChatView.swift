@@ -109,7 +109,6 @@ struct ProjectChatView: View {
                     if let project {
                         Text(project.repoPath).font(.caption.monospaced()).textSelection(.enabled)
                         Text("\(project.defaultBranch) · Codex").foregroundStyle(.secondary)
-                        Text(project.settings.model ?? "Default Codex model").font(.caption).foregroundStyle(.secondary)
                         Text(project.host == .local ? "Local Git repository" : project.remoteSlug).foregroundStyle(.secondary)
                     }
                     Text("The project agent reads code in its own checkout. Task agents build changes in separate worktrees.").font(.caption).foregroundStyle(.secondary)
@@ -121,6 +120,7 @@ struct ProjectChatView: View {
                 }.inspectorColumnWidth(min: 300, ideal: 340, max: 440)
         }
         .toolbar {
+            ToolbarItem { ModelPicker(ownerID: projectID, projectChat: true).id(projectID) }
             ToolbarItem { Button { model.showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }.help("Toggle Inspector (⌥⌘I)") }
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: model.showInspector)

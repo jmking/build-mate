@@ -56,8 +56,9 @@ for line in sys.stdin:
  if method=='initialize':reply(req,{'userAgent':'fake/0.151'})
  elif method=='initialized':pass
  elif method=='model/list':
-  models=[{'id':'fake-model','isDefault':True}]
-  if not (root/'no-cheap-title-model').exists():models.append({'id':'gpt-5.6-luna','supportedReasoningEfforts':[{'reasoningEffort':'low'}]})
+  models=[{'id':'fake-model','model':'fake-model','displayName':'Fixture Model','isDefault':True,'defaultReasoningEffort':'medium','supportedReasoningEfforts':[{'reasoningEffort':e} for e in ['low','medium','high']]}]
+  if not (root/'no-astra').exists():models.append({'id':'astra-row','model':'gpt-6-astra','displayName':'GPT-6 Astra','defaultReasoningEffort':'medium','supportedReasoningEfforts':[{'reasoningEffort':e} for e in ['low','medium','high','xhigh']]})
+  if not (root/'no-cheap-title-model').exists():models.append({'id':'gpt-5.6-luna','defaultReasoningEffort':'low','supportedReasoningEfforts':[{'reasoningEffort':'low'}]})
   reply(req,{'data':models,'nextCursor':None})
  elif method=='account/rateLimits/read':
   if (root/'usage-error').exists():emit({'id':req['id'],'error':{'code':-32000,'message':'Fixture usage unavailable'}})
@@ -79,6 +80,9 @@ for line in sys.stdin:
  elif method=='thread/resume':
   thread=p['threadId'];cwd=readstate()['cwd'];project_mode=readstate().get('project_mode',False);reply(req,{'thread':{'id':thread}})
  elif method=='turn/start':
+  if not title_mode:
+   assert p.get('model') in ['fake-model','gpt-6-astra','gpt-5.6-luna']
+   assert p.get('effort') in (['low'] if p['model']=='gpt-5.6-luna' else ['low','medium','high','xhigh'])
   thread=p['threadId'];turn='turn-'+str(readstate().get('turns',0)+1);save(turns=readstate().get('turns',0)+1)
   if title_mode:
    assert p['effort']=='low'

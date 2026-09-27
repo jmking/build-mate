@@ -12,6 +12,7 @@ struct AttentionItem: Identifiable, Sendable {
 }
 
 struct AppSnapshot: Sendable {
+    var agentConfigurations: [AgentConfiguration] = []
     var projects: [Project] = []
     var tasks: [WorkTask] = []
     var sessions: [Session] = []
@@ -105,7 +106,7 @@ final class AppModel {
     func refresh() async {
         do {
             snapshot = try await store.db.read { db in
-                AppSnapshot(projects: try Project.order(Column("name")).fetchAll(db),
+                AppSnapshot(agentConfigurations: try AgentConfiguration.fetchAll(db), projects: try Project.order(Column("name")).fetchAll(db),
                             tasks: try WorkTask.order(Column("rank").desc, Column("createdAt")).fetchAll(db),
                             sessions: try Session.fetchAll(db), messages: try Message.order(Column("createdAt")).fetchAll(db),
                             questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db), proposals: try Proposal.fetchAll(db), attachments: try Attachment.fetchAll(db))
