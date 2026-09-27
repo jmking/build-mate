@@ -30,7 +30,7 @@ Build Mate adapts Symphony's orchestration model (`openai/symphony` `SPEC.md`) i
 | `blocked_by`, `dispatchable` | Task dependencies and the pause flag. A task is dispatchable only if not paused, its project is not paused, all dependencies are merged (or its stack base PR exists, see 9), and no approval is pending. |
 | Workspace per issue, hooks (`after_create`, `before_run`, `after_run`, `before_remove`) | Git worktree per task plus the same four hooks, configured per project. |
 | Run attempt, retry with backoff (`min(10000·2^(n-1), max_retry_backoff_ms)`), continuation retry (1 s) | Same semantics and defaults. |
-| `max_concurrent_agents`, per-state limits | "Agents at once" (default 4) plus a heavy-step limit (default 2) for proof recording and previews. |
+| `max_concurrent_agents`, per-state limits | "Agents at once" (default 4), internal verification-job capacity (default 2), and a separate limit of two local previews. |
 | Reconciliation (stop sessions whose issue left an active state) | Same. Used for pause, cancel. |
 | Codex app-server as the agent | Same. Codex is the only runner in v1; introduce an abstraction only when a second runner (Claude, v3) is actually built. |
 | Status API | Not needed; the UI reads the core directly. |
@@ -62,7 +62,7 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 **Project**: `id, name (display, e.g. acme/web), repoPath, host (local|github|bitbucket), remoteSlug (owner/repo or workspace/repo), defaultBranch, instructions (markdown), settings (Settings), paused (bool), createdAt`.
 
 **Settings** (per project; global defaults in app settings):
-- `agentsAtOnce` (global, default 4), internal `heavyStepsAtOnce` capacity (default 2; legacy stored values retained), `retryBackoffMaxMs` (300000), timeouts (turn 3 600 000 ms, stall 300 000 ms, read 5 000 ms).
+- `agentsAtOnce` (global, default 4), internal verification capacity stored as `heavyStepsAtOnce` (default 2; legacy values retained), `retryBackoffMaxMs` (300000), timeouts (turn 3 600 000 ms, stall 300 000 ms, read 5 000 ms). Preview processes have a separate fixed capacity of two across the app; neither internal capacity has a Settings control.
 - `askBefore`: `{ build: false, openPR: true, merge: false }`.
 - `prStrategy`: `separateStacked` (default) | `onePR` (v1.1).
 - `branchPrefix` (default empty, meaning `<number>-<slug>`; e.g. `427-report-permissions`).
@@ -142,6 +142,7 @@ Follow Symphony's loop with these specifics:
 - **Turns**: continue automatically unless waiting for a question, approval or review, or paused. Remove the lifetime 20-turn budget; old persisted `maxTurnsPerTask` keys are ignored. Three consecutive completed responses without tool activity pause the task with an actionable explanation. Explicit Resume resets this run-local counter and retains the same thread. Turn deadlines and event-stall detection remain active.
 - **Stall detection**: no Codex event for `stall` ms marks the attempt stalled and schedules a retry. Automatic failures retry with exponential backoff; the third consecutive failed attempt pauses for human attention. Resume clears retry history. Scheduled retries do not enter Needs You or generate notifications; exhausted failures do. A manual pause during an earlier retry is not an exhausted failure.
 - **Reconciliation** every tick: stop sessions for tasks that are paused, canceled, or whose project is paused.
+- **Verification capacity**: queue app-run proof jobs when the internal verification capacity is full. Checks, recording and screenshots for one proof submission occupy one slot until finished or canceled. Starting/running previews use their own capacity and cannot prevent proof from running. These are concurrent-job limits across the app, not lifetime limits per task, and do not cap commands Codex itself invokes.
 
 ## 7. Prompt assembly
 For each task session Build Mate builds the initial prompt from, in order:
@@ -180,7 +181,7 @@ The **project agent** gets 1–3 plus a project brief (repo summary, open tasks 
 Pause never discards work. Paused time does not count toward timeouts.
 
 ## 11. Previews (Run locally / Open Preview)
-- Each task gets a port from a pool (default 4100–4199) when a preview is requested. Build Mate runs `preview.command` in the worktree with `portEnvVar` set, waits until `readyPath` responds (timeout 90 s), then opens `http://127.0.0.1:<port>/` (the configured ready path is only for readiness checks). Pass `HOST=127.0.0.1`; the configured command must bind locally and respect the supplied port. Readiness requires an HTTP 2xx/3xx response at this host/port. Previews count against the heavy-step limit for their lifetime; a busy limit explains how to free a slot. Repeated requests reuse the running preview. Stop, quit, review chat feedback, scope edits, deletion and merge cleanup terminate the child process group and free its slot. Startup failure/timeout shows redacted output. Previews stop 30 minutes after the last Run/Open from Build Mate (browser activity cannot be observed). A missing command opens configuration; Build Mate does not guess or install a project toolchain. Native/CLI tasks can use editor and Terminal instead.
+- Each task gets a port from a pool (default 4100–4199) when a preview is requested. Build Mate runs `preview.command` in the worktree with `portEnvVar` set, waits until `readyPath` responds (timeout 90 s), then opens `http://127.0.0.1:<port>/` (the configured ready path is only for readiness checks). Pass `HOST=127.0.0.1`; the configured command must bind locally and respect the supplied port. Readiness requires an HTTP 2xx/3xx response at this host/port. At most two previews may be starting/running across the app, independently of verification jobs. A third preview explains that another preview must be stopped; existing previews are never silently evicted. Repeated requests reuse the running preview. Stop, quit, review chat feedback, scope edits, deletion and merge cleanup terminate the child process group and free its slot. Startup failure/timeout shows redacted output. Previews stop 30 minutes after the last Run/Open from Build Mate (browser activity cannot be observed). A missing command opens configuration; Build Mate does not guess or install a project toolchain. Native/CLI tasks can use editor and Terminal instead.
 - v1.1: a local reverse proxy maps `<task-number>.localhost` to the preview port.
 
 ## 12. Notifications and usage

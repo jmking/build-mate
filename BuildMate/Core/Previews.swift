@@ -32,14 +32,14 @@ extension Orchestrator {
               !["PATH", "HOME", "TMPDIR", "SHELL"].contains(variable) else { throw CoreError.invalid("Use a port variable such as PORT.") }
         let path = project.settings.previewReadyPath
         guard path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("#") else { throw CoreError.invalid("The ready path must be a local path beginning with /.") }
-        guard heavySteps < (try store.settings()).heavyStepsAtOnce else { throw CoreError.invalid("Preview capacity is busy. Stop another preview or wait for the checks to finish.") }
+        guard previewProcesses.count < 2 else { throw CoreError.invalid("Two previews are already running. Stop one before opening another.") }
         let used = Set(previewProcesses.keys.compactMap { previews[$0]?.port })
         guard let port = (4100...4199).first(where: { !used.contains($0) && Self.portAvailable($0) }),
               let url = URL(string: "http://127.0.0.1:\(port)/"),
               let readyURL = URL(string: "http://127.0.0.1:\(port)\(path)") else { throw CoreError.invalid("No preview port is available between 4100 and 4199.") }
         let status = PreviewStatus(port: port, url: url)
         let child = ChildProcess()
-        previews[id] = status; previewProcesses[id] = child; heavySteps += 1
+        previews[id] = status; previewProcesses[id] = child
         let job = Task<URL, Error> {
             do {
                 try Task.checkCancellation()
@@ -103,7 +103,6 @@ extension Orchestrator {
         previewJobs.removeValue(forKey: id)?.cancel()
         previewMonitors.removeValue(forKey: id)?.cancel()
         let child = previewProcesses.removeValue(forKey: id)
-        if child != nil { heavySteps -= 1 }
         previews[id] = nil
         await child?.stop()
     }

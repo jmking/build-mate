@@ -64,6 +64,7 @@ enum MessageDelivery: Sendable { case sent, saved, queued }
 
 struct AppSettings: Codable, Sendable {
     var agentsAtOnce = 4
+    // Internal verification-job capacity; retain the legacy storage key for existing installations.
     var heavyStepsAtOnce = 2
     var instructions = ""
     var paused = false

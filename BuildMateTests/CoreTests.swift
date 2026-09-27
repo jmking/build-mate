@@ -124,7 +124,7 @@ struct CoreTests {
         #expect(!FileManager.default.fileExists(atPath: cwd))
         #expect(!FileManager.default.fileExists(atPath: f.store.root.appending(path: "projects/\(f.project.id)/media/\(task.id)").path))
         #expect(await model.core.previews[task.id] == nil)
-        #expect(await model.core.heavySteps == 0)
+        #expect(await model.core.proofsRunning == 0)
         do { _ = try await URLSession.shared.data(from: url); Issue.record("Deleted task left preview running") } catch {}
         let remaining = try f.store.get(WorkTask.self, dependent.id)
         #expect(remaining.paused && remaining.dependsOn.isEmpty && remaining.stackOn == nil)
@@ -394,8 +394,8 @@ struct CoreTests {
         }
     }
 
-    // Catches port collisions, orphan preview children, and bypasses of the shared heavy-work limit.
-    @Test func previewsUseSeparateWorktreesAndReleasePortsOnStopFailureAndQuit() async throws {
+    // Catches preview starvation of proof, port collisions, excess previews and orphan children.
+    @Test func previewsLeaveProofCapacityAndReleasePortsOnStopFailureAndQuit() async throws {
         var f = try await Fixture()
         f.project.paused = true
         f.project.settings.previewCommand = "preview"
@@ -405,7 +405,8 @@ struct CoreTests {
         let workspace = Workspace(store: f.store, runner: f.runner)
         var preparedTasks: [WorkTask] = []
         for title in ["First preview", "Second preview", "Waiting preview"] {
-            let task = try f.store.createTask(projectId: f.project.id, title: title, state: .todo)
+            var task = try f.store.createTask(projectId: f.project.id, title: title, state: .todo)
+            task.paused = true; try f.store.save(task)
             preparedTasks.append(try await workspace.prepare(task, project: f.project))
         }
         let core = Orchestrator(store: f.store, runner: f.runner)
@@ -422,6 +423,23 @@ struct CoreTests {
         }
         #expect(try await core.startPreview(tasks[0].id) == urls[0])
         do { _ = try await core.startPreview(tasks[2].id); Issue.record("Exceeded preview slot limit") } catch {}
+        // Both long-lived previews keep serving while a separate fake-Codex task completes real proof.
+        let verification = try f.store.createTask(projectId: f.project.id, title: "Verify while previews run", proofRequirement: .checksOnly)
+        f.project.paused = false; try f.store.save(f.project)
+        await core.tick()
+        try await f.wait("verification question") { try f.store.all(Question.self).contains { $0.taskId == verification.id && $0.answer == nil } }
+        let question = try #require(f.store.all(Question.self).first { $0.taskId == verification.id && $0.answer == nil })
+        try await core.answer(question.id, text: "Plain")
+        try await f.wait("proof completes with both previews running") {
+            try f.store.get(WorkTask.self, verification.id).state == .humanReview && f.store.session(for: verification.id).status == "idle"
+        }
+        #expect(try f.store.all(Proof.self).first { $0.taskId == verification.id }?.complete == true)
+        #expect(await core.proofsRunning == 0)
+        for (index, url) in urls.enumerated() {
+            #expect(await core.previews[tasks[index].id]?.phase == "ready")
+            let (data, _) = try await URLSession.shared.data(from: url)
+            #expect(String(decoding: data, as: UTF8.self) == String(tasks[index].number))
+        }
         await core.stopPreview(tasks[0].id)
         #expect(await core.previews[tasks[0].id] == nil)
         do { _ = try await URLSession.shared.data(from: urls[0]); Issue.record("Stopped preview still serves HTTP") } catch {}
@@ -429,7 +447,7 @@ struct CoreTests {
         try f.store.save(f.project)
         do { _ = try await core.startPreview(tasks[2].id, timeout: 0.5); Issue.record("Unready preview was accepted") } catch {}
         #expect(await core.previews[tasks[2].id]?.phase == "failed")
-        #expect(await core.heavySteps == 1)
+        #expect(await core.previewProcesses.count == 1)
         f.project.settings.previewCommand = "echo startup-failed; exit 7"
         try f.store.save(f.project)
         do { _ = try await core.startPreview(tasks[2].id, timeout: 2); Issue.record("Exited preview was accepted") } catch {}
@@ -443,10 +461,11 @@ struct CoreTests {
         }
         await core.stopPreview(tasks[2].id)
         do { _ = try await pending.value; Issue.record("Stopped startup completed") } catch {}
-        #expect(await core.heavySteps == 1)
+        #expect(await core.previewProcesses.count == 1)
         await core.shutdown()
         #expect(await core.previews.isEmpty)
-        #expect(await core.heavySteps == 0)
+        #expect(await core.previewProcesses.isEmpty)
+        #expect(await core.proofsRunning == 0)
         do { _ = try await URLSession.shared.data(from: urls[1]); Issue.record("Quit left preview running") } catch {}
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         try f.cleanup()

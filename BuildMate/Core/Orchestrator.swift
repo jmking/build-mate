@@ -17,7 +17,7 @@ actor Orchestrator {
     private var clients: [UUID: CodexClient] = [:]
     private var polling: Set<UUID> = []
     private var lastPoll: [UUID: Date] = [:]
-    var heavySteps = 0
+    var proofsRunning = 0
     var previews: [UUID: PreviewStatus] = [:]
     var previewProcesses: [UUID: ChildProcess] = [:]
     var previewJobs: [UUID: Task<URL, Error>] = [:]
@@ -711,14 +711,14 @@ actor Orchestrator {
             do { submission = try ProofSubmission(args) }
             catch { try await client.respond(requestId, text: error.localizedDescription, success: false); return }
             let project = try store.get(Project.self, task.projectId)
-            while heavySteps >= (try store.settings()).heavyStepsAtOnce {
+            while proofsRunning >= (try store.settings()).heavyStepsAtOnce {
                 try Task.checkCancellation(); try await Task.sleep(for: .milliseconds(100))
             }
-            heavySteps += 1
+            proofsRunning += 1
             let proof: Proof
             do { proof = try await ProofRunner(store: store, runner: runner).run(task: task, project: project, submission: submission) }
-            catch { heavySteps -= 1; throw error }
-            heavySteps -= 1
+            catch { proofsRunning -= 1; throw error }
+            proofsRunning -= 1
             if proof.complete {
                 try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Proof passed. Ready for review."))
                 try transition(taskId, to: .humanReview)
