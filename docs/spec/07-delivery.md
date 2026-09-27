@@ -24,6 +24,7 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 
 **Projects and storage**
 - Create New initialises a new or empty local folder on main, seeds an empty commit and adds it as a local project. Reject nonempty and nested-repository folders; no remote is created. Local tasks run in app storage and stop at Human review until publishing/local merge support is added.
+- Project Settings supports adding/removing multiple Git repository folders. Each task targets one linked repository; project chat can coordinate dependent tasks across repositories. Worktrees, permissions, PRs and cleanup use that task’s repository. Upgrades preserve existing task targets; unlinking keeps the clone and is blocked while unfinished work or retained task worktrees exist.
 - Adding a project from a local clone detects GitHub or Bitbucket Cloud, remote slug and default branch, and shows CLI sign-in status with a fix action.
 - After a full task lifecycle, `git status` in the user's clone shows no new or modified files, and no files exist in the repo that Build Mate created.
 - Removing a project deletes its data and worktrees and leaves the clone untouched.
@@ -76,7 +77,7 @@ User-directed scope change ahead of the rest of milestone 4: remove the project-
 
 ## New local projects follow-up (2026-09-26)
 
-User-directed extension to project setup: Add Existing or Create New. A new project needs no hosting account and can run its first task in an isolated worktree. Multi-repository projects, remote creation/publishing and local merge are not included. The generic folder icon now also represents local projects.
+User-directed extension to project setup: Add Existing or Create New. A new project needs no hosting account and can run its first task in an isolated worktree. Remote creation/publishing and local merge are not included. Multi-repository project links were subsequently added at the user’s request (see Projects and storage acceptance criteria). The generic folder icon now also represents local projects.
 
 ## Queue, cleanup and usage follow-up (2026-09-26)
 
@@ -195,3 +196,10 @@ New work uses the freshly fetched host default branch and retains its base SHA. 
 The current authorization extends delivery beyond the original milestone boundaries: state-aware intake, unpublished task split/combine with provenance, selective references, model recommendations, evidence inspection before human review, same-PR repairs, bounded CI reruns, GitHub-controlled merge, and fair scope-aware scheduling. Bitbucket authenticated integration remains deferred by explicit user choice. No remote daemon is added; monitoring runs while the Mac app is open.
 
 Acceptance covers preserved source/dependency/model data during reshaping, stale-revision QA refusal, exact-commit publishing, feedback/reply recovery, inspected and bounded CI reruns, per-head merge approval, waiting-capacity release, and independent work continuing beside an overlapping scope. Test executables stub the process boundary; no test mutates real hosting services.
+
+
+### Multi-repository project settings — 2026-09-28
+
+- Native folder picker adds multiple Git repositories to one project; repository rows support unlinking without deleting files. Task and proposal views identify their repository when needed, and New Task requires an explicit target for multi-repository projects.
+- Existing projects/tasks migrate without changing their target. Project chat inspects isolated read-only checkouts and coordinates separate tasks/PRs across repositories, including dependencies. Resumed conversations retain their native history and can use the updated task targeting through the compatibility tool path.
+- Validation: build succeeded; all 21 process-boundary tests passed. The added flow covers migration, two-repository chat intake, dependencies, worktree isolation, PR targeting and safe unlinking. Native picker, repository selection and removal were exercised in an isolated app; settings were inspected in light and dark mode with accessibility labels exposed. No real Codex or hosting calls were made by tests; Bitbucket authenticated execution remains deferred.

@@ -175,7 +175,7 @@ extension Orchestrator {
 
 extension Orchestrator {
     func reviewAction(_ taskID: UUID, arguments: JSON) async throws -> String {
-        let task = try store.get(WorkTask.self, taskID), project = try store.get(Project.self, task.projectId)
+        let task = try store.get(WorkTask.self, taskID), project = try store.project(for: task)
         guard task.pr != nil, task.state == .building, !task.paused else { throw CoreError.invalid("No active PR review pass.") }
         let host = GitHub(runner: runner, root: store.root)
         var watch = try watch(taskID)

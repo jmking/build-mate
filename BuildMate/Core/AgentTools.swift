@@ -53,11 +53,11 @@ enum AgentTools {
         func tool(_ name: String, _ description: String, _ properties: [String: JSON], _ required: [String]) -> JSON {
             .object(["name": .string(name), "description": .string(description), "inputSchema": object(properties, required)])
         }
-        let tasks = array(object(["title": field("string"), "description": field("string"), "dependsOnIndex": array(field("integer")),
+        let tasks = array(object(["repositoryID": field("string"), "title": field("string"), "description": field("string"), "dependsOnIndex": array(field("integer")),
             "dependsOnTaskIds": array(field("string")), "attachmentIds": array(field("string")), "acceptanceCriteria": array(field("string")), "affectedPaths": array(field("string")),
             "model": field("string"), "effort": field("string"), "modelRationale": field("string")], ["title", "description", "dependsOnIndex", "acceptanceCriteria", "model", "effort", "modelRationale"]))
         return .array([
-            tool("propose_tasks", "Propose actionable tasks for the user to select. Dependencies use zero-based indices and must refer to earlier items.", ["tasks": tasks], ["tasks"]),
+            tool("propose_tasks", "Propose actionable tasks for the user to select. Each task targets one linked repository; include its repositoryID, especially when more than one is linked. Dependencies use zero-based indices and must refer to earlier items.", ["tasks": tasks], ["tasks"]),
             tool("create_tasks", "Only after an explicit user request. Use proposalId for an existing proposal, or tasks for new work. Every selected task goes straight to Queue. selectedIndexes defaults to all. Never recreate a completed proposal.", ["tasks": tasks, "proposalId": field("string"), "selectedIndexes": array(field("integer"))], []),
             tool("ask_question", "Ask the user to clarify the project or task scope. Waits for an answer.", ["prompt": field("string"), "options": array(field("string")), "allowsFreeText": field("boolean")], ["prompt"]),
             tool("project_status", "Read this project's tasks, open task questions and PRs.", [:], []),

@@ -30,6 +30,7 @@ struct Workspace: Sendable {
             var base = try await baseRevision(project)
             if let baseId = task.stackOn {
                 let parent = try store.get(WorkTask.self, baseId)
+                guard (parent.repositoryID ?? parent.projectId) == (task.repositoryID ?? task.projectId) else { throw CoreError.invalid("Stacked tasks must use the same repository.") }
                 if parent.state != .done { base = parent.branchName ?? base }
             }
             let exists = try await runner.run("git", ["show-ref", "--verify", "--quiet", "refs/heads/\(task.branchName!)"], cwd: project.repoPath, allowFailure: true)

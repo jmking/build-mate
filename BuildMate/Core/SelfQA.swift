@@ -32,7 +32,7 @@ extension Orchestrator {
         proof.qaReview = runner.redacted(assessment); proof.complete = true; try store.save(proof)
         try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Self-review completed. Ready for review."))
         try transition(taskID, to: .humanReview)
-        let project = try store.get(Project.self, task.projectId)
+        let project = try store.project(for: task)
         if ((hosted.repairing && hosted.requirementsRevision == task.requirementsRevision) || !project.settings.askBeforeOpenPR) && project.host != .local {
             do { try await openPullRequest(taskID) }
             catch is CancellationError { throw CancellationError() }

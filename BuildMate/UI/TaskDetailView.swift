@@ -8,7 +8,7 @@ struct TaskDetailView: View {
     @State private var sending = false
     @State private var openingPR = false
     @State private var approving: Set<UUID> = []
-    private var project: Project? { model.snapshot.projects.first { $0.id == task.projectId } }
+    private var project: Project? { model.project(for: task) }
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || project?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
@@ -35,6 +35,10 @@ struct TaskDetailView: View {
         @Bindable var model = model
         VStack(spacing: 0) {
             taskHeader
+            if model.repositories(task.projectId).count > 1 {
+                Text(model.repositoryName(for: task)).font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 8)
+            }
             ChatScrollView(messages: messages.filter { $0.kind != "event" }, responding: responding) { stopFollowing in
                 DisclosureGroup(isExpanded: Binding(get: { model.isBriefExpanded(task) }, set: { expanded in
                     if expanded { stopFollowing() }

@@ -85,6 +85,7 @@ struct TaskCard: View {
         Button { model.destination = .task(task.id) } label: {
             VStack(alignment: .leading, spacing: 12) {
                 Text(task.title).font(.body.weight(.medium)).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(3)
+                if model.repositories(task.projectId).count > 1 { Text(model.repositoryName(for: task)).font(.caption).foregroundStyle(.secondary) }
                 TaskNotices(task: task)
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)

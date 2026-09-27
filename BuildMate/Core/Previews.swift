@@ -23,7 +23,7 @@ extension Orchestrator {
             return try await startPreview(id, timeout: timeout)
         }
         let task = try store.get(WorkTask.self, id)
-        let project = try store.get(Project.self, task.projectId)
+        let project = try store.project(for: task)
         guard !task.state.terminal, let cwd = task.worktreePath, FileManager.default.fileExists(atPath: cwd) else { throw CoreError.invalid("This task has no available worktree.") }
         let command = project.settings.previewCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { throw CoreError.invalid("Configure a preview command for this project first.") }

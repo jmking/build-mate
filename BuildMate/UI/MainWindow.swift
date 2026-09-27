@@ -96,7 +96,7 @@ struct MainWindow: View {
                     }.padding(12).background(AppSurface.raised)
                         .onChange(of: error) { showErrorDetails = false }
                 }
-                if let project = model.selectedProject, let reason = project.runBlockReason,
+                if let project = model.selectedProject, model.repositories(project.id).allSatisfy({ $0.host == .bitbucket }), let reason = project.runBlockReason,
                    case .project(_, .tasks) = model.destination {
                     Label(reason, systemImage: "info.circle").font(.callout).padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading).background(AppSurface.raised)
@@ -196,11 +196,11 @@ struct MainWindow: View {
         Divider()
         Button("Open Project in Finder", systemImage: "folder") {
             model.perform {
-                guard NSWorkspace.shared.open(URL(fileURLWithPath: project.repoPath)) else {
+                guard let repository = model.repositories(project.id).first, NSWorkspace.shared.open(URL(fileURLWithPath: repository.repoPath)) else {
                     throw CoreError.invalid("This project folder could not be opened.")
                 }
             }
-        }.help("Open this project’s checkout in Finder")
+        }.disabled(model.repositories(project.id).isEmpty).help("Open this project’s checkout in Finder")
     }
     @ViewBuilder private var content: some View {
         switch model.destination {

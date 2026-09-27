@@ -37,7 +37,7 @@ extension Orchestrator {
         case "submit_plan":
             guard let plan = args["plan"].string, !plan.isEmpty else { try await request.respond("Plan is required", success: false); return false }
             let task = try store.get(WorkTask.self, taskId)
-            let project = try store.get(Project.self, task.projectId)
+            let project = try store.project(for: task)
             if args["affectedPaths"] != .null {
                 var claimed = task; claimed.affectedPaths = try WorkTask.validatedPaths(args["affectedPaths"].array.compactMap(\.string)); try store.save(claimed)
                 if scopeIsBusy(claimed) {
@@ -69,7 +69,7 @@ extension Orchestrator {
             let submission: ProofSubmission
             do { submission = try ProofSubmission(args) }
             catch { try await request.respond(error.localizedDescription, success: false); return false }
-            let project = try store.get(Project.self, task.projectId)
+            let project = try store.project(for: task)
             while proofsRunning >= Self.computeCapacity(min(2, (try store.settings()).heavyStepsAtOnce)) {
                 try Task.checkCancellation(); try await Task.sleep(for: .milliseconds(100))
             }

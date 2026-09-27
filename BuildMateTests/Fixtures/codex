@@ -199,7 +199,15 @@ for line in sys.stdin:
    assert 'Write task descriptions as readable Markdown' in context
    assert 'Every created task goes straight to Queue.' in context
    if (root/'chat-stall').exists():continue
-   if 'New answers:\nWhich accounts?: Active' in text:
+   if (root/'repository-proposal.json').exists():
+    items=json.loads((root/'repository-proposal.json').read_text())
+    for item in items:
+     line=next(line for line in context.splitlines() if line.startswith(item['repositoryID']+':'))
+     checkout=pathlib.Path(line.split('read-only checkout: ',1)[1])
+     assert checkout.is_dir() and (checkout/item.pop('expectedFile')).is_file()
+    # Exercise the compatibility path used by existing threads with durable, older tool schemas.
+    call('note',{'text':'BUILD_MATE_REPOSITORY_TASKS '+json.dumps({'operation':'propose_tasks','arguments':{'tasks':items}})})
+   elif 'New answers:\nWhich accounts?: Active' in text:
     project_reply('Thanks, I will use active accounts.')
    elif latest.startswith('Cool'):
     event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'itemId':'reaction','delta':'👍'})
@@ -290,6 +298,9 @@ for line in sys.stdin:
    if tool=='ask_question':
     assert req['result']['contentItems'][0]['text']=='Active'
     project_reply('I will focus on active accounts.')
+   elif tool=='note':
+    assert req['result']['success'] is True
+    project_reply('Prepared tasks across both repositories.')
    elif tool=='propose_tasks':project_reply('Here are three tasks you can add to Queue.')
    elif tool=='create_tasks':project_reply('All three tasks are queued.')
    elif tool=='refine_task':project_reply('I refined the task description.')

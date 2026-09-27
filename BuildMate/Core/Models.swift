@@ -136,6 +136,7 @@ struct WorkTask: Record {
     var createdAt = Date()
     var updatedAt = Date()
     var doneAt: Date?
+    var repositoryID: UUID?
 }
 struct AgentConfiguration: Record {
     static let databaseTableName = "agentConfiguration"
@@ -356,6 +357,7 @@ struct Proposal: Record {
         var modelRationale: String?
         var acceptanceCriteria: [String]?
         var affectedPaths: [String]?
+        var repositoryID: UUID?
     }
     var id = UUID()
     var projectId: UUID

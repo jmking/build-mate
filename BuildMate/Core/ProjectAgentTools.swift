@@ -28,6 +28,12 @@ extension Orchestrator {
             case "project_status": result = try projectStatus(projectID).text
             case "note":
                 guard let text = args["text"].string else { throw CoreError.invalid("Text required") }
+                if text.hasPrefix("BUILD_MATE_REPOSITORY_TASKS ") {
+                    let payload = try JSONDecoder().decode(JSON.self, from: Data(text.dropFirst("BUILD_MATE_REPOSITORY_TASKS ".count).utf8))
+                    guard let operation = payload["operation"].string, ["propose_tasks", "create_tasks", "reshape_tasks"].contains(operation) else { throw CoreError.invalid("Invalid repository task operation") }
+                    try await handleProjectRequest(AgentRequest(name: operation, arguments: payload["arguments"], reply: request.reply), projectID: projectID, sessionID: sessionID)
+                    return
+                }
                 try store.save(Message(sessionId: sessionID, role: "agent", body: runner.redacted(text))); result = "Recorded"
             case "ask_question":
                 guard let prompt = args["prompt"].string else { throw CoreError.invalid("Prompt required") }

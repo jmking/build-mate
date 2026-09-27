@@ -131,6 +131,19 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE agentConfiguration ADD COLUMN provider TEXT NOT NULL DEFAULT 'codex'")
             try db.execute(sql: "ALTER TABLE agentDelivery ADD COLUMN provider TEXT NOT NULL DEFAULT 'codex'")
         }
+        migrator.registerMigration("v18-project-repositories") { db in
+            try db.execute(sql: """
+                CREATE TABLE projectRepository (
+                  id BLOB PRIMARY KEY NOT NULL, projectId BLOB NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+                  name TEXT NOT NULL, repoPath TEXT NOT NULL, host TEXT NOT NULL, remoteSlug TEXT NOT NULL,
+                  defaultBranch TEXT NOT NULL, removed BOOLEAN NOT NULL DEFAULT 0,
+                  UNIQUE(projectId, repoPath));
+                INSERT INTO projectRepository (id, projectId, name, repoPath, host, remoteSlug, defaultBranch)
+                  SELECT id, id, name, repoPath, host, remoteSlug, defaultBranch FROM project;
+                ALTER TABLE task ADD COLUMN repositoryID BLOB REFERENCES projectRepository(id);
+                UPDATE task SET repositoryID = projectId;
+                """)
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -181,12 +194,13 @@ final class Store: Sendable {
         return number
     }
     func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .todo,
-                    rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) throws -> WorkTask {
+                    rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = [], repositoryID: UUID? = nil) throws -> WorkTask {
         guard state == .todo else { throw CoreError.invalid("New tasks must be queued") }
         return try db.write { db in
+            let repository = try Self.taskRepository(db, projectID: projectId, requested: repositoryID)
             let number = try Self.allocateTaskNumbers(db, projectID: projectId)
             let task = WorkTask(projectId: projectId, number: number, title: title, description: description,
-                                state: state, rank: rank, dependsOn: dependsOn, askBeforeBuild: askBeforeBuild, proofRequirement: proofRequirement)
+                                state: state, rank: rank, dependsOn: dependsOn, askBeforeBuild: askBeforeBuild, proofRequirement: proofRequirement, repositoryID: repository.id)
             guard files.count <= 20 else { throw CoreError.invalid("Attach up to 20 files per task.") }
             let attachments = try prepareAttachments(files, projectID: projectId, ownerID: task.id, messageID: task.id)
             do {

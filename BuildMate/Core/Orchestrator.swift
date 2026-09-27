@@ -156,7 +156,7 @@ actor Orchestrator {
             let tasks = try store.all(WorkTask.self)
             let projects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
             for task in tasks where !editingTasks.contains(task.id) && hostJobs[task.id] == nil && !polling.contains(task.id) && !openingPRs.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 15 {
-                let project = projects[task.projectId]
+                let project = try? store.project(for: task)
                 let watch = try watch(task.id)
                 let publish = task.state == .humanReview && !task.paused && !settings.paused && project?.paused == false && project?.host == .github
                     && (project?.settings.askBeforeOpenPR == false || watch.repairing && watch.requirementsRevision == task.requirementsRevision)
@@ -198,7 +198,7 @@ actor Orchestrator {
             }
             for task in ordered {
                 guard occupied < settings.agentsAtOnce else { break }
-                guard try !usageBlocksDispatch(provider: configuredProvider(for: task.id)), workers[task.id] == nil, !scopeIsBusy(task), !editingTasks.contains(task.id), let project = projects[task.projectId], !project.paused, !task.paused, project.runBlockReason == nil,
+                guard try !usageBlocksDispatch(provider: configuredProvider(for: task.id)), workers[task.id] == nil, !scopeIsBusy(task), !editingTasks.contains(task.id), let project = try? store.project(for: task), !project.paused, !task.paused, project.runBlockReason == nil,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
                       (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
                 do { try project.settings.validate(); clearBackgroundIssue("project-\(project.id)") }
@@ -230,6 +230,7 @@ actor Orchestrator {
         for id in Set(task.dependsOn + (task.stackOn.map { [$0] } ?? [])) {
             guard let dependency = try? store.get(WorkTask.self, id) else { return false }
             guard dependency.projectId == task.projectId else { return false }
+            if task.stackOn == id && (task.repositoryID ?? task.projectId) != (dependency.repositoryID ?? dependency.projectId) { return false }
             if dependency.state != .done && !(task.stackOn == id && dependency.state == .inPR && dependency.pr != nil) { return false }
         }
         return true
@@ -246,7 +247,7 @@ actor Orchestrator {
     }
     func transition(_ id: UUID, to state: TaskState, merged: Bool = false) throws {
         var task = try store.get(WorkTask.self, id)
-        let project = try store.get(Project.self, task.projectId)
+        let project = try store.project(for: task)
         let proof = try store.all(Proof.self).first { $0.taskId == id }
         try TransitionRules.validate(from: task.state, to: state, proofComplete: proof?.complete == true,
                                      questionsAnswered: !openQuestions(id), dependenciesReady: dependenciesReady(task),
@@ -291,7 +292,7 @@ actor Orchestrator {
                 throw CoreError.invalid("Only the title can be edited after a pull request is opening or the task is finished.")
             }
             if task.pr != nil {
-                _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: task, project: store.get(Project.self, task.projectId))
+                _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: task, project: store.project(for: task))
             }
             await stopPreview(id)
             if task.worktreePath != nil || workers[id] != nil {
@@ -356,7 +357,7 @@ actor Orchestrator {
         }
         let task = try store.get(WorkTask.self, question.taskId)
         if try task.state == .needsClarification && !openQuestions(task.id) {
-            let project = try store.get(Project.self, task.projectId)
+            let project = try store.project(for: task)
             let ready = try dependenciesReady(task) && planApproved(task, project: project)
             try transition(task.id, to: ready ? .building : .todo)
         }
@@ -379,7 +380,7 @@ actor Orchestrator {
         let current = try store.get(WorkTask.self, id)
         guard [.humanReview, .inPR].contains(current.state) else { throw CoreError.invalid("Only a task awaiting review or in an open pull request can receive review feedback.") }
         if current.pr != nil {
-            _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: current, project: store.get(Project.self, current.projectId))
+            _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: current, project: store.project(for: current))
             clearBackgroundIssue("pr-\(id)")
         }
         await stopPreview(id)
@@ -430,11 +431,12 @@ actor Orchestrator {
         let head = try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)
         let clean = try await runner.run("git", ["status", "--porcelain"], cwd: cwd).output.isEmpty
         guard clean, proof.commitSHA == head, proof.requirementsRevision == task.requirementsRevision else { throw CoreError.invalid("The worktree or requirements changed since proof was recorded. Ask the agent in chat for fresh proof before opening a pull request.") }
-        let project = try store.get(Project.self, task.projectId)
+        let project = try store.project(for: task)
         guard project.host != .local else { throw CoreError.invalid("This project is local. Publishing and pull requests require a hosting service.") }
         var base = project.defaultBranch
         if let parentId = task.stackOn {
             let parent = try store.get(WorkTask.self, parentId)
+            guard (parent.repositoryID ?? parent.projectId) == (task.repositoryID ?? task.projectId) else { throw CoreError.invalid("Stacked tasks must use the same repository.") }
             if parent.state != .done {
                 guard let branch = parent.branchName, parent.pr != nil else { throw CoreError.invalid("Stack base has no pull request") }
                 base = branch
@@ -452,7 +454,7 @@ actor Orchestrator {
         defer { polling.remove(id) }
         do {
             let task = try store.get(WorkTask.self, id)
-            let project = try store.get(Project.self, task.projectId)
+            let project = try store.project(for: task)
             let status = try await GitHub(runner: runner, root: store.root).status(task: task, project: project)
             guard !editingTasks.contains(id), !openingPRs.contains(id) else { return }
             if status.state == "MERGED", !task.state.terminal, task.state != .inPR {
@@ -511,7 +513,7 @@ actor Orchestrator {
             try await Task.sleep(for: .milliseconds(50))
         }
         task = try store.get(WorkTask.self, id)
-        let project = try store.get(Project.self, task.projectId)
+        let project = try store.project(for: task)
         try await Workspace(store: store, runner: runner).remove(task, project: project, discardChanges: true)
         for path in [store.root.appending(path: "logs/\(id)"), store.root.appending(path: "projects/\(project.id)/media/\(id)")] {
             if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
@@ -540,10 +542,12 @@ actor Orchestrator {
     func deleteProject(_ id: UUID) async throws {
         await stopProjectChat(id)
         let project = try store.get(Project.self, id)
-        let chatPath = chatWorkspace(project).path
-        if FileManager.default.fileExists(atPath: chatPath) {
-            try Workspace(store: store, runner: runner).ensureOwned(chatPath)
-            _ = try await runner.run("git", ["worktree", "remove", chatPath], cwd: project.repoPath)
+        for repository in try store.repositories(id, includingRemoved: true) {
+            let chatPath = chatWorkspace(project, repositoryID: repository.id).path
+            if FileManager.default.fileExists(atPath: chatPath) {
+                try Workspace(store: store, runner: runner).ensureOwned(chatPath)
+                _ = try await runner.run("git", ["worktree", "remove", chatPath], cwd: repository.repoPath)
+            }
         }
         let tasks = try store.all(WorkTask.self).filter { $0.projectId == id }
         guard tasks.allSatisfy({ workers[$0.id] == nil }) else { throw CoreError.invalid("Pause the project before deleting it") }
@@ -567,7 +571,7 @@ actor Orchestrator {
             let client = provider.makeRunner(); activeClient = client; clients[id] = client
             let task = try store.get(WorkTask.self, id)
             try requireRunnable(task)
-            var p = try store.get(Project.self, task.projectId); project = p
+            var p = try store.project(for: task); project = p
             try p.settings.validate()
             let count = try store.all(RunAttempt.self).filter { $0.taskId == id }.count + 1
             attempt = RunAttempt(taskId: id, attempt: count); try store.save(attempt!)
@@ -597,7 +601,7 @@ actor Orchestrator {
                 let current = try store.get(WorkTask.self, id)
                 guard [.todo, .building].contains(current.state) else { break }
                 try requireRunnable(current)
-                p = try store.get(Project.self, current.projectId)
+                p = try store.project(for: current)
                 session = try store.session(for: id)
                 let input = try store.agentInput(session: session, context: prompt(task: current, project: p), attachments: store.taskAttachments(id, sessionID: session.id))
                 let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort, inheritedModel: inheritedModel, inheritedEffort: inheritedEffort)
@@ -693,7 +697,7 @@ actor Orchestrator {
     }
 
     private func requireRunnable(_ task: WorkTask) throws {
-        let project = try store.get(Project.self, task.projectId)
+        let project = try store.project(for: task)
         guard !shuttingDown, !Task.isCancelled, project.runBlockReason == nil, !task.paused, !project.paused, !(try store.settings()).paused,
               !task.state.terminal, try dependenciesReady(task) else { throw CancellationError() }
     }

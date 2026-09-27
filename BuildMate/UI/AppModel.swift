@@ -14,6 +14,7 @@ struct AttentionItem: Identifiable, Sendable {
 struct AppSnapshot: Sendable {
     var agentConfigurations: [AgentConfiguration] = []
     var projects: [Project] = []
+    var repositories: [ProjectRepository] = []
     var tasks: [WorkTask] = []
     var sessions: [Session] = []
     var subagents: [Subagent] = []
@@ -166,7 +167,7 @@ final class AppModel {
     func refresh() async {
         do {
             snapshot = try await store.db.read { db in
-                AppSnapshot(agentConfigurations: try AgentConfiguration.fetchAll(db), projects: try Project.order(Column("name")).fetchAll(db),
+                AppSnapshot(agentConfigurations: try AgentConfiguration.fetchAll(db), projects: try Project.order(Column("name")).fetchAll(db), repositories: try ProjectRepository.fetchAll(db),
                             tasks: try WorkTask.order(Column("rank").desc, Column("createdAt")).fetchAll(db),
                             sessions: try Session.fetchAll(db), subagents: try Subagent.fetchAll(db), messages: try Message.order(Column("createdAt")).fetchAll(db),
                             questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db), proposals: try Proposal.fetchAll(db), attachments: try Attachment.fetchAll(db))
@@ -203,11 +204,27 @@ final class AppModel {
         }
         return result
     }
+    func repositories(_ projectID: UUID) -> [ProjectRepository] {
+        snapshot.repositories.filter { $0.projectId == projectID && !$0.removed }
+            .sorted { if ($0.id == projectID) != ($1.id == projectID) { return $0.id == projectID }; return $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+    func project(for task: WorkTask) -> Project? {
+        guard let project = snapshot.projects.first(where: { $0.id == task.projectId }),
+              let repository = snapshot.repositories.first(where: { $0.id == (task.repositoryID ?? task.projectId) }) else { return nil }
+        return repository.applying(to: project)
+    }
+    func repositoryName(for task: WorkTask) -> String {
+        snapshot.repositories.first { $0.id == (task.repositoryID ?? task.projectId) }?.name ?? "Repository"
+    }
+    private func projectForNavigation(_ id: UUID?) -> Project? {
+        guard let project = snapshot.projects.first(where: { $0.id == id }) else { return nil }
+        return repositories(project.id).first?.applying(to: project) ?? project
+    }
     var selectedProject: Project? {
         switch destination {
-        case .project(let id, _): snapshot.projects.first { $0.id == id }
-        case .task(let id): snapshot.tasks.first { $0.id == id }.flatMap { task in snapshot.projects.first { $0.id == task.projectId } }
-        default: snapshot.projects.first { $0.id == lastProjectID }
+        case .project(let id, _): projectForNavigation(id)
+        case .task(let id): snapshot.tasks.first { $0.id == id }.flatMap { project(for: $0) }
+        default: projectForNavigation(lastProjectID)
         }
     }
     var selectedTask: WorkTask? {
@@ -251,7 +268,7 @@ final class AppModel {
         guard !task.state.terminal else { return nil }
         if task.paused { return retryNeedsAttention(task) ? "Review the issue before resuming" : "Paused" }
         if settings.paused { return "All work is paused" }
-        if let project = snapshot.projects.first(where: { $0.id == task.projectId }) {
+        if let project = project(for: task) {
             if project.paused { return "Project is paused" }
             if let reason = project.runBlockReason { return reason }
         }
@@ -365,7 +382,7 @@ final class AppModel {
         await refresh()
     }
     func add(_ discovered: DiscoveredProject) throws {
-        guard !snapshot.projects.contains(where: { $0.repoPath == discovered.project.repoPath }) else { throw CoreError.invalid("This clone is already a project.") }
+        guard !snapshot.repositories.contains(where: { !$0.removed && $0.repoPath == discovered.project.repoPath }) else { throw CoreError.invalid("This clone is already a project.") }
         try store.save(discovered.project)
         try store.workflow(for: discovered.project)
         destination = .project(discovered.project.id, .tasks)
@@ -376,7 +393,7 @@ final class AppModel {
         try add(discovered)
         await refresh()
     }
-    func createTask(projectID: UUID, title: String, description: String, proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) async throws {
+    func createTask(projectID: UUID, title: String, description: String, proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = [], repositoryID: UUID? = nil) async throws {
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolvedTitle.isEmpty || !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CoreError.invalid("Describe what you would like built.")
@@ -384,7 +401,7 @@ final class AppModel {
         let needsTitle = resolvedTitle.isEmpty
         if needsTitle { resolvedTitle = Orchestrator.provisionalTitle(description) }
         try Task.checkCancellation()
-        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files)
+        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files, repositoryID: repositoryID)
         snapshot.tasks.append(task)
         showNewTask = false; destination = .task(task.id)
         if needsTitle { await core.refineTitle(of: task) }
@@ -400,7 +417,6 @@ final class AppModel {
     }
     func pauseAll() throws { var value = try store.settings(); value.paused.toggle(); try store.saveSettings(value); Task { await core.tick() } }
     func pauseProject(_ project: Project) throws {
-        guard project.host != .bitbucket else { throw CoreError.invalid("Bitbucket task runs remain paused until its integration is verified.") }
         var current = try store.get(Project.self, project.id); current.paused.toggle(); try store.save(current); Task { await core.tick() }
     }
     private var selectionURL: URL { store.root.appending(path: "selection.json") }
@@ -432,12 +448,13 @@ final class AppModel {
         installedEditors.first { $0.id == selectedProject?.settings.editor } ?? installedEditors.first
     }
     func setEditor(_ id: String) throws {
-        guard var project = selectedProject else { return }
+        guard let projectID = selectedProject?.id else { return }
+        var project = try store.get(Project.self, projectID)
         project.settings.editor = id; try store.save(project); try store.workflow(for: project)
     }
     func openLocation(task: WorkTask? = nil, appID: String? = nil, file: String? = nil) {
         let selected = task ?? selectedTask
-        let path = selected?.worktreePath ?? (selected == nil ? selectedProject?.repoPath : nil)
+        let path = selected?.worktreePath ?? (selected == nil ? selectedProject.flatMap { repositories($0.id).first?.repoPath } : nil)
         perform {
             guard let path else { throw CoreError.invalid("This task has no available worktree.") }
             let root = URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath()

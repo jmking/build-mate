@@ -2,12 +2,16 @@ import Foundation
 import GRDB
 
 extension Orchestrator {
-    func chatWorkspace(_ project: Project) -> URL { store.root.appending(path: "worktrees/\(project.id)/project-chat") }
+    func chatWorkspace(_ project: Project, repositoryID: UUID? = nil) -> URL {
+        let suffix = repositoryID == nil || repositoryID == project.id ? "project-chat" : "project-chat-" + repositoryID!.uuidString
+        return store.root.appending(path: "worktrees/\(project.id)/\(suffix)")
+    }
 
     func sendProjectMessage(_ projectID: UUID, text: String, files: [URL] = []) async throws {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!text.isEmpty || !files.isEmpty), !shuttingDown else { throw CoreError.invalid("Enter a message.") }
         _ = try store.get(Project.self, projectID)
+        guard try !store.repositories(projectID).isEmpty else { throw CoreError.invalid("Add a repository in Project Settings before starting project chat.") }
         var session = try store.session(for: projectID, ownerType: "project")
         guard session.status != "waiting" else { throw CoreError.invalid("Answer the project agent’s question first.") }
         let message = Message(sessionId: session.id, role: "user", body: text)
@@ -65,8 +69,9 @@ extension Orchestrator {
         return occupied
     }
 
-    private func prepareChatWorkspace(_ project: Project) async throws -> String {
-        let path = chatWorkspace(project).path
+    private func prepareChatWorkspace(_ project: Project, repository: ProjectRepository) async throws -> String {
+        let path = chatWorkspace(project, repositoryID: repository.id).path
+        let project = repository.applying(to: project)
         let workspace = Workspace(store: store, runner: runner)
         try workspace.ensureOwned(path)
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -87,15 +92,22 @@ extension Orchestrator {
 
     private func projectContext(_ project: Project) throws -> String {
         let tasks = try store.all(WorkTask.self).filter { $0.projectId == project.id && !$0.state.terminal }.sorted { $0.number < $1.number }
-        let inventory = tasks.map { "\($0.id): \($0.title) [\($0.state.rawValue)]" }.joined(separator: "\n")
+        let inventory = tasks.map { "\($0.id): \($0.title) [\($0.state.rawValue)] repositoryID: \(($0.repositoryID ?? $0.projectId).uuidString)" }.joined(separator: "\n")
         let proposals = try store.all(Proposal.self).filter { $0.projectId == project.id }.sorted { $0.id.uuidString < $1.id.uuidString }
         let proposalStatus = proposals.map { "\($0.id): \($0.status); created task IDs: \($0.createdTaskIds.map(\.uuidString).joined(separator: ", "))" }.joined(separator: "\n")
         let catalogue = modelCatalogues[try configuredProvider(for: project.id)] ?? []
+        let repositories = try store.repositories(project.id).map {
+            "\($0.id): \($0.name), base \($0.defaultBranch), read-only checkout: \(chatWorkspace(project, repositoryID: $0.id).path)"
+        }.joined(separator: "\n")
         return """
         \(Self.projectBrief)
         Global instructions: \(try store.settings().instructions)
         Project instructions (override global): \(project.instructions)
-        Project: \(project.name), default branch \(project.defaultBranch).
+        Project: \(project.name).
+        Linked repositories (only these are available for new work):
+        \(repositories)
+        If an older tool schema does not accept repositoryID, use note with text starting BUILD_MATE_REPOSITORY_TASKS followed by a JSON object with operation (propose_tasks, create_tasks or reshape_tasks) and arguments matching that tool, including repositoryID on each task.
+        Every task targets exactly one repository. Set repositoryID when proposing or creating tasks. For work spanning repositories, create a task per repository and express dependencies where needed; do not combine different repositories into one task or PR. Read the relevant repository instructions. These checkouts are reference material only; never edit them. Existing tasks keep their repository when requirements change.
         Active task index (call project_status for full briefs, dependencies, questions or finished tasks):
         \(inventory)
         Available task models and supported efforts (recommend one with a short reason when creating work; explicit user/project choices take precedence):
@@ -112,7 +124,13 @@ extension Orchestrator {
             let provider = try configuredProvider(for: projectID)
             let client = provider.makeRunner(); activeClient = client; chatClients[projectID] = client
             let project = try store.get(Project.self, projectID)
-            let cwd = try await prepareChatWorkspace(project)
+            let repositories = try store.repositories(projectID)
+            guard let first = repositories.first else { throw CoreError.invalid("Add a repository in Project Settings before starting project chat.") }
+            var cwd = ""
+            for repository in repositories {
+                let path = try await prepareChatWorkspace(project, repository: repository)
+                if repository.id == first.id { cwd = path }
+            }
             try Task.checkCancellation()
             try await client.start(runner: runner, cwd: cwd, timeout: Double(project.settings.readTimeoutMs) / 1000)
             var session = try store.session(for: projectID, ownerType: "project")
@@ -191,7 +209,7 @@ extension Orchestrator {
         let questions = try store.all(Question.self).filter { $0.answer == nil }
         let taskValues: JSON = .array(tasks.map { task in .object([
             "id": .string(task.id.uuidString), "title": .string(task.title), "description": .string(task.description),
-            "state": .string(task.state.rawValue), "paused": .bool(task.paused),
+            "repositoryID": .string((task.repositoryID ?? task.projectId).uuidString), "state": .string(task.state.rawValue), "paused": .bool(task.paused),
             "dependsOn": .array(task.dependsOn.map { .string($0.uuidString) }),
             "pr": task.pr.map { .string($0.url) } ?? .null,
             "requirementsRevision": .number(Double(task.requirementsRevision)),
@@ -201,7 +219,11 @@ extension Orchestrator {
         ]) })
         let session = try store.session(for: projectID, ownerType: "project")
         let attachments = try store.chatAttachments(sessionID: session.id).filter { $0.removedAt == nil }
-        return .object(["tasks": taskValues, "attachments": .array(attachments.map {
+        let repositories: JSON = .array(try store.repositories(projectID).map { .object([
+            "id": .string($0.id.uuidString), "name": .string($0.name), "defaultBranch": .string($0.defaultBranch),
+            "checkout": .string(chatWorkspace(try store.get(Project.self, projectID), repositoryID: $0.id).path)
+        ]) })
+        return .object(["repositories": repositories, "tasks": taskValues, "attachments": .array(attachments.map {
             .object(["id": .string($0.id.uuidString), "messageId": .string($0.ownerId.uuidString), "filename": .string($0.filename)])
         })])
     }
@@ -220,6 +242,13 @@ extension Orchestrator {
     }
 
     func saveProposal(_ projectID: UUID, sessionID: UUID, items: [Proposal.Item]) throws -> Proposal {
+        let items = try store.db.read { db in
+            try items.map { item in
+                var resolved = item
+                resolved.repositoryID = try Store.taskRepository(db, projectID: projectID, requested: item.repositoryID).id
+                return resolved
+            }
+        }
         let intent = try store.all(Message.self).filter { $0.sessionId == sessionID && $0.role == "user" }.max(by: { $0.createdAt < $1.createdAt })?.id.uuidString ?? ""
         for proposal in try store.all(Proposal.self) where proposal.projectId == projectID && proposal.tasks == items && proposal.status != "dismissed" {
             if try store.get(Message.self, proposal.messageId).payload["intent"].string == intent { return proposal }
@@ -245,6 +274,10 @@ extension Orchestrator {
             for index in selected {
                 guard Set(proposal.tasks[index].dependsOnIndex).isSubset(of: selected) else { throw CoreError.invalid("Include the selected task’s dependencies, or ask the agent to revise the proposal.") }
             }
+            let targets = try Set(selected.map { try Store.taskRepository(db, projectID: projectID, requested: proposal.tasks[$0].repositoryID).id })
+            guard Set(replacing.map { $0.repositoryID ?? $0.projectId }).isSubset(of: targets) else {
+                throw CoreError.invalid("Replacement tasks must retain work for every source repository. Use separate tasks for different repositories.")
+            }
             let number = try Store.allocateTaskNumbers(db, projectID: projectID, count: selected.count)
             var created: [Int: WorkTask] = [:]
             // Append below existing ranked tasks, preserving proposal order.
@@ -255,9 +288,10 @@ extension Orchestrator {
             do {
                 for index in selected.sorted() {
                     let item = proposal.tasks[index]
+                    let repository = try Store.taskRepository(db, projectID: projectID, requested: item.repositoryID)
                     var task = WorkTask(projectId: projectID, number: number + created.count, title: item.title, description: item.description + ((item.acceptanceCriteria?.isEmpty == false) ? "\n\n## Acceptance criteria\n\n" + item.acceptanceCriteria!.map { "- " + $0 }.joined(separator: "\n") : ""),
                                         state: .todo, paused: replacing.contains(where: \.paused), rank: rank - Double(created.count + 1),
-                                        dependsOn: item.dependsOnIndex.compactMap { created[$0]?.id }, origin: "chat")
+                                        dependsOn: item.dependsOnIndex.compactMap { created[$0]?.id }, origin: "chat", repositoryID: repository.id)
                     let existing = item.dependsOnTaskIds ?? []
                     for dependency in existing {
                         guard let other = try WorkTask.fetchOne(db, key: dependency), other.projectId == projectID,

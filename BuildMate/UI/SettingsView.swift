@@ -19,7 +19,8 @@ struct SettingsView: View {
                 if !model.snapshot.projects.isEmpty {
                     Section("Project") {
                         projectPicker
-                        if project != nil {
+                        if let project {
+                            ProjectRepositoryPicker(projectID: project.id).id(project.id)
                             Picker("Open code in", selection: projectSetting(\.editor, fallback: nil)) {
                                 Text("First installed editor").tag(Optional<String>.none)
                                 ForEach(model.installedEditors) { Text($0.name).tag(Optional($0.id)) }

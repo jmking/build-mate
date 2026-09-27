@@ -26,12 +26,16 @@ struct InstructionsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             if let project {
                 Text("Agents also follow").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                if let content = try? String(contentsOfFile: project.repoPath + "/AGENTS.md", encoding: .utf8) {
-                    HStack {
-                        Label("AGENTS.md · \(content.components(separatedBy: .newlines).count) lines", systemImage: "doc.text")
-                        Spacer()
-                        Button("Open") { NSWorkspace.shared.open(URL(fileURLWithPath: project.repoPath + "/AGENTS.md")) }
-                            .help("Open the repository’s AGENTS.md")
+                ForEach(model.repositories(project.id)) { repository in
+                    if let content = try? String(contentsOfFile: repository.repoPath + "/AGENTS.md", encoding: .utf8) {
+                        HStack {
+                            Label("\(repository.name) · AGENTS.md · \(content.components(separatedBy: .newlines).count) lines", systemImage: "doc.text")
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Button("Open") { NSWorkspace.shared.open(URL(fileURLWithPath: repository.repoPath + "/AGENTS.md")) }
+                                .help("Open \(repository.name)’s AGENTS.md")
+                                .accessibilityLabel("Open \(repository.name)’s instructions")
+                        }
                     }
                 }
                 HStack {

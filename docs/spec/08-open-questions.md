@@ -305,3 +305,8 @@ Verified the installed CLI's generated `GetAccountRateLimitsResponse` schema and
 ## Integration-boundary preparation — 2026-09-28
 
 The owner explicitly approved refactoring before a Claude integration. This supersedes the earlier instruction to delay a runner abstraction until the second implementation. Keep one narrow actor contract and direct construction; avoid a generic provider framework or speculative capabilities. Codex remains the only shipped provider, with existing access policy, tools and conversation semantics. Preserve existing native IDs and delivery receipts through the schema migration. Do not silently transfer a native conversation between providers or introduce a hidden Codex call when a future provider owns the conversation; title generation also goes through the selected runner. Claude's actual feature and account support remains unverified by this refactor.
+
+
+## Multiple repositories per project — 2026-09-28
+
+The owner explicitly chose building and opening PRs across repositories, not reference-only folders. Keep tasks and PRs scoped to one repository; project chat coordinates cross-repository requests as separate dependent tasks. Shared project instructions, model defaults and hooks still apply. Repository folders must be existing Git repositories; arbitrary non-Git folders are not silently initialized. Removal unlinks without deleting the clone and preserves historical identity; require unfinished tasks/worktrees to finish or be deleted first. Bitbucket links can be registered, but existing Bitbucket execution restrictions remain and authenticated testing stays deferred per the owner.

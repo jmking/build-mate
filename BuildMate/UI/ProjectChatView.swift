@@ -100,16 +100,20 @@ struct ProjectChatView: View {
                             Divider()
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(project.name).font(.subheadline.weight(.medium))
-                                Text((project.repoPath as NSString).abbreviatingWithTildeInPath)
-                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                                    .help(project.repoPath)
+                                let repositories = model.repositories(project.id)
+                                Text("\(repositories.count) \(repositories.count == 1 ? "repository" : "repositories")")
+                                    .font(.caption).foregroundStyle(.secondary)
                                 DisclosureGroup("Project details") {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        LabeledContent("Branch", value: project.defaultBranch)
-                                        Text(project.host == .local ? "Local Git repository" : project.remoteSlug)
-                                        Text(project.repoPath).textSelection(.enabled)
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ForEach(repositories) { repository in
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(repository.name).fontWeight(.medium)
+                                                Text(repository.defaultBranch)
+                                                Text(repository.repoPath).textSelection(.enabled)
+                                            }
+                                        }
                                     }.font(.caption).foregroundStyle(.secondary).padding(.top, 6)
-                                }.font(.caption).help("Show this project’s branch, repository and full path")
+                                }.font(.caption).help("Show this project’s repositories, branches and paths")
                             }.padding(.horizontal, 24).padding(.bottom, 20).padding(.top, 8)
                         }.frame(maxWidth: .infinity, alignment: .leading).background(AppSurface.raised)
                     }
@@ -211,6 +215,10 @@ private struct ProjectProposalCard: View {
                         Toggle(item.title, isOn: Binding(get: { !excluded.contains(index) }, set: { if $0 { excluded.remove(index) } else { excluded.insert(index) } }))
                             .toggleStyle(.checkbox).fontWeight(.medium).disabled(proposal.status != "open" || saving)
                             .help("Include \(item.title) when creating tasks")
+                        if model.repositories(proposal.projectId).count > 1,
+                           let repository = model.snapshot.repositories.first(where: { $0.id == item.repositoryID }) {
+                            Text(repository.name).font(.caption).foregroundStyle(.secondary).padding(.leading, 20)
+                        }
                         DisclosureGroup("Brief") { MarkdownBrief(item.description).padding(.top, 6) }
                             .font(.callout).padding(.leading, 20).help("Read the proposed task’s brief")
                         ForEach(item.dependsOnIndex, id: \.self) { dependency in
@@ -234,7 +242,7 @@ private struct ProjectProposalCard: View {
         Button("Dismiss") { model.perform { try await model.core.dismissProposal(proposal.id, projectID: proposal.projectId) } }.help("Dismiss this proposal without creating tasks")
         Spacer(minLength: 4)
         Button("Add \(selected.count) to Queue") { accept() }.buttonStyle(.borderedProminent).disabled(selected.isEmpty)
-            .help(model.selectedProject?.runBlockReason ?? "Create selected tasks in Queue; they start when an agent slot is available")
+            .help("Create selected tasks in Queue; they start when an agent slot is available")
     }
     private func accept() {
         let selection = selected
