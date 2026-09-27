@@ -11,6 +11,7 @@ struct ProjectChatView: View {
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
     private var conversation: [Message] { messages.filter { $0.kind != "activity" && $0.kind != "event" } }
     private var busy: Bool { ["queued", "running", "waiting"].contains(session?.status ?? "") }
+    private var responding: Bool { session?.status == "running" && project?.paused != true && !model.settings.paused }
     private var question: Message? { messages.last { $0.kind == "question" && $0.payload["answer"] == .null } }
     private var fromChat: [WorkTask] {
         model.snapshot.tasks.filter { $0.projectId == projectID && $0.origin == "chat" }
@@ -22,12 +23,12 @@ struct ProjectChatView: View {
 
     var body: some View {
         @Bindable var model = model
-        ChatScrollView(messages: conversation) {
+        ChatScrollView(messages: conversation, responding: responding) { _ in
             if messages.isEmpty {
                 Text("What would you like to build?").font(.title2.weight(.medium))
                     .frame(maxWidth: .infinity).padding(.top, 70)
             }
-            ChatTranscript(messages: conversation, responding: session?.status == "running" && project?.paused != true && !model.settings.paused) { message in
+            ChatTranscript(messages: conversation, responding: responding) { message in
                 if message.kind == "proposal", let proposal = model.snapshot.proposals.first(where: { $0.messageId == message.id }) {
                     ProjectProposalCard(proposal: proposal)
                 } else if message.kind == "question" {

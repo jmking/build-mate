@@ -1,15 +1,12 @@
 import AppKit
 import SwiftUI
 
-private struct TranscriptHeight: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 /// Both conversations follow output only while the reader is already at the end.
+/// Content can suspend following when the reader expands earlier material.
 struct ChatScrollView<Content: View>: View {
     let messages: [Message]
-    @ViewBuilder let content: () -> Content
+    let responding: Bool
+    @ViewBuilder let content: (@escaping () -> Void) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var followsLatest = true
     @State private var hasUnread = false
@@ -17,8 +14,6 @@ struct ChatScrollView<Content: View>: View {
     @State private var nearBottom = true
 
     private struct Position: Equatable {
-        let height: CGFloat
-        let offset: CGFloat
         let viewport: CGFloat
         let nearBottom: Bool
     }
@@ -27,21 +22,22 @@ struct ChatScrollView<Content: View>: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    content()
+                    content { followsLatest = false }
                     Color.clear.frame(height: 1).id("chat-latest")
                 }
                 .padding(24).frame(maxWidth: 776).frame(maxWidth: .infinity)
             }
-            .defaultScrollAnchor(messages.isEmpty ? .top : .bottom, for: .initialOffset)
+            .defaultScrollAnchor(messages.isEmpty || !followsLatest ? .top : .bottom, for: .initialOffset)
             .defaultScrollAnchor(.top, for: .alignment)
+            // Keep the bottom attached throughout typing/streaming layout animations.
+            .defaultScrollAnchor(followsLatest && !scrolling ? .bottom : nil, for: .sizeChanges)
             .onScrollGeometryChange(for: Position.self) { geometry in
-                Position(height: geometry.contentSize.height, offset: geometry.contentOffset.y,
-                         viewport: geometry.containerSize.height,
+                Position(viewport: geometry.containerSize.height,
                          nearBottom: geometry.contentSize.height - geometry.visibleRect.maxY < 80)
             } action: { old, new in
                 nearBottom = new.nearBottom
-                // A growing response must not make a reader who was at the end appear to have scrolled away.
-                if scrolling || (old.height == new.height && old.viewport == new.viewport && abs(old.offset - new.offset) > 1) {
+                // Only a reader's scroll changes follow mode, never layout or a programmatic scroll.
+                if scrolling {
                     followsLatest = new.nearBottom
                     if followsLatest { hasUnread = false }
                 }
@@ -50,11 +46,11 @@ struct ChatScrollView<Content: View>: View {
                 }
             }
             .onScrollPhaseChange { _, phase in
-                let moving = phase == .interacting || phase == .decelerating || phase == .animating
+                let moving = phase == .interacting || phase == .decelerating
                 if moving {
                     scrolling = true
                     followsLatest = false
-                } else if scrolling {
+                } else if phase == .idle && scrolling {
                     scrolling = false
                     followsLatest = nearBottom
                     if nearBottom { hasUnread = false }
@@ -64,9 +60,8 @@ struct ChatScrollView<Content: View>: View {
                 if followsLatest && !scrolling { proxy.scrollTo("chat-latest", anchor: .bottom) }
                 else { hasUnread = true }
             }
-            .onPreferenceChange(TranscriptHeight.self) { _ in
-                // Follow streamed text/typing geometry, but never an expanded brief or history disclosure.
-                if followsLatest && !scrolling { proxy.scrollTo("chat-latest", anchor: .bottom) }
+            .onChange(of: responding) {
+                if responding && (!followsLatest || scrolling) { hasUnread = true }
             }
             .overlay(alignment: .bottomTrailing) {
                 if !followsLatest && hasUnread {
@@ -143,11 +138,6 @@ struct ChatTranscript<Content: View>: View {
                 .modifier(ChatMessageMetadata(message: row.message))
                 .padding(.top, index == 0 || timestamp ? 0 : previous?.role == row.message?.role ? 8 : spacing)
                 .transition(reduceMotion ? .opacity : .scale(scale: 0.8, anchor: .bottomLeading).combined(with: .opacity))
-            }
-        }
-        .background {
-            GeometryReader { geometry in
-                Color.clear.preference(key: TranscriptHeight.self, value: geometry.size.height)
             }
         }
         .onChange(of: messages, initial: true) { update() }

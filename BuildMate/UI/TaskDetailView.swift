@@ -12,6 +12,7 @@ struct TaskDetailView: View {
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || project?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
+    private var responding: Bool { task.state == .building && activeTurn && !isPaused && pendingPlans.isEmpty }
     private var acceptsFeedback: Bool { task.state == .humanReview || task.state == .inPR }
     private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || acceptsFeedback) ? "Send message" : "Save message" }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerId == task.id && $0.ownerType == "task" } }
@@ -34,8 +35,11 @@ struct TaskDetailView: View {
         @Bindable var model = model
         VStack(spacing: 0) {
             taskHeader
-            ChatScrollView(messages: messages.filter { $0.kind != "event" }) {
-                DisclosureGroup(isExpanded: Binding(get: { model.isBriefExpanded(task) }, set: { model.setBriefExpanded(task.id, expanded: $0) })) {
+            ChatScrollView(messages: messages.filter { $0.kind != "event" }, responding: responding) { stopFollowing in
+                DisclosureGroup(isExpanded: Binding(get: { model.isBriefExpanded(task) }, set: { expanded in
+                    if expanded { stopFollowing() }
+                    model.setBriefExpanded(task.id, expanded: expanded)
+                })) {
                     VStack(alignment: .leading, spacing: 12) {
                         MessageAttachments(messageID: task.id, ownerType: "task")
                         MarkdownBrief(task.description.isEmpty ? task.title : task.description)
@@ -45,7 +49,7 @@ struct TaskDetailView: View {
                     }.padding(.top, 10)
                 } label: { Text("Brief").font(.subheadline.weight(.medium)) }
                     .help("Show or hide the task brief")
-                ChatTranscript(messages: conversation, responding: task.state == .building && activeTurn && !isPaused && pendingPlans.isEmpty, reactionContext: messages) { item in
+                ChatTranscript(messages: conversation, responding: responding, reactionContext: messages) { item in
                     if let question = questions.first(where: { $0.messageId == item.id }) {
                         TaskQuestion(question: question)
                     } else if item.role == "system" {
