@@ -142,7 +142,7 @@ struct MainWindow: View {
                 if showsInspector {
                     ToolbarSpacer(.fixed, placement: .primaryAction)
                     ToolbarItem(placement: .primaryAction) {
-                        Button { model.showInspector.toggle() } label: { Label("Details", systemImage: "sidebar.right") }
+                        Button { model.showInspector.toggle() } label: { Label("Details", systemImage: "info.circle") }
                             .help("Show or hide details (⌥⌘I)")
                     }
                 }
