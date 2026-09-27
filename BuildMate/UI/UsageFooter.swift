@@ -7,6 +7,7 @@ struct UsageFooter: View {
     private func tint(_ remaining: Int) -> Color { remaining < model.settings.usageHoldThreshold ? .red : remaining < 25 ? .orange : .accentColor }
     private var accessibilityStatus: String {
         var parts = [window.map { "\($0.remaining) percent remaining in the \($0.duration)" } ?? (model.usage.refreshing ? "Checking usage" : "Usage unavailable")]
+        if let credits = model.usage.credits { parts.append(credits.label) }
         if model.usageHeld { parts.append("New work on hold") }
         if model.usage.error != nil { parts.append(window == nil ? "Couldn’t refresh usage" : "Last known usage; couldn’t refresh") }
         return parts.joined(separator: ". ")
@@ -17,7 +18,9 @@ struct UsageFooter: View {
                 HStack(spacing: 6) {
                     Text("Codex")
                     Spacer(minLength: 4)
-                    if let window {
+                    if model.usage.canUseCredits, let credits = model.usage.credits {
+                        Text(credits.label).monospacedDigit().foregroundStyle(.secondary)
+                    } else if let window {
                         Text("\(window.remaining)% left").monospacedDigit().foregroundStyle(tint(window.remaining))
                     } else {
                         Text(model.usage.refreshing ? "Checking…" : "Usage unavailable").foregroundStyle(.secondary)
@@ -25,7 +28,7 @@ struct UsageFooter: View {
                     Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary).accessibilityHidden(true)
                 }
                 if model.usageHeld { Text("New work on hold").foregroundStyle(.orange) }
-                if window != nil && model.usage.error != nil { Text("Last known usage").foregroundStyle(.secondary) }
+                if (window != nil || model.usage.credits != nil) && model.usage.error != nil { Text("Last known usage").foregroundStyle(.secondary) }
             }.font(.caption).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(.plain).help("View account usage and reset times")
             .accessibilityElement(children: .ignore)
@@ -37,6 +40,9 @@ struct UsageFooter: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Codex usage").font(.headline)
                     Text("Shared across your Codex account, including other apps and sessions.").font(.caption).foregroundStyle(.secondary)
+                    if let credits = model.usage.credits {
+                        Text(credits.label).font(.callout).monospacedDigit()
+                    }
                     if model.usage.windows.isEmpty {
                         Text("No usage windows reported. Check that Codex is installed and signed in.").font(.callout)
                     }
@@ -62,8 +68,10 @@ struct UsageFooter: View {
                         Text("New tasks on hold").font(.headline)
                         Button("Resume Anyway") { model.perform { await model.core.resumeDespiteUsage() } }
                             .help("Allow new work until usage recovers or Build Mate restarts")
+                    } else if model.usage.canUseCredits {
+                        Text("Available credits let work continue when included usage runs out.").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Text("New work pauses below \(model.settings.usageHoldThreshold)% remaining. Running agents continue.").font(.caption).foregroundStyle(.secondary)
+                        Text("New work pauses below \(model.settings.usageHoldThreshold)% included usage when no usable credits are reported. Running agents continue.").font(.caption).foregroundStyle(.secondary)
                     }
                     HStack {
                         Spacer()

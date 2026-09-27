@@ -11,7 +11,7 @@ struct SettingsView: View {
                     Stepper("Agents at once: \(model.settings.agentsAtOnce)", value: setting(\.agentsAtOnce), in: 1...32)
                         .help("Maximum simultaneous task and project-chat agents across all projects")
                     Stepper("Hold new work below \(model.settings.usageHoldThreshold)% usage remaining", value: setting(\.usageHoldThreshold), in: 0...100, step: 5)
-                        .help("Zero disables automatic usage holds; running agents continue")
+                        .help("Applies when no usable Codex credits are reported. Zero disables automatic usage holds; running agents continue")
                 }
                 Section("Notifications") { NotificationSettings() }
                 if !model.snapshot.projects.isEmpty {

@@ -213,7 +213,7 @@ Tasks created from a project proposal inherit only explicitly selected reference
 
 ### Usage holds and app lifetime
 
-The app reads account usage before first dispatch and then every 60 seconds, also consuming live task rate-limit events. Below the configurable threshold (15% default), new task attempts and project-chat responses wait; active workers keep their slots and continue. Unknown usage is not interpreted as zero, and failed reads retain a last-known low-usage hold. Resume Anyway overrides the hold until usage recovers or the app restarts. Global settings decoding supplies defaults for databases created before usage holds existed.
+The app reads account usage before first dispatch and then every 60 seconds, also consuming live task rate-limit events. Below the configurable threshold (15% default), new task attempts and project-chat responses wait only when no usable Codex credits are reported; active workers keep their slots and continue. Unknown usage is not interpreted as zero, and failed reads retain a last-known low-usage hold. Resume Anyway overrides the hold until usage recovers or the app restarts. Global settings decoding supplies defaults for databases created before usage holds existed.
 
 The main SwiftUI Window, Settings and MenuBarExtra share one AppModel and one orchestrator. AppDelegate owns the observation task through window closure. Native notification receipts are stored in `notification-receipts.json` beneath app storage, keyed by the durable attention event; notification actions resolve the task/project in the shared model and reopen the existing main window.
 
@@ -248,3 +248,5 @@ Known affected files/directories are recorded in task proposals and `submit_plan
 After a stacked parent merges, its child is retargeted to the project default branch and must incorporate the freshly fetched base and rerun QA. A child is never automatically merged into an unmerged feature branch. Addressed review threads may be resolved after verified publication; disputes remain open for the reviewer/human.
 
 Live CLI read, command, turn and stall deadlines use an awake monotonic clock so sleep and wall-clock adjustments do not falsely fail work. Persisted timestamps and retry schedules remain wall-clock dates.
+
+Credit-aware usage (28 September 2026): parse bucket-specific `credits.hasCredits`, `unlimited` and decimal `balance` from app-server. Available credits bypass the local included-usage threshold even at 0%; a reported workspace/spend-control block prevents that bypass. Do not interpret `ordinaryUsageAllowed: false` alone as credit exhaustion. Full reads clear missing credit data, sparse bucket notifications preserve omitted credit fields, and explicit null clears them. Failed reads retain last-known values. Never borrow another product bucket's credits or convert a credit balance to a percentage/currency.

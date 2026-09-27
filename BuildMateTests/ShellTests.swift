@@ -93,9 +93,34 @@ struct ShellTests {
         try f.marker("usage-error"); await model.core.refreshUsage(); await model.core.tick()
         #expect(await model.core.usageHeld()) // A failed refresh must not silently lift a known hold.
         try FileManager.default.removeItem(at: f.control.appending(path: "usage-error"))
-        await model.core.resumeDespiteUsage()
+        // Exhausted included usage must still dispatch with credits, without a manual override.
+        let credited = #"{"ordinaryUsageAllowed":false,"rateLimits":{"primary":{"usedPercent":100},"credits":{"hasCredits":true,"unlimited":false,"balance":"2034.1956750000"},"spendControlReached":false,"rateLimitReachedType":"rate_limit_reached"}}"#
+        try credited.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage(); await model.refresh()
+        #expect(!model.usageHeld && model.usage.credits?.balance == Decimal(string: "2034.1956750000"))
+        var snapshot = model.usage
+        snapshot.receive(try JSONDecoder().decode(JSON.self, from: Data(#"{"rateLimits":{"primary":{"usedPercent":100}}}"#.utf8)), replacing: false)
+        #expect(snapshot.canUseCredits) // Sparse notifications must not discard the last credit balance.
+        snapshot.receive(try JSONDecoder().decode(JSON.self, from: Data(#"{"rateLimits":{"credits":null}}"#.utf8)), replacing: false)
+        #expect(!snapshot.canUseCredits)
+        #expect(snapshot.limitingWindow?.remaining == 0) // A credit-only update cannot clear an exhausted window.
+        await model.core.tick()
         let usageStore = f.store
-        try await f.wait("override dispatch") { @Sendable in try usageStore.all(Question.self).contains { $0.taskId == queued.id } }
+        try await f.wait("credit-backed dispatch") { @Sendable in try usageStore.all(Question.self).contains { $0.taskId == queued.id } }
+        for (creditJSON, held) in [
+            (#"{"primary":{"usedPercent":100},"credits":{"hasCredits":true,"unlimited":true,"balance":null}}"#, false),
+            (#"{"primary":{"usedPercent":100},"credits":{"hasCredits":true,"unlimited":false,"balance":"20"},"spendControlReached":true}"#, true),
+            (#"{"primary":{"usedPercent":100},"credits":{"hasCredits":false,"unlimited":false,"balance":"0"}}"#, true)
+        ] {
+            try ("{\"rateLimits\":" + creditJSON + "}").write(to: file, atomically: true, encoding: .utf8)
+            await model.core.refreshUsage()
+            #expect(await model.core.usageHeld() == held)
+        }
+        // A different product's credits must not release a Codex hold.
+        try #"{"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":100}},"other":{"credits":{"hasCredits":true,"unlimited":true}}}}"#.write(to: file, atomically: true, encoding: .utf8)
+        await model.core.refreshUsage()
+        #expect(await model.core.usageHeld())
+        await model.core.resumeDespiteUsage()
         await model.refresh()
         let attention = model.attentionItems.map(\.id)
         #expect(attention.count == 1)

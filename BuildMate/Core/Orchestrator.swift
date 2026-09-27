@@ -49,7 +49,7 @@ actor Orchestrator {
     private(set) var usage = UsageSnapshot()
     private var usageOverride = false
     func usageHeld() -> Bool {
-        guard !usageOverride, let window = usage.limitingWindow else { return false }
+        guard !usageOverride, !usage.canUseCredits, let window = usage.limitingWindow else { return false }
         return window.remaining < ((try? store.settings().usageHoldThreshold) ?? 15)
     }
     func resumeDespiteUsage() async { usageOverride = true; await tick() }
