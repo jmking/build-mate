@@ -11,7 +11,9 @@ struct ProjectChatView: View {
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
     private var busy: Bool { ["queued", "running", "waiting"].contains(session?.status ?? "") }
     private var question: Message? { messages.last { $0.kind == "question" && $0.payload["answer"] == .null } }
-    private var fromChat: [WorkTask] { model.snapshot.tasks.filter { $0.projectId == projectID && $0.origin == "chat" } }
+    private var latestFromChat: WorkTask? {
+        model.snapshot.tasks.filter { $0.projectId == projectID && $0.origin == "chat" }.max { $0.number < $1.number }
+    }
     private var files: [URL] { model.attachmentDrafts[projectID] ?? [] }
     private var fileBinding: Binding<[URL]> { Binding(get: { model.attachmentDrafts[projectID] ?? [] }, set: { model.attachmentDrafts[projectID] = $0 }) }
     var body: some View {
@@ -87,8 +89,7 @@ struct ProjectChatView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("From this chat").font(.headline).accessibilityAddTraits(.isHeader)
-                    if fromChat.isEmpty { Text("Tasks you create here will appear here.").foregroundStyle(.secondary) }
-                    ForEach(fromChat) { task in
+                    if let task = latestFromChat {
                         Button { model.destination = .task(task.id) } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: task.state.symbol).foregroundStyle(task.state.color).frame(width: 16)
@@ -103,20 +104,26 @@ struct ProjectChatView: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                             }.contentShape(Rectangle())
                         }.buttonStyle(.plain).help("Open \(task.title)")
-                        Divider()
+                    } else {
+                        Text("Your latest task from this chat will appear here.").foregroundStyle(.secondary)
                     }
-                    Text("Project").font(.headline).accessibilityAddTraits(.isHeader)
-                    if let project {
-                        Text(project.repoPath).font(.caption.monospaced()).textSelection(.enabled)
-                        Text("\(project.defaultBranch) · Codex").foregroundStyle(.secondary)
-                        Text(project.host == .local ? "Local Git repository" : project.remoteSlug).foregroundStyle(.secondary)
-                    }
-                    Text("The project agent reads code in its own checkout. Task agents build changes in separate worktrees.").font(.caption).foregroundStyle(.secondary)
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
             }.background(AppSurface.raised)
-                .safeAreaInset(edge: .bottom) {
-                    Button("Open Tasks", systemImage: "rectangle.split.3x1") { model.destination = .project(projectID, .tasks) }
-                        .help("Show this project’s task board (⌘4)").padding(16).frame(maxWidth: .infinity).background(AppSurface.raised)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        Divider()
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Project").font(.headline).accessibilityAddTraits(.isHeader)
+                            if let project {
+                                Text(project.repoPath).font(.caption.monospaced()).textSelection(.enabled)
+                                Text("\(project.defaultBranch) · Codex").foregroundStyle(.secondary)
+                                Text(project.host == .local ? "Local Git repository" : project.remoteSlug).foregroundStyle(.secondary)
+                            }
+                            Text("The project agent reads code in its own checkout. Task agents build changes in separate worktrees.").font(.caption).foregroundStyle(.secondary)
+                            Button("Open Tasks", systemImage: "rectangle.split.3x1") { model.destination = .project(projectID, .tasks) }
+                                .help("Show this project’s task board (⌘4)")
+                        }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                    }.background(AppSurface.raised)
                 }.inspectorColumnWidth(min: 300, ideal: 340, max: 440)
         }
         .toolbar {

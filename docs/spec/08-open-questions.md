@@ -209,3 +209,7 @@ Use zero-based dependency and selection indices in project tool contracts. If a 
 User requested model and effort editing at any time for tasks and project chat, with Astra High as the project-chat default. Interpret “at any time” as saving immediately for the next turn; do not interrupt or replace an active conversation. The local protocol schema and [official app-server documentation](https://learn.chatgpt.com/docs/app-server) support model/effort overrides on `turn/start`, not `turn/steer`. Store choices separately from lifecycle records to prevent stale task/project saves from erasing them. Existing task defaults and economical title generation remain unchanged.
 
 Read-only manual `model/list` probe against installed codex-cli 0.151.0 returned `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-5.5`. Including hidden models additionally returned `gpt-reserve` and `codex-auto-review`; Astra was absent. No inference or account mutation was performed. Do not infer CLI model availability from the Codex desktop picker. Preserve the requested Astra High default and report unavailable selection explicitly until the installed CLI/account offers it or the user chooses another model.
+
+### Compact project-chat inspector (2026-09-27)
+
+Interpret “just show the last” as the single most recently created task originating from this project chat, using the project’s monotonically increasing task number. Older tasks remain in the board/Backlog. Keep Project information and Open Tasks in a separate fixed bottom section, outside the task scroll area.

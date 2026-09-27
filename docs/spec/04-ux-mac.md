@@ -56,7 +56,7 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
   - Task chips after creation: glass capsules "● #427 Building" that open the task.
 - Composer (floating glass, bottom): attach (paperclip; also drag-and-drop and paste images/video), text field "Describe what you want built…", send (accent circle, ⌘↩ or ↩).
 - Natural-language routing: "start now", "go straight to Queue" → Add to queue; "backlog the rest" etc. The agent echoes the outcome as an event.
-- Inspector: **From this chat** (tasks created here, live state, "Backlog · waiting for you to refine", "then waits on #427") and **Project** (checkout path, branch, agent, host mark + remote slug), footer **Open Tasks**.
+- Inspector: **From this chat** (only the most recently created chat task, live state, "Backlog · waiting for you to refine", "then waits on #427") and a fixed bottom **Project** section (checkout path, branch, agent, host mark + remote slug, **Open Tasks**). Project information stays outside the task scroll area and remains visible.
 
 ## 5. Backlog — `mac-03-backlog`
 **Purpose:** refine tasks before any agent starts them.
@@ -201,7 +201,7 @@ Editor-icon refinement (2026-09-27): the Open in control shows only a centred 16
 
 The Chat page now supports persistent text conversations, streamed agent bubbles, expandable inspection output, inline questions/answers, selectable proposals, Add to queue/Add N to Backlog, and live task links in the From this chat inspector. Proposal dependencies are shown by task title. Unselected tasks are not created; dependencies of selected tasks must also be selected. Dismiss makes a proposal inactive. Natural-language routing supports mixed destinations through the project agent. Backlog task details, row context menus and the Task menu expose Refine with Agent, opening project chat without starting coding. Project questions appear in Needs You and the Chat badge.
 
-The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector shows project checkout and branch plus live created-task states and dependencies.
+The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector shows only the latest chat-created task with its live state and dependencies. Project checkout/branch information and Open Tasks stay pinned in a separate bottom section; older tasks remain available on the task board and in Backlog.
 
 This pulls forward text project chat and backlog refinement, not all of milestone 6: image/video attachment entry and instruction editing remain separate remaining work. Proposal Ship as controls remain hidden until the related SCM capability exists. Spoken VoiceOver and reduced-transparency validation are not inferred from accessibility labels alone.
 
