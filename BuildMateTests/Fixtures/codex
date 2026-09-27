@@ -47,6 +47,10 @@ def delegation():
  global count
  (root/'delegating-pid').write_text(str(os.getpid()))
  event('thread/tokenUsage/updated',{'threadId':thread,'tokenUsage':{'total':{'inputTokens':11,'outputTokens':7}}})
+ image_item={'id':turn+'-generated','type':'imageGeneration','status':'completed','savedPath':str(root/'proof.png'),'result':'RAW IMAGE RESULT MUST NOT PERSIST'}
+ if not project_mode:
+  for _ in range(2):event('item/completed',{'threadId':thread,'turnId':turn,'item':image_item})
+  event('item/completed',{'threadId':thread,'turnId':'stale-'+turn,'item':dict(image_item,id='stale-image')})
  for name,done in ([('research',True)] if project_mode else [('research',True),('checker',False)]):
   child=thread+'-'+name+'-'+turn;child_turn='child-'+turn+'-'+name;result='Delegated findings only.' if done else ''
   delegated[child]={'id':child,'parentThreadId':thread,'name':name.title(),'cwd':cwd,
@@ -61,6 +65,7 @@ def delegation():
   event('thread/status/changed',{'threadId':child,'status':{'type':'active','activeFlags':[]}})
   event('turn/started',{'threadId':child,'turn':{'id':child_turn,'status':'inProgress','items':[]}})
   if not done:continue
+  event('item/completed',{'threadId':child,'turnId':child_turn,'item':dict(image_item,id='child-image')})
   event('thread/tokenUsage/updated',{'threadId':child,'tokenUsage':{'total':{'inputTokens':999,'outputTokens':888}}})
   event('item/agentMessage/delta',{'threadId':child,'turnId':child_turn,'itemId':child+'-result','delta':'Delegated findings '})
   event('item/completed',{'threadId':child,'turnId':child_turn,'item':{'id':child+'-result','type':'agentMessage','text':result}})
@@ -92,6 +97,12 @@ def review():
   report['recordingCommand']='printf invalid > "$BUILD_MATE_RECORDING_PATH"' if attempt==2 else 'cp "$BUILD_MATE_FIXTURE/proof.mp4" "$BUILD_MATE_RECORDING_PATH"'
  if (root/'visual-task').exists():report['screenshotsCommand']='cp "$BUILD_MATE_FIXTURE/proof.png" "$BUILD_MATE_BEFORE_PATH" && cp "$BUILD_MATE_FIXTURE/proof.png" "$BUILD_MATE_AFTER_PATH"'
  if (root/'always-fail-proof').exists():report['checks']=[{'name':'Failing check','command':'exit 1'}]
+ if (root/'proof-efficiency').exists():
+  shared=r'''printf 'checked\n' >> "$TMPDIR/../fixture-checks"; if test -f "$BUILD_MATE_FIXTURE/proof-repaired"; then exit 0; fi; printf '%10000s\n' padding; printf '%s\n' 'TOKEN=fixture-proof-secret' 'proof diagnostic sentinel'; exit 1'''
+  report['checks'].append({'name':'Agent shared check','command':'  '+shared+'\n'})
+  report['needsRecording']=True
+  report['recordingCommand']='printf "captured\\n" >> "$(dirname "$BUILD_MATE_RECORDING_PATH")/fixture-recordings"; '+report.get('recordingCommand','cp "$BUILD_MATE_FIXTURE/proof.mp4" "$BUILD_MATE_RECORDING_PATH"')
+  report['screenshotsCommand']='printf "captured\\n" >> "$(dirname "$BUILD_MATE_BEFORE_PATH")/fixture-screenshots"; cp "$BUILD_MATE_FIXTURE/proof.png" "$BUILD_MATE_BEFORE_PATH" && cp "$BUILD_MATE_FIXTURE/proof.png" "$BUILD_MATE_AFTER_PATH"'
  if (root/'legacy-review').exists():
   report['summary']=json.dumps({'changes':'Adds the requested feature.', 'validation':{'compile':'Passed.', 'limitations':'No live interaction test.'}, 'commits':['abc123'], 'extra_detail':'Preserve this unknown field.'})
   report={'summary':json.dumps(report)}
@@ -122,6 +133,7 @@ for line in sys.stdin:
    with (root/'image-inputs.jsonl').open('a') as f:f.write(json.dumps({'method':method,'images':images})+'\n')
  if method=='initialize':reply(req,{'userAgent':'fake/0.151'})
  elif method=='initialized':pass
+ elif method=='config/read':reply(req,{'config':{'model':'gpt-6-astra' if (root/'configured-model').exists() else 'fake-model','model_reasoning_effort':'high'}})
  elif method=='model/list':
   models=[{'id':'fake-model','model':'fake-model','displayName':'Fixture Model','isDefault':True,'defaultReasoningEffort':'medium','supportedReasoningEfforts':[{'reasoningEffort':e} for e in ['low','medium','high']]}]
   if not (root/'no-astra').exists():models.append({'id':'astra-row','model':'gpt-6-astra','displayName':'GPT-6 Astra','defaultReasoningEffort':'medium','supportedReasoningEfforts':[{'reasoningEffort':e} for e in ['low','medium','high','xhigh']]})
@@ -151,6 +163,8 @@ for line in sys.stdin:
  elif method=='thread/read':
   reply(req,{'thread':delegated.get(p['threadId'],{'id':p['threadId'],'parentThreadId':thread,'status':{'type':'idle'},'turns':[]})})
  elif method=='turn/start':
+  if (root/'reject-turn-once').exists():
+   (root/'reject-turn-once').unlink();emit({'id':req['id'],'error':{'code':-32000,'message':'Fixture rejected turn before accepting input'}});continue
   if not title_mode:
    assert p.get('model') in ['fake-model','gpt-6-astra','gpt-5.6-luna']
    assert p.get('effort') in (['low'] if p['model']=='gpt-5.6-luna' else ['low','medium','high','xhigh'])
@@ -167,15 +181,23 @@ for line in sys.stdin:
    reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
    event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':turn+'-idle','type':'agentMessage','text':'I will continue.'}})
    complete();continue
+  if (root/'note-only-responses').exists():
+   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
+   call('note',{'text':'Still considering the same request.'});continue
   if project_mode:
    assert p['sandboxPolicy']=={'type':'readOnly','networkAccess':False}
    reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
    if (root/'subagents').exists():delegation()
-   text=p['input'][0]['text'];latest=text.split('user:')[-1].strip()
+   text=p['input'][0]['text']
+   if 'Current task guidance (supersedes earlier versions):' in text:save(context=text)
+   context=readstate().get('context',text)
+   if 'New user messages (in order):\n' in text:
+    save(latest_user=text.split('New user messages (in order):\n',1)[1].split('\n\nNew answers:',1)[0].strip())
+   latest=readstate().get('latest_user',text.split('user:')[-1].strip())
    if (root/'chat-crash-once').exists():
     (root/'chat-crash-once').unlink();sys.exit(7)
-   assert 'Write task descriptions as readable Markdown' in text
-   assert 'Every created task goes straight to Queue.' in text
+   assert 'Write task descriptions as readable Markdown' in context
+   assert 'Every created task goes straight to Queue.' in context
    if (root/'chat-stall').exists():continue
    if latest.startswith('Cool'):
     event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'itemId':'reaction','delta':'👍'})
@@ -186,9 +208,9 @@ for line in sys.stdin:
    elif latest.startswith('Ask a question'):
     call('ask_question',{'prompt':'Which accounts?','options':['Active','All'],'allowsFreeText':True})
    elif latest.startswith('Create all three tasks'):
-    proposals=json.loads(text.split('Open proposals (zero-based dependency/selection indices): ')[1].split('\nConversation')[0])
+    proposals=[line.split(':',1)[0] for line in context.split('Proposal status (contents remain in this conversation):\n',1)[1].splitlines() if ': open;' in line]
     # Older persisted schemas may still pass mixed indices; all selected tasks must queue.
-    call('create_tasks',{'proposalId':proposals[-1]['id'],'queueIndexes':[0,1]})
+    call('create_tasks',{'proposalId':proposals[-1],'queueIndexes':[0,1]})
    elif latest.startswith('Refine task '):
     call('refine_task',{'taskId':latest.split()[2],'description':'Search active accounts by name.\n\n## Scope\n\n- Preserve clear empty-state messaging.'})
    elif latest.startswith('Status'):
@@ -212,6 +234,22 @@ for line in sys.stdin:
    while True:
     event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'delta':'working '});time.sleep(0.005)
   if (root/'stall').exists():continue
+  if (root/'quiet-command').exists():
+   event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'itemId':turn+'-stream','delta':'Inspecting the selected files'})
+   item={'id':turn+'-quiet','type':'commandExecution','command':'sleep 0.9','status':'inProgress'}
+   event('item/started',{'threadId':thread,'turnId':turn,'item':item})
+   time.sleep(0.9)
+   item.update(status='completed',exitCode=0,aggregatedOutput='')
+   event('item/completed',{'threadId':thread,'turnId':turn,'item':item});(root/'quiet-command').unlink()
+   event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':turn+'-stream','type':'agentMessage','text':'Inspecting the selected files is complete.'}})
+   requests=[
+    ('native-secret','item/tool/requestUserInput',{'isBlocking':True,'questions':[{'id':'secret','header':'Authentication','question':'SECRET QUESTION MUST NOT PERSIST','isSecret':True,'isOther':False,'options':[]}]}),
+    ('native-optional','item/tool/requestUserInput',{'isBlocking':False,'questions':[{'id':'optional','header':'Style','question':'Which optional format?','isSecret':False,'isOther':False,'options':[{'label':'Plain','description':'Plain text'},{'label':'Rich','description':'Rich text'}]}]}),
+    ('native-command','item/commandExecution/requestApproval',{'itemId':'approved-command','reason':'PRIVATE APPROVAL DETAIL MUST NOT PERSIST'}),
+    ('native-permissions','item/permissions/requestApproval',{'itemId':'permission-request','reason':'PRIVATE APPROVAL DETAIL MUST NOT PERSIST'})]
+   for tag,method_name,arguments in requests:
+    count+=1;key=tag+'-'+str(count);pending[key]=tag
+    emit({'id':key,'method':method_name,'params':dict(arguments,threadId=thread,turnId=turn)})
   if (root/'pr-revision').exists() and not readstate().get('revision_answered'):
    save(revision_question=True)
    call('ask_question',{'prompt':'Which shade of blue?','options':['Light','Dark'],'allowsFreeText':True,'blocking':True})
@@ -227,6 +265,14 @@ for line in sys.stdin:
    reply(req,{});event('turn/completed',{'threadId':target,'turn':{'id':target_turn,'status':'interrupted','items':[]}})
  elif 'id' in req and req['id'] in pending:
   tool=pending.pop(req['id'])
+  if tool.startswith('native-'):
+   result=req['result']
+   if tool=='native-secret':assert 'Secret input is not supported' in result['answers']['secret']['answers'][0]
+   elif tool=='native-optional':assert 'Continue without depending on an answer' in result['answers']['optional']['answers'][0]
+   elif tool=='native-command':assert result=={'decision':'decline'}
+   elif tool=='native-permissions':assert result=={'permissions':{},'scope':'turn'}
+   with (root/'native-responses.jsonl').open('a') as f:f.write(json.dumps({'kind':tool,'result':result})+'\n')
+   continue
   if tool in ('delegated-lifecycle','foreign-lifecycle','missing-thread-lifecycle'):
    refused=req.get('result',{}).get('success') is False
    assert refused if tool=='delegated-lifecycle' else refused or req.get('error') is not None
@@ -241,7 +287,8 @@ for line in sys.stdin:
    elif tool=='refine_task':project_reply('I refined the task description.')
    elif tool=='project_status':project_reply('I checked the current project tasks.')
    continue
-  if tool=='ask_question':
+  if tool=='note':complete()
+  elif tool=='ask_question':
    if readstate().get('revision_question') and not readstate().get('revision_answered'):
     assert req['result']['contentItems'][0]['text']=='Light';save(revision_answered=True)
    else:
@@ -272,6 +319,13 @@ for line in sys.stdin:
      activity(research,'research','interacted',research+'-followup')
     review()
    elif not req['result']['success']:
+    if (root/'proof-efficiency').exists() and readstate().get('reviews')==1:
+     text=req['result']['contentItems'][0]['text']
+     assert 'Shared proof check' in text and 'proof diagnostic sentinel' in text
+     assert 'fixture-proof-secret' not in text and '[REDACTED]' in text
+     assert not list((root.parent/'Application Support/Build Mate/projects').rglob('fixture-recordings'))
+     assert not list((root.parent/'Application Support/Build Mate/projects').rglob('fixture-screenshots'))
+     (root/'proof-feedback.txt').write_text(text)
     (root/'proof-repaired').touch();review()
    else:complete()
  else:emit({'id':req.get('id'),'error':{'code':-32601,'message':'Unexpected fake method'}})

@@ -13,15 +13,16 @@ struct ModelPicker: View {
     private var task: WorkTask? { app.snapshot.tasks.first { $0.id == ownerID } }
     private var configuration: AgentConfiguration? { app.snapshot.agentConfigurations.first { $0.id == ownerID } }
     private var selectedModel: String? {
-        configuration?.model ?? (projectChat ? "gpt-6-astra" : project?.settings.model)
+        configuration?.model ?? (projectChat ? "gpt-6-astra" : project?.settings.model) ?? session?.activeModel
     }
     private var selectedEffort: String? {
-        if let configuration { return configuration.effort ?? choice?.defaultEffort }
-        return (projectChat ? "high" : project?.settings.effort) ?? choice?.defaultEffort
+        if let effort = configuration?.effort { return effort }
+        if let effort = projectChat ? "high" : project?.settings.effort { return effort }
+        return session?.activeModel == selectedModel ? session?.activeEffort : nil
     }
     private var choice: CodexModel? {
         if let selectedModel { return models.first { $0.id == selectedModel } }
-        return models.first { $0.isDefault } ?? models.first
+        return nil
     }
     private var name: String { choice?.name ?? (selectedModel == "gpt-6-astra" ? "Astra" : selectedModel ?? "Codex default") }
     private var session: Session? { app.snapshot.sessions.first { $0.ownerId == ownerID && $0.ownerType == (projectChat ? "project" : "task") } }
@@ -50,17 +51,19 @@ struct ModelPicker: View {
                             .help("Refresh available models and effort levels")
                     }
                     Picker("Model", selection: Binding(get: { selectedModel ?? choice?.id ?? "" }, set: chooseModel)) {
+                        if selectedModel == nil { Text("Codex default").tag("") }
                         if let selectedModel, !models.contains(where: { $0.id == selectedModel }) {
                             Text("\(name) · unavailable").tag(selectedModel)
                         }
                         ForEach(models) { Text($0.name).tag($0.id) }
                     }.disabled(loading || saving).help("Choose the model for this conversation")
                     if let choice, !choice.efforts.isEmpty {
-                        Picker("Effort", selection: Binding(get: { selectedEffort ?? choice.defaultEffort ?? "" }, set: { save(model: choice.id, effort: $0) })) {
+                        Picker("Effort", selection: Binding(get: { selectedEffort ?? "" }, set: { save(model: choice.id, effort: $0) })) {
+                            if selectedEffort == nil { Text("Codex default").tag("") }
                             ForEach(choice.efforts, id: \.self) { Text(effortName($0)).tag($0) }
                         }.disabled(saving).help("Choose how much reasoning effort this model uses")
                     }
-                    if choice == nil && !loading {
+                    if selectedModel != nil && choice == nil && !loading {
                         Text("This model isn’t available in the installed Codex. Choose an available model or update Codex, then refresh.").font(.caption).foregroundStyle(.secondary)
                     }
                     if pending { Text("Your selection applies to the next response.").font(.caption).foregroundStyle(.secondary) }

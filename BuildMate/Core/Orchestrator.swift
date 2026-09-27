@@ -294,12 +294,21 @@ actor Orchestrator {
         if !files.isEmpty {
             let task = try store.get(WorkTask.self, question.taskId)
             let session = try store.session(for: task.id)
-            let attachments = try store.saveChatMessage(Message(sessionId: session.id, role: "user", body: text), files: files, projectID: task.projectId, ownerID: task.id)
+            let message = Message(sessionId: session.id, role: "user", body: text)
+            let attachments = try store.saveChatMessage(message, files: files, projectID: task.projectId, ownerID: task.id)
             if let client = clients[task.id], let thread = session.codexThreadId, let turn = session.currentTurn {
                 _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput("Reference files for my answer: " + text, attachments: attachments)])
+                try store.acknowledgeInput(session: session, ids: [message.id] + attachments.map(\.id))
             }
         }
         question.answer = text; question.answeredAt = Date(); question.answeredBy = useSuggested ? "agentDefault" : "user"; try store.save(question)
+        if !question.blocking {
+            let session = try store.session(for: question.taskId)
+            if let client = clients[question.taskId], let thread = session.codexThreadId, let turn = session.currentTurn {
+                _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .textInput("Answer to \(question.prompt): \(text)")])
+                try store.acknowledgeInput(session: session, ids: [question.id])
+            }
+        }
         let task = try store.get(WorkTask.self, question.taskId)
         if try task.state == .needsClarification && !openQuestions(task.id) {
             let project = try store.get(Project.self, task.projectId)
@@ -355,9 +364,11 @@ actor Orchestrator {
             return .queued
         }
         let session = try store.session(for: id)
-        let attachments = try store.saveChatMessage(Message(sessionId: session.id, role: "user", body: text), files: files, projectID: store.get(WorkTask.self, id).projectId, ownerID: id)
+        let message = Message(sessionId: session.id, role: "user", body: text)
+        let attachments = try store.saveChatMessage(message, files: files, projectID: store.get(WorkTask.self, id).projectId, ownerID: id)
         if let client = clients[id], let thread = session.codexThreadId, let turn = session.currentTurn {
             _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput(text, attachments: attachments)])
+            try store.acknowledgeInput(session: session, ids: [message.id] + attachments.map(\.id))
             return .sent
         }
         return .saved
@@ -508,13 +519,16 @@ actor Orchestrator {
             try await client.start(runner: runner, cwd: cwd!, timeout: Double(p.settings.readTimeoutMs) / 1000)
             var session = try store.session(for: id)
             availableModels = try await client.models()
+            let inheritedModel = await client.inheritedModel()
+            let inheritedEffort = await client.inheritedReasoningEffort()
+            let developerInstructions = "You are a Build Mate task agent. Submit a plan before the first edit or after a scope change; ask blocking questions when unclear; call request_review after committing the implementation. Do not push, open, or merge pull requests. Only edit this worktree. Treat the current instructions in each turn as authoritative task guidance.\n" + Self.delegationInstructions
             if let thread = session.codexThreadId {
-                _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd!), "config": Self.delegationConfiguration])
+                _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd!), "config": Self.delegationConfiguration, "developerInstructions": .string(developerInstructions), "excludeTurns": .bool(true)])
             } else {
-                let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort)
+                let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort, inheritedModel: inheritedModel, inheritedEffort: inheritedEffort)
                 let started = try await client.request("thread/start", [
                     "cwd": .string(cwd!), "sandbox": .string("workspace-write"), "approvalPolicy": .string("never"),
-                    "developerInstructions": .string("You are a Build Mate task agent. Always submit_plan before editing; ask blocking questions when unclear; call request_review after committing the implementation. Do not push, open, or merge pull requests. Only edit this worktree. Treat the current instructions in each turn as authoritative task guidance.\n" + Self.delegationInstructions),
+                    "developerInstructions": .string(developerInstructions),
                     "config": Self.delegationConfiguration,
                     "dynamicTools": CodexClient.tools, "model": .string(selection.model)
                 ])
@@ -530,39 +544,48 @@ actor Orchestrator {
                 guard [.todo, .building].contains(current.state) else { break }
                 try requireRunnable(current)
                 p = try store.get(Project.self, current.projectId)
-                let input = try prompt(task: current, project: p)
-                let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort)
+                session = try store.session(for: id)
+                let input = try store.agentInput(session: session, context: prompt(task: current, project: p), attachments: store.taskAttachments(id, sessionID: session.id))
+                let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort, inheritedModel: inheritedModel, inheritedEffort: inheritedEffort)
                 let writableRoots = try await Workspace(store: store, runner: runner).agentWritableRoots(current, project: p)
                 session = try store.session(for: id)
                 let response = try await client.request("turn/start", [
-                    "threadId": .string(session.codexThreadId!), "cwd": .string(cwd!), "input": .chatInput(input, attachments: try store.taskAttachments(id, sessionID: session.id)),
+                    "threadId": .string(session.codexThreadId!), "cwd": .string(cwd!), "input": .chatInput(input.text, attachments: input.attachments),
                     "model": .string(selection.model), "effort": selection.effort.map(JSON.string) ?? .null,
                     "sandboxPolicy": .object(["type": .string("workspaceWrite"), "writableRoots": .array(writableRoots.map(JSON.string)),
                                               "networkAccess": .bool(p.settings.network), "excludeTmpdirEnvVar": .bool(true), "excludeSlashTmp": .bool(true)])
                 ])
+                try store.acknowledgeInput(session: session, ids: input.ids, context: input.context)
                 session.activeModel = selection.model; session.activeEffort = selection.effort
                 session.currentTurn = response["turn"]["id"].string; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
                 let started = Date()
                 var waitingDuration: TimeInterval = 0
                 var complete = false
-                var usedTools = false
+                var madeProgress = false
+                var streaming: [String: UUID] = [:]
                 while !complete {
                     try Task.checkCancellation()
                     guard Date().timeIntervalSince(started) - waitingDuration < Double(p.settings.turnTimeoutMs) / 1000 else { throw CoreError.invalid("Codex turn timed out") }
                     guard let event = try await client.nextEvent() else {
                         let last = await client.lastEventAt
-                        guard p.settings.stallTimeoutMs <= 0 || Date().timeIntervalSince(last) < Double(p.settings.stallTimeoutMs) / 1000 else { throw CoreError.invalid("Codex stalled") }
+                        let runningCommand = await client.hasActiveCommands
+                        guard runningCommand || p.settings.stallTimeoutMs <= 0 || Date().timeIntervalSince(last) < Double(p.settings.stallTimeoutMs) / 1000 else { throw CoreError.invalid("Codex stalled") }
                         guard Date().timeIntervalSince(started) - waitingDuration < Double(p.settings.turnTimeoutMs) / 1000 else { throw CoreError.invalid("Codex turn timed out") }
                         continue
                     }
                     let method = event["method"].string ?? ""
                     let params = event["params"]
-                    if try await routeSubagentEvent(event, session: session, client: client) { continue }
-                    if method == "item/tool/call" || method == "item/tool/requestUserInput" ||
-                        ((method == "item/started" || method == "item/completed") &&
-                         params["item"]["type"].string.map { !["agentMessage", "userMessage", "reasoning", "plan"].contains($0) } == true) {
-                        usedTools = true
+                    if try await routeSubagentEvent(event, session: session, client: client) {
+                        if method == "item/completed", ["commandExecution", "fileChange", "mcpToolCall", "webSearch"].contains(params["item"]["type"].string ?? ""),
+                           try subagents(session.id).contains(where: { $0.threadId == params["threadId"].string }) { madeProgress = true }
+                        continue
                     }
+                    if try consumeGeneratedImage(event, session: session) { madeProgress = true; continue }
+                    if method == "item/completed", let type = params["item"]["type"].string,
+                       ["commandExecution", "fileChange", "mcpToolCall", "webSearch", "imageGeneration"].contains(type) {
+                        madeProgress = true
+                    }
+                    if method == "item/completed", params["item"]["type"].string == "subAgentActivity", params["item"]["kind"].string == "started" { madeProgress = true }
                     session = try store.session(for: id); session.lastEventAt = Date()
                     if method == "thread/tokenUsage/updated" {
                         session.tokensIn = params["tokenUsage"]["total"]["inputTokens"].int ?? session.tokensIn
@@ -572,13 +595,24 @@ actor Orchestrator {
                     if method == "account/rateLimits/updated" { receiveUsage(params, replacing: false) }
                     if method == "item/tool/call" || method == "item/tool/requestUserInput" {
                         let before = Date()
-                        try await handle(event, taskId: id, client: client)
+                        let progressed = try await handle(event, taskId: id, client: client)
+                        madeProgress = madeProgress || progressed
                         waitingDuration += Date().timeIntervalSince(before)
                         let latest = try store.get(WorkTask.self, id)
                         if latest.state == .humanReview || latest.state == .inPR { complete = true }
-                    } else if event["id"] != .null { try await client.reject(event["id"]) }
-                    else if method == "item/completed", params["item"]["type"].string == "agentMessage" {
-                        try store.save(Message(sessionId: session.id, role: "agent", body: runner.redacted(params["item"]["text"].string ?? "")))
+                    } else if event["id"] != .null {
+                        if let diagnostic = try await client.rejectRequest(event) {
+                            try store.save(Message(sessionId: session.id, role: "system", kind: "error", body: diagnostic))
+                        }
+                    } else if method == "item/agentMessage/delta", let itemID = params["itemId"].string, let delta = params["delta"].string {
+                        var message = try streaming[itemID].map { try store.get(Message.self, $0) } ?? Message(sessionId: session.id, role: "agent", body: "")
+                        message.body = runner.redacted(message.body + delta)
+                        message.payload = .object(["streaming": .bool(true)])
+                        streaming[itemID] = message.id; try store.save(message)
+                    } else if method == "item/completed", params["item"]["type"].string == "agentMessage" {
+                        var message = try params["item"]["id"].string.flatMap { streaming[$0] }.map { try store.get(Message.self, $0) } ?? Message(sessionId: session.id, role: "agent", body: "")
+                        message.body = runner.redacted(params["item"]["text"].string ?? message.body)
+                        message.payload = .object(["streaming": .bool(false)]); try store.save(message)
                     } else if method == "turn/completed" {
                         guard params["turn"]["status"].string == "completed" else { throw CoreError.invalid("Codex turn \(params["turn"]["status"].string ?? "failed")") }
                         complete = true
@@ -586,7 +620,7 @@ actor Orchestrator {
                 }
                 let latest = try store.get(WorkTask.self, id)
                 if latest.state == .humanReview || latest.state == .inPR { break }
-                idleResponses = usedTools ? 0 : idleResponses + 1
+                idleResponses = madeProgress ? 0 : idleResponses + 1
                 if idleResponses >= 3 {
                     var paused = latest; paused.paused = true
                     paused.retry = Retry(attempt: 0, dueAt: Date(), error: "The agent replied repeatedly without taking action. Review the conversation, then resume when ready.")
@@ -642,10 +676,7 @@ actor Orchestrator {
     }
 
     private func prompt(task: WorkTask, project: Project) throws -> String {
-        let answers = try store.all(Question.self).filter { $0.taskId == task.id && $0.answeredBy != "taskEdit" }.map { "\($0.prompt): \($0.answer ?? "unanswered")" }.joined(separator: "\n")
-        let session = try store.session(for: task.id)
-        let messages = try store.all(Message.self).filter { $0.sessionId == session.id && $0.role == "user" }.map(\.body).joined(separator: "\n")
-        return "\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages (newer requests override earlier choices):\n\(messages)\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema lacks a report field, encode the complete report as JSON in summary, but keep the inner summary field as readable Markdown.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
+        return "\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository.\nSubmit a plan before the first edit or after the brief changes; continue an accepted plan without submitting it again. Ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {
@@ -669,34 +700,45 @@ actor Orchestrator {
         }
         return question
     }
-    private func handle(_ event: JSON, taskId: UUID, client: CodexClient) async throws {
+    private func handle(_ event: JSON, taskId: UUID, client: CodexClient) async throws -> Bool {
         let params = event["params"]
         let args = params["arguments"]
         let requestId = event["id"]
         let session = try store.session(for: taskId)
         if event["method"].string == "item/tool/requestUserInput" {
             var questions: [(String, Question)] = []
+            var answers: [String: JSON] = [:]
             for item in params["questions"].array {
                 guard let key = item["id"].string, let prompt = item["question"].string else { throw CoreError.invalid("Malformed Codex question") }
-                let q = try ask(taskId: taskId, prompt: prompt, options: item["options"].array.compactMap { $0["label"].string }, allowsFreeText: true, blocking: true)
+                if item["isSecret"].bool == true {
+                    answers[key] = .object(["answers": .array([.string("Secret input is not supported here. Ask the user to authenticate through the tool that owns the credentials; do not ask them to paste secrets into chat.")])])
+                    continue
+                }
+                let q = try ask(taskId: taskId, prompt: prompt, options: item["options"].array.compactMap { $0["label"].string }, allowsFreeText: item["options"].array.isEmpty || item["isOther"].bool == true, blocking: params["isBlocking"].bool ?? true)
                 questions.append((key, q))
             }
-            var answers: [String: JSON] = [:]
-            for (key, question) in questions { answers[key] = .object(["answers": .array([.string(try await waitForAnswer(question))])]) }
+            for (key, question) in questions {
+                let answer = question.blocking ? try await waitForAnswer(question) : "Question recorded. Continue without depending on an answer."
+                answers[key] = .object(["answers": .array([.string(answer)])])
+            }
             try await client.respondUserInput(requestId, answers: answers)
-            return
+            try store.acknowledgeInput(session: session, ids: questions.filter { $0.1.blocking }.map { $0.1.id })
+            return questions.contains { $0.1.blocking }
         }
         switch params["tool"].string {
         case "ask_question":
-            guard let prompt = args["prompt"].string, let blocking = args["blocking"].bool else { try await client.respond(requestId, text: "Invalid question", success: false); return }
+            guard let prompt = args["prompt"].string, let blocking = args["blocking"].bool else { try await client.respond(requestId, text: "Invalid question", success: false); return false }
             let question = try ask(taskId: taskId, prompt: prompt, options: args["options"].array.compactMap(\.string), allowsFreeText: args["allowsFreeText"].bool ?? true, blocking: blocking, suggestedAnswer: args["suggestedAnswer"].string)
             let answer = blocking ? try await waitForAnswer(question) : "Question recorded; continue without depending on an answer."
             guard try dependenciesReady(store.get(WorkTask.self, taskId)) else { throw CancellationError() }
             try await client.respond(requestId, text: answer)
+            if blocking { try store.acknowledgeInput(session: session, ids: [question.id]) }
+            return blocking
         case "submit_plan":
-            guard let plan = args["plan"].string, !plan.isEmpty else { try await client.respond(requestId, text: "Plan is required", success: false); return }
+            guard let plan = args["plan"].string, !plan.isEmpty else { try await client.respond(requestId, text: "Plan is required", success: false); return false }
             let task = try store.get(WorkTask.self, taskId)
             let project = try store.get(Project.self, task.projectId)
+            let previousPlan = try store.all(Message.self).filter { $0.sessionId == session.id && $0.kind == "plan" }.max { $0.createdAt < $1.createdAt }?.body
             try store.save(Message(sessionId: session.id, role: "agent", kind: "plan", body: plan))
             if !(try planApproved(task, project: project)) {
                 let approval = Approval(taskId: taskId, kind: "plan", planText: plan)
@@ -708,17 +750,18 @@ actor Orchestrator {
             guard try dependenciesReady(store.get(WorkTask.self, taskId)) else { throw CancellationError() }
             if try store.get(WorkTask.self, taskId).state == .todo { try transition(taskId, to: .building) }
             try await client.respond(requestId, text: "Plan accepted. Build within scope.")
+            return task.state == .todo || previousPlan != plan
         case "request_review":
             guard try !subagents(session.id).contains(where: \.isActive) else {
-                try await client.respond(requestId, text: "Wait for or close your active subagents, review their work, and commit the final changes before requesting review.", success: false); return
+                try await client.respond(requestId, text: "Wait for or close your active subagents, review their work, and commit the final changes before requesting review.", success: false); return false
             }
             let task = try store.get(WorkTask.self, taskId)
             guard task.state == .building else {
-                try await client.respond(requestId, text: "Submit your plan and resolve questions before review.", success: false); return
+                try await client.respond(requestId, text: "Submit your plan and resolve questions before review.", success: false); return false
             }
             let submission: ProofSubmission
             do { submission = try ProofSubmission(args) }
-            catch { try await client.respond(requestId, text: error.localizedDescription, success: false); return }
+            catch { try await client.respond(requestId, text: error.localizedDescription, success: false); return false }
             let project = try store.get(Project.self, task.projectId)
             while proofsRunning >= (try store.settings()).heavyStepsAtOnce {
                 try Task.checkCancellation(); try await Task.sleep(for: .milliseconds(100))
@@ -734,7 +777,8 @@ actor Orchestrator {
                 try await client.respond(requestId, text: "Proof passed. Waiting for human review. Stop now.")
                 if !project.settings.askBeforeOpenPR && project.host != .local { try await openPullRequest(taskId) }
             } else {
-                let reason = proof.checks.isEmpty ? "Provide at least one relevant executable check." : proof.recordingRequired && proof.recordingPath == nil ? "Provide a playable visual recording using recordingCommand and $BUILD_MATE_RECORDING_PATH." : "Fix the failing checks, provide required before/after screenshots for visual changes, and commit all implementation changes."
+                let diagnostics = ProofRunner(store: store, runner: runner).failureFeedback(proof)
+                let reason = !diagnostics.isEmpty ? diagnostics : proof.checks.isEmpty ? "Provide at least one relevant executable check." : proof.recordingRequired && proof.recordingPath == nil ? "Provide a playable visual recording using recordingCommand and $BUILD_MATE_RECORDING_PATH." : "Fix the failing checks, provide required before/after screenshots for visual changes, and commit all implementation changes."
                 try store.save(Message(sessionId: session.id, role: "system", kind: "proof", body: "Required proof failed. " + reason))
                 let messages = try store.all(Message.self).filter { $0.sessionId == session.id }.sorted { $0.createdAt < $1.createdAt }
                 let since = messages.last { $0.body == "Proof passed. Ready for review." || $0.body == "Work resumed by you." }?.createdAt ?? .distantPast
@@ -744,14 +788,16 @@ actor Orchestrator {
                     paused.retry = Retry(attempt: 0, dueAt: Date(), error: "Proof failed three times. Review the check logs, then resume when ready.")
                     try store.save(paused)
                 }
-                try await client.respond(requestId, text: "Required proof failed. " + reason + " Review check logs under app storage; fix and request review again.", success: false)
+                try await client.respond(requestId, text: "Required proof failed. " + reason + " Fix the reported problems and request review again.", success: false)
                 if failures >= 3 { throw CancellationError() }
             }
+            return true
         case "note":
-            guard let text = args["text"].string else { try await client.respond(requestId, text: "Text required", success: false); return }
+            guard let text = args["text"].string else { try await client.respond(requestId, text: "Text required", success: false); return false }
             try store.save(Message(sessionId: session.id, role: "agent", body: runner.redacted(text)))
             try await client.respond(requestId, text: "Recorded")
         default: try await client.respond(requestId, text: "Tool unavailable for this task", success: false)
         }
+        return false
     }
 }

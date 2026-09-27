@@ -50,7 +50,15 @@ struct ProofRunner: Sendable {
         proof.summary = submission.summary; proof.checks = []; proof.screenshots = []; proof.recordingPath = nil; proof.recordingDuration = nil
         proof.rationale = submission.rationale
         proof.recordingRequired = task.proofRequirement == .checksAndRecording || (task.proofRequirement == .automatic && submission.needsRecording)
-        let checks = project.settings.checks + submission.checks
+        var checks: [CheckDefinition] = []
+        for check in project.settings.checks + submission.checks {
+            let command = check.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let index = checks.firstIndex(where: { $0.command.trimmingCharacters(in: .whitespacesAndNewlines) == command }) {
+                checks[index].required = checks[index].required || check.required
+            } else {
+                checks.append(check)
+            }
+        }
         proof.complete = checks.contains { $0.required }
         for (index, check) in checks.enumerated() {
             let started = Date()
@@ -67,8 +75,10 @@ struct ProofRunner: Sendable {
                 if check.required { proof.complete = false }
             }
         }
+        // Capture can be expensive and is not useful until required checks pass.
+        let checksPassed = proof.complete
         let command = project.settings.recordingCommand ?? submission.recordingCommand
-        if proof.recordingRequired, let command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if checksPassed, proof.recordingRequired, let command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let path = directory.appending(path: "recording-\(UUID()).mp4")
             let log = logs.appending(path: "recording.log")
             do {
@@ -90,7 +100,7 @@ struct ProofRunner: Sendable {
                 proof.checks.append(CheckResult(name: "Recording", status: "failed", durationSec: 0, logPath: log.path))
             }
         } else if proof.recordingRequired { proof.complete = false }
-        if submission.needsRecording && project.settings.screenshotsForUI && task.proofRequirement != .checksOnly {
+        if checksPassed && submission.needsRecording && project.settings.screenshotsForUI && task.proofRequirement != .checksOnly {
             let log = logs.appending(path: "screenshots.log")
             let started = Date()
             do {
@@ -132,6 +142,37 @@ struct ProofRunner: Sendable {
         proof.producedAt = Date()
         try store.save(proof)
         return proof
+    }
+
+    /// Give the next attempt useful diagnostics without replaying entire check logs.
+    func failureFeedback(_ proof: Proof) -> String {
+        let logRoot = store.root.resolvingSymlinksInPath().appending(path: "logs/\(proof.taskId)").path + "/"
+        var sections: [String] = []
+        for check in proof.checks where check.status == "failed" {
+            let log = URL(fileURLWithPath: check.logPath).resolvingSymlinksInPath()
+            var section = "Failed: \(check.name)"
+            if log.path.hasPrefix(logRoot),
+               (try? log.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                section += "\nLog: \(log.path)"
+                if let file = try? FileHandle(forReadingFrom: log) {
+                    defer { try? file.close() }
+                    if let length = try? file.seekToEnd() {
+                        let offset = length > 8_192 ? length - 8_192 : 0
+                        try? file.seek(toOffset: offset)
+                        if let bytes = try? file.read(upToCount: 8_192) {
+                            var text = String(decoding: bytes, as: UTF8.self)
+                            // Do not show a partial line cut from the middle of the log.
+                            if offset > 0 { text = text.firstIndex(of: "\n").map { String(text[text.index(after: $0)...]) } ?? "" }
+                            let tail = String(runner.redacted(text).trimmingCharacters(in: .whitespacesAndNewlines).suffix(800))
+                            if !tail.isEmpty { section += "\n\(tail)" }
+                        }
+                    }
+                }
+            }
+            sections.append(runner.redacted(section))
+            if sections.joined(separator: "\n\n").count >= 2_000 { break }
+        }
+        return String(sections.joined(separator: "\n\n").prefix(2_000))
     }
 
     private func runCommand(_ command: String, cwd: String, media: URL, project: Project, timeout: Double,

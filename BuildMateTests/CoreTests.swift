@@ -146,10 +146,12 @@ struct CoreTests {
         // Catch missing Git metadata grants and grants that expose the main checkout/ref/config.
         try f.marker("sandbox-git")
         try f.marker("json-pr-summary")
+        try f.marker("proof-efficiency")
         f.project.settings.askBeforeBuild = false
         f.project.settings.stallTimeoutMs = 750
         f.project.settings.recordingCommand = nil
-        f.project.settings.checks.append(CheckDefinition(name: "Required proof", command: "test -f \"$BUILD_MATE_FIXTURE/proof-repaired\""))
+        let sharedCheck = #"printf 'checked\n' >> "$TMPDIR/../fixture-checks"; if test -f "$BUILD_MATE_FIXTURE/proof-repaired"; then exit 0; fi; printf '%10000s\n' padding; printf '%s\n' 'TOKEN=fixture-proof-secret' 'proof diagnostic sentinel'; exit 1"#
+        f.project.settings.checks.append(CheckDefinition(name: "Shared proof check", command: sharedCheck, required: false))
         try f.store.save(f.project)
         let core = Orchestrator(store: f.store, runner: f.runner)
         let task = try f.store.createTask(projectId: f.project.id, title: "Add plain output", state: .todo, proofRequirement: .checksAndRecording, askBeforeBuild: true)
@@ -183,8 +185,22 @@ struct CoreTests {
         let proof = try #require(f.store.all(Proof.self).first)
         #expect(proof.complete && proof.checks.allSatisfy { $0.status == "passed" })
         #expect(proof.recordingRequired && proof.recordingDuration != nil)
-        #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == 2) // Missing and invalid video cannot bypass the user's recording requirement.
+        #expect(try f.store.all(Message.self).filter { $0.kind == "proof" }.count == 2) // A required duplicate check and invalid video must both block review.
         #expect(try f.store.all(Message.self).contains { $0.kind == "proof" }) // Failed proof reached the agent before review.
+        #expect(proof.checks.filter { $0.name == "Shared proof check" }.count == 1)
+        #expect(!proof.checks.contains { $0.name == "Agent shared check" })
+        let media = f.store.root.appending(path: "projects/\(f.project.id)/media/\(task.id)")
+        // The identical optional/configured and required/submitted command runs once per attempt,
+        // and the failed first check must skip both expensive visual commands.
+        #expect(try String(contentsOf: media.appending(path: "fixture-checks"), encoding: .utf8).split(separator: "\n").count == 3)
+        for name in ["fixture-recordings", "fixture-screenshots"] {
+            #expect(try String(contentsOf: media.appending(path: name), encoding: .utf8).split(separator: "\n").count == 2)
+        }
+        let proofFeedback = try String(contentsOf: f.control.appending(path: "proof-feedback.txt"), encoding: .utf8)
+        #expect(proofFeedback.contains("Shared proof check") && proofFeedback.contains("proof diagnostic sentinel"))
+        #expect(proofFeedback.contains("/logs/\(task.id)/") && proofFeedback.contains("[REDACTED]"))
+        #expect(!proofFeedback.contains("fixture-proof-secret") && proofFeedback.count < 2_300)
+        try FileManager.default.removeItem(at: f.control.appending(path: "proof-efficiency"))
         #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "pr-created").path))
         // Editing reviewed work must invalidate proof and the approved plan before the same thread resumes.
         let originalBranch = try f.store.get(WorkTask.self, task.id).branchName
@@ -206,6 +222,9 @@ struct CoreTests {
         let turnRequests = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }.filter { $0["method"].string == "turn/start" }
         #expect(turnRequests.last?["params"]["model"].string == "gpt-6-astra")
         #expect(turnRequests.last?["params"]["effort"].string == "high")
+        let resumedInput = try #require(turnRequests.last?["params"]["input"].array)
+        #expect(!resumedInput.contains { $0["type"].string == "localImage" })
+        #expect(!resumedInput.compactMap { $0["text"].string }.joined().contains("Keep the output compact")) // Successful steering acknowledges its message and image before a later turn starts.
         try await core.setModel(ownerID: task.id, projectChat: false, model: "gpt-6-astra", effort: "low")
         #expect(try f.store.all(Proof.self).first?.complete == true) // Preferences do not invalidate reviewed work.
         // Chat review feedback preserves context and pause, and a changed reviewed commit cannot be published.
@@ -474,13 +493,16 @@ struct CoreTests {
 
     @Test func schedulerRespectsRankDependenciesPauseAndResumesThreadAfterCrash() async throws {
         var f = try await Fixture()
+        try f.marker("configured-model")
         f.project.settings.stallTimeoutMs = 500
         try f.store.save(f.project)
         var settings = AppSettings(); settings.agentsAtOnce = 1; try f.store.saveSettings(settings)
         var held = try f.store.createTask(projectId: f.project.id, title: "Paused prerequisite", rank: 100)
         held.paused = true; try f.store.save(held)
         let dependency = try f.store.createTask(projectId: f.project.id, title: "Blocked", state: .todo, rank: 90, dependsOn: [held.id])
-        let high = try f.store.createTask(projectId: f.project.id, title: "First", state: .todo, rank: 10)
+        let high = try f.store.createTask(projectId: f.project.id, title: "First", description: "Original task brief marker", state: .todo, rank: 10, files: [f.control.appending(path: "proof.png")])
+        let highSession = try f.store.session(for: high.id)
+        try f.store.save(Message(sessionId: highSession.id, role: "user", body: "Original user request marker"))
         let low = try f.store.createTask(projectId: f.project.id, title: "Second", state: .todo, rank: 20)
         let ordering = await AppModel(store: f.store, runner: f.runner)
         try await ordering.reorderTask(high.id, relativeTo: low.id, after: false) // The next dispatch follows the user’s reordered queue.
@@ -503,6 +525,8 @@ struct CoreTests {
         #expect(try f.store.session(for: high.id).turnCount == 1)
         await core.shutdown()
 
+        f.project.settings.model = "fake-model"; f.project.settings.effort = "low"; try f.store.save(f.project)
+        try f.store.save(Message(sessionId: highSession.id, role: "user", body: "Follow-up user request marker"))
         let resumed = Orchestrator(store: try Store(root: f.store.root), runner: f.runner)
         try await resumed.recover()
         try f.marker("stall")
@@ -516,6 +540,7 @@ struct CoreTests {
         try FileManager.default.removeItem(at: f.control.appending(path: "stall"))
         let second = try f.store.get(WorkTask.self, high.id)
         await resumed.shutdown()
+        try f.store.saveInstructions("Changed project guidance marker", projectID: f.project.id)
         let third = Orchestrator(store: f.store, runner: f.runner)
         await third.tick(now: second.retry!.dueAt.addingTimeInterval(1))
         try await f.wait("question on resumed thread") { try f.store.get(WorkTask.self, high.id).state == .needsClarification }
@@ -530,6 +555,17 @@ struct CoreTests {
         let calls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
         #expect(calls.contains("thread/resume"))
         #expect(calls.contains("turn/interrupt"))
+        let turns = try calls.split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }.filter { $0["method"].string == "turn/start" && $0["params"]["threadId"].string == thread }
+        try #require(turns.count == 3)
+        let inputs = turns.map { $0["params"]["input"].array.compactMap { $0["text"].string }.joined(separator: "\n") }
+        #expect(inputs[0].contains("Original task brief marker") && inputs[0].contains("Original user request marker"))
+        #expect(!inputs[1].contains("Original user request marker") && inputs[1].contains("Follow-up user request marker"))
+        #expect(inputs[2].contains("Changed project guidance marker") && !inputs[2].contains("Follow-up user request marker") && !inputs[2].contains("Original user request marker"))
+        #expect(turns.map { $0["params"]["input"].array.filter { $0["type"].string == "localImage" }.count } == [1, 0, 0])
+        #expect(turns[0]["params"]["model"].string == "gpt-6-astra") // Resolved CLI model overrides the catalogue's fake-model recommendation.
+        #expect(turns[0]["params"]["effort"].string == "high") // Inherit CLI configuration, not the model catalogue's medium default.
+        #expect(turns[1]["params"]["model"].string == "fake-model")
+        #expect(turns[1]["params"]["effort"].string == "low") // Explicit project selection overrides inherited effort.
         let hooks = try String(contentsOf: f.control.appending(path: "hooks"), encoding: .utf8).split(separator: "\n")
         #expect(hooks.filter { $0 == "create" }.count == 1)
         #expect(hooks.filter { $0 == "before" }.count == hooks.filter { $0 == "after" }.count)
@@ -610,6 +646,15 @@ struct CoreTests {
         #expect(session.turnCount == 1 && session.tokensIn == 11 && session.tokensOut == 7)
         #expect(try f.store.all(Proof.self).isEmpty && f.store.all(Approval.self).isEmpty)
         #expect(try !f.store.all(Message.self).contains { $0.body.contains("Delegated findings") || $0.body.contains("CHILD MUST") || $0.body.contains("FOREIGN") })
+        let generated = try f.store.all(Message.self).filter { $0.sessionId == session.id && $0.payload["generatedImageItemId"].string != nil }
+        let generatedMessage = try #require(generated.first)
+        let generatedAttachments = try f.store.chatAttachments(sessionID: session.id)
+        let generatedAttachment = try #require(generatedAttachments.first)
+        #expect(generated.count == 1 && generatedMessage.role == "agent" && generatedMessage.body.isEmpty)
+        #expect(generatedAttachments.count == 1 && generatedAttachment.ownerId == generatedMessage.id && generatedAttachment.kind == "image")
+        #expect(generatedAttachment.path != f.control.appending(path: "proof.png").path && FileManager.default.fileExists(atPath: generatedAttachment.path))
+        #expect(!generatedAttachment.frames.isEmpty && FileManager.default.fileExists(atPath: generatedAttachment.frames[0]))
+        #expect(try !f.store.all(Message.self).contains { $0.body.contains("RAW IMAGE RESULT") })
         let children = try f.store.all(Subagent.self).filter { $0.sessionId == session.id }
         #expect(children.count == 2 && children.allSatisfy { $0.parentThreadId == rootThread })
         let research = try #require(children.first { $0.threadId.contains("-research-") })
@@ -663,6 +708,7 @@ struct CoreTests {
         }
         let shutdownCalls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }
         #expect(shutdownCalls.contains { $0["method"].string == "turn/interrupt" && $0["params"]["threadId"].string == heldThread + "-checker-turn-2" && $0["params"]["turnId"].string == "child-turn-2-checker" })
+        #expect(!shutdownCalls.filter { $0["method"].string == "turn/start" }.contains { $0["params"]["input"].array.contains { $0["type"].string == "localImage" } }) // Native generated output is already in Codex context; do not upload it back on resume.
         let savedChildren = try Store(root: f.store.root).all(Subagent.self).filter { $0.sessionId == heldSession.id }
         #expect(!savedChildren.isEmpty && savedChildren.allSatisfy { !$0.isActive })
         #expect(savedChildren.contains { $0.threadId.hasSuffix("checker-turn-2") && $0.status == "interrupted" })
@@ -670,7 +716,8 @@ struct CoreTests {
     }
 
     @Test func repeatedEmptyResponsesStopWithoutImposingALifetimeTurnBudget() async throws {
-        let f = try await Fixture()
+        var f = try await Fixture()
+        f.project.settings.stallTimeoutMs = 500; f.project.settings.turnTimeoutMs = 10_000; try f.store.save(f.project)
         let task = try f.store.createTask(projectId: f.project.id, title: "Recover an idle agent")
         var session = try f.store.session(for: task.id)
         session.turnCount = 25; try f.store.save(session)
@@ -684,9 +731,34 @@ struct CoreTests {
         #expect(try f.store.get(WorkTask.self, task.id).retry?.error.contains("without taking action") == true)
         let thread = try f.store.session(for: task.id).codexThreadId
         try FileManager.default.removeItem(at: f.control.appending(path: "empty-responses"))
+        try f.marker("note-only-responses")
         try await core.pause(task.id, paused: false)
-        try await f.wait("resume retains context past the former turn budget") { try f.store.get(WorkTask.self, task.id).state == .needsClarification }
+        try await f.wait("notes alone cannot bypass the no-progress guard") {
+            try f.store.get(WorkTask.self, task.id).paused && f.store.session(for: task.id).turnCount == 31 && f.store.all(RunAttempt.self).allSatisfy { $0.endedAt != nil }
+        }
+        #expect(try f.store.all(Message.self).filter { $0.body == "Still considering the same request." }.count == 3)
+        try FileManager.default.removeItem(at: f.control.appending(path: "note-only-responses"))
+        try f.marker("quiet-command")
+        try await core.pause(task.id, paused: false)
+        try await f.wait("task reply streams before item completion") {
+            try f.store.all(Message.self).contains { $0.body == "Inspecting the selected files" && $0.payload["streaming"].bool == true }
+        }
+        try await f.wait("resume retains context past the former turn budget") {
+            try f.store.get(WorkTask.self, task.id).state == .needsClarification
+                && (try? String(contentsOf: f.control.appending(path: "native-responses.jsonl"), encoding: .utf8).split(separator: "\n").count) == 4
+        }
         #expect(try f.store.session(for: task.id).codexThreadId == thread)
+        #expect(try f.store.session(for: task.id).turnCount == 32 && f.store.get(WorkTask.self, task.id).retry == nil)
+        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "quiet-command").path)) // The silent command exceeded stallTimeout, then finished normally.
+        let messages = try f.store.all(Message.self)
+        let replies = messages.filter { $0.body.hasPrefix("Inspecting the selected files") }
+        #expect(replies.count == 1 && replies.first?.payload["streaming"].bool == false)
+        #expect(!messages.contains { $0.body.contains("SECRET QUESTION") || $0.body.contains("PRIVATE APPROVAL DETAIL") })
+        #expect(messages.contains { $0.kind == "error" && $0.body.contains("declined") })
+        let questions = try f.store.all(Question.self)
+        let optional = try #require(questions.first { $0.prompt == "Which optional format?" })
+        #expect(!optional.blocking && !optional.allowsFreeText && optional.options == ["Plain", "Rich"])
+        #expect(!questions.contains { $0.prompt.contains("SECRET QUESTION") })
         await core.shutdown()
         try f.cleanup()
     }

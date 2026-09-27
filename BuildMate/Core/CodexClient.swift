@@ -9,6 +9,10 @@ actor CodexClient {
     private var failure: String?
     private(set) var lastEventAt = Date()
     private var timeout: Double = 5
+    private var workingDirectory: String?
+    private var didReadInheritedConfiguration = false
+    private var configuredModel: String?
+    private var inheritedEffort: String?
     private var activeCommands: Set<String> = []
     private var activeTurns: [String: String] = [:]
     private var startedSubagentActivities: Set<String> = []
@@ -16,6 +20,7 @@ actor CodexClient {
 
     func start(runner: ProcessRunner, cwd: String, timeout: Double) async throws {
         self.timeout = timeout
+        workingDirectory = cwd
         try await child.start("codex", ["app-server"], cwd: cwd, environment: runner.environment)
         reader = Task { [weak self, child] in
             do {
@@ -31,6 +36,28 @@ actor CodexClient {
             "capabilities": .object(["experimentalApi": .bool(true)])
         ])
         try await child.write(.object(["method": .string("initialized")]))
+    }
+    var hasActiveCommands: Bool { !activeCommands.isEmpty }
+
+    /// Keep each conversation's resolved preference separate from the shared model catalogue.
+    func inheritedReasoningEffort() async -> String? {
+        await readInheritedConfiguration()
+        return inheritedEffort
+    }
+    func inheritedModel() async -> String? {
+        await readInheritedConfiguration()
+        return configuredModel
+    }
+    private func readInheritedConfiguration() async {
+        if !didReadInheritedConfiguration {
+            didReadInheritedConfiguration = true
+            var parameters: [String: JSON] = ["includeLayers": .bool(false)]
+            if let workingDirectory { parameters["cwd"] = .string(workingDirectory) }
+            // Older servers can omit this capability. Never log or retain the full configuration.
+            let configuration = try? await request("config/read", parameters)["config"]
+            configuredModel = configuration?["model"].string
+            inheritedEffort = configuration?["model_reasoning_effort"].string
+        }
     }
     private func receive(_ value: JSON) {
         lastEventAt = Date()
@@ -88,6 +115,37 @@ actor CodexClient {
     }
     func reject(_ id: JSON) async throws {
         try await child.write(.object(["id": id, "error": .object(["code": .number(-32601), "message": .string("Unsupported server request")])]))
+    }
+    /// Decline supported native request shapes without expanding this chat's permissions.
+    /// Diagnostics are fixed text: request arguments can contain secrets or private URLs.
+    func rejectRequest(_ event: JSON) async throws -> String? {
+        let id = event["id"]
+        guard id != .null else { return nil }
+        let result: JSON
+        let diagnostic: String
+        switch event["method"].string {
+        case "item/commandExecution/requestApproval":
+            result = .object(["decision": .string("decline")])
+            diagnostic = "A command required approval that Build Mate cannot request yet, so it was declined."
+        case "item/fileChange/requestApproval":
+            result = .object(["decision": .string("decline")])
+            diagnostic = "A file change required approval that Build Mate cannot request yet, so it was declined."
+        case "item/permissions/requestApproval":
+            result = .object(["permissions": .object([:]), "scope": .string("turn")])
+            diagnostic = "Additional file or network access was declined. Build Mate cannot request broader permissions yet."
+        case "mcpServer/elicitation/request":
+            result = .object(["action": .string("decline"), "content": .null])
+            diagnostic = "A connected tool needed input or confirmation that Build Mate cannot request yet, so it was declined."
+        case "execCommandApproval", "applyPatchApproval":
+            diagnostic = "An action required approval that Build Mate cannot request yet, so it was declined."
+            result = .object(["decision": .object(["denied": .object(["rejection": .string(diagnostic)])])])
+        default:
+            try await reject(id)
+            return nil
+        }
+        lastEventAt = Date()
+        try await child.write(.object(["id": id, "result": result]))
+        return diagnostic
     }
     func interrupt(thread: String, turn: String) async {
         let deadline = Date().addingTimeInterval(20)

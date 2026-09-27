@@ -8,10 +8,11 @@ struct CodexModel: Identifiable, Sendable {
     var efforts: [String]
     var defaultEffort: String?
 
-    static func resolve(_ models: [Self], model: String?, effort: String?) throws -> (model: String, effort: String?) {
+    static func resolve(_ models: [Self], model: String?, effort: String?, inheritedModel: String? = nil, inheritedEffort: String? = nil) throws -> (model: String, effort: String?) {
+        let model = model ?? inheritedModel
         let choice = model.flatMap { id in models.first { $0.id == id } } ?? (model == nil ? models.first { $0.isDefault } ?? models.first : nil)
         guard let choice else { throw CoreError.invalid("\(model ?? "The selected model") is unavailable in Codex. Choose another model.") }
-        let effort = effort ?? choice.defaultEffort
+        let effort = effort ?? inheritedEffort ?? choice.defaultEffort
         if let effort, !choice.efforts.contains(effort) { throw CoreError.invalid("\(choice.name) does not support \(effort) effort. Choose a supported effort level.") }
         return (choice.id, effort)
     }
@@ -61,8 +62,8 @@ extension Orchestrator {
         else { _ = try store.get(WorkTask.self, ownerID) }
         try store.save(AgentConfiguration(id: ownerID, model: selection.model, effort: selection.effort))
     }
-    func modelSelection(ownerID: UUID, defaultModel: String?, defaultEffort: String?) throws -> (model: String, effort: String?) {
+    func modelSelection(ownerID: UUID, defaultModel: String?, defaultEffort: String?, inheritedModel: String? = nil, inheritedEffort: String? = nil) throws -> (model: String, effort: String?) {
         let saved = try store.db.read { try AgentConfiguration.fetchOne($0, key: ownerID) }
-        return try CodexModel.resolve(availableModels, model: saved?.model ?? defaultModel, effort: saved == nil ? defaultEffort : saved?.effort)
+        return try CodexModel.resolve(availableModels, model: saved?.model ?? defaultModel, effort: saved == nil ? defaultEffort : saved?.effort, inheritedModel: inheritedModel, inheritedEffort: inheritedEffort)
     }
 }

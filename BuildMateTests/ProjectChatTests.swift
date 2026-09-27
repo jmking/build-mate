@@ -21,6 +21,13 @@ struct ProjectChatTests {
         try await f.wait("project proposal and final response") { try f.store.all(Proposal.self).count == 1 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let session = try f.store.session(for: f.project.id, ownerType: "project")
         let thread = try #require(session.codexThreadId)
+        func turns() throws -> [JSON] {
+            try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n")
+                .map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }
+                .filter { $0["method"].string == "turn/start" && $0["params"]["threadId"].string == thread }
+        }
+        func inputText(_ turn: JSON) -> String { turn["params"]["input"].array.compactMap { $0["text"].string }.joined(separator: "\n") }
+        #expect(try turns().first?["params"]["input"].array.filter { $0["type"].string == "localImage" }.count == 1)
         try FileManager.default.removeItem(at: f.control.appending(path: "subagents"))
         let delegated = try #require(f.store.all(Subagent.self).first { $0.sessionId == session.id })
         #expect(delegated.parentThreadId == thread && delegated.status == "completed" && delegated.result == "Delegated findings only.")
@@ -29,7 +36,7 @@ struct ProjectChatTests {
         #expect(session.activeModel == "gpt-6-astra" && session.activeEffort == "high")
         let requests = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
         #expect(requests.contains("GLOBAL instruction marker") && requests.contains("PROJECT instruction marker"))
-        #expect(requests.contains("Current app workflow (supersedes earlier routing instructions)"))
+        #expect(requests.contains("Current task guidance (supersedes earlier versions)"))
         try f.store.saveInstructions("UPDATED instruction marker", projectID: f.project.id)
         #expect(try String(contentsOf: f.store.root.appending(path: "projects/\(f.project.id)/WORKFLOW.md"), encoding: .utf8).contains("UPDATED instruction marker"))
         let proposal = try #require(f.store.all(Proposal.self).first)
@@ -43,6 +50,9 @@ struct ProjectChatTests {
         #expect(ChatReactions.targets(in: streamed)[reactedTo.id] == nil)
         try f.marker("finish-reaction")
         try await f.wait("completed reaction") { try f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
+        let changedGuidance = inputText(try #require(turns().last))
+        #expect(changedGuidance.contains("UPDATED instruction marker") && changedGuidance.contains("Cool"))
+        #expect(!changedGuidance.contains("Plan account search") && !changedGuidance.contains("Here are three tasks you can add to Queue."))
         let completed = try Store(root: f.store.root).all(Message.self).filter { $0.sessionId == session.id }
         let reaction = try #require(ChatReactions.targets(in: completed)[reactedTo.id]?.first)
         #expect(reaction.body == "👍🏽")
@@ -50,6 +60,8 @@ struct ProjectChatTests {
         #expect(ChatReactions.targets(in: completed, attachmentMessageIDs: [reaction.id])[reactedTo.id] == nil)
         try await core.sendProjectMessage(f.project.id, text: "Emoji with text")
         try await f.wait("emoji followed by prose") { try f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
+        let unchangedGuidance = inputText(try #require(turns().last))
+        #expect(unchangedGuidance.contains("Emoji with text") && !unchangedGuidance.contains("UPDATED instruction marker") && !unchangedGuidance.contains("Cool"))
         let withText = try f.store.all(Message.self).filter { $0.sessionId == session.id }
         #expect(withText.contains { $0.body == "👍 Sounds good. I will keep that in mind." })
         #expect(ChatReactions.targets(in: withText).count == 1)
@@ -95,9 +107,11 @@ struct ProjectChatTests {
         #expect(try f.store.session(for: f.project.id, ownerType: "project").codexThreadId == thread)
         #expect(try f.store.session(for: f.project.id, ownerType: "project").activeModel == "gpt-5.6-luna")
         #expect(try f.store.session(for: f.project.id, ownerType: "project").activeEffort == "low")
-        let turns = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }.filter { $0["method"].string == "turn/start" }
-        #expect(turns.last?["params"]["model"].string == "gpt-5.6-luna")
-        #expect(turns.last?["params"]["effort"].string == "low")
+        let resumedTurn = try #require(turns().last)
+        #expect(resumedTurn["params"]["model"].string == "gpt-5.6-luna")
+        #expect(resumedTurn["params"]["effort"].string == "low")
+        #expect(inputText(resumedTurn).contains("Plan more account work") && !inputText(resumedTurn).contains("Plan account search"))
+        #expect(try turns().dropFirst().allSatisfy { !$0["params"]["input"].array.contains { $0["type"].string == "localImage" } })
         try await resumed.sendProjectMessage(f.project.id, text: "Create all three tasks")
         try await f.wait("queued creation") { try f.store.all(WorkTask.self).count == 6 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let routed = try f.store.all(WorkTask.self).sorted { $0.number < $1.number }.suffix(3)
@@ -109,12 +123,17 @@ struct ProjectChatTests {
         f.project.paused = true; try f.store.save(f.project)
         try await resumed.sendProjectMessage(f.project.id, text: "Status")
         #expect(try f.store.session(for: f.project.id, ownerType: "project").status == "queued")
-        try f.marker("chat-crash-once")
+        let acceptedTurns = try f.store.session(for: f.project.id, ownerType: "project").turnCount
+        try f.marker("reject-turn-once")
         f.project.paused = false; try f.store.save(f.project)
         await resumed.tick()
         try await f.wait("visible chat failure") { try f.store.session(for: f.project.id, ownerType: "project").status == "failed" }
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").turnCount == acceptedTurns)
         try await resumed.retryProjectChat(f.project.id)
         try await f.wait("retry with retained context") { try f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
+        let retried = try turns().suffix(2)
+        #expect(retried.count == 2 && retried.allSatisfy { inputText($0).contains("New user messages (in order):\nStatus") }) // Failed turn/start must not acknowledge undelivered input.
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").turnCount == acceptedTurns + 1)
         #expect(try f.store.session(for: f.project.id, ownerType: "project").codexThreadId == thread)
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: f.repo.appending(path: "WORKFLOW.md").path))

@@ -71,20 +71,20 @@ extension Orchestrator {
         return path
     }
 
-    private func projectContext(_ project: Project, session: Session) throws -> String {
-        let messages = try store.all(Message.self).filter { $0.sessionId == session.id && $0.kind != "activity" }.sorted { $0.createdAt < $1.createdAt }
-        let history = messages.map { "\($0.role): \($0.body)\($0.kind == "question" ? " Answer: " + ($0.payload["answer"].string ?? "unanswered") : "")" }.joined(separator: "\n")
-        let proposals = try store.all(Proposal.self).filter { $0.projectId == project.id && $0.status == "open" }
+    private func projectContext(_ project: Project) throws -> String {
+        let tasks = try store.all(WorkTask.self).filter { $0.projectId == project.id && !$0.state.terminal }.sorted { $0.number < $1.number }
+        let inventory = tasks.map { "\($0.id): \($0.title) [\($0.state.rawValue)]" }.joined(separator: "\n")
+        let proposals = try store.all(Proposal.self).filter { $0.projectId == project.id }.sorted { $0.id.uuidString < $1.id.uuidString }
+        let proposalStatus = proposals.map { "\($0.id): \($0.status); created task IDs: \($0.createdTaskIds.map(\.uuidString).joined(separator: ", "))" }.joined(separator: "\n")
         return """
-        Current app workflow (supersedes earlier routing instructions):
         \(Self.projectBrief)
         Global instructions: \(try store.settings().instructions)
         Project instructions (override global): \(project.instructions)
         Project: \(project.name), default branch \(project.defaultBranch).
-        Current tasks: \(try projectStatus(project.id).text)
-        Open proposals (zero-based dependency/selection indices): \(String(decoding: try JSONEncoder().encode(proposals), as: UTF8.self))
-        Conversation (context, not new requests; act on the latest user message):
-        \(history)
+        Active task index (call project_status for full briefs, dependencies, questions or finished tasks):
+        \(inventory)
+        Proposal status (contents remain in this conversation):
+        \(proposalStatus)
         """
     }
 
@@ -102,7 +102,7 @@ extension Orchestrator {
             var currentProject = try store.get(Project.self, projectID)
             var selection = try modelSelection(ownerID: projectID, defaultModel: "gpt-6-astra", defaultEffort: "high")
             if let thread = session.codexThreadId {
-                _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd), "config": Self.delegationConfiguration])
+                _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd), "config": Self.delegationConfiguration, "developerInstructions": .string(Self.projectBrief), "excludeTurns": .bool(true)])
             } else {
                 session.codexThreadId = try await client.request("thread/start", [
                     "cwd": .string(cwd), "model": .string(selection.model), "sandbox": .string("read-only"), "approvalPolicy": .string("never"),
@@ -114,11 +114,13 @@ extension Orchestrator {
             session.status = "running"; try store.save(session)
             currentProject = try store.get(Project.self, projectID)
             selection = try modelSelection(ownerID: projectID, defaultModel: "gpt-6-astra", defaultEffort: "high")
+            let input = try store.agentInput(session: session, context: projectContext(currentProject), attachments: store.chatAttachments(sessionID: session.id))
             let response = try await client.request("turn/start", [
-                "threadId": .string(session.codexThreadId!), "cwd": .string(cwd), "input": .chatInput(try projectContext(currentProject, session: session), attachments: try store.chatAttachments(sessionID: session.id)),
+                "threadId": .string(session.codexThreadId!), "cwd": .string(cwd), "input": .chatInput(input.text, attachments: input.attachments),
                 "model": .string(selection.model), "effort": selection.effort.map(JSON.string) ?? .null,
                 "sandboxPolicy": .object(["type": .string("readOnly"), "networkAccess": .bool(false)])
             ])
+            try store.acknowledgeInput(session: session, ids: input.ids, context: input.context)
             session.activeModel = selection.model; session.activeEffort = selection.effort
             session.currentTurn = response["turn"]["id"].string; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
             var deadline = Date().addingTimeInterval(Double(project.settings.turnTimeoutMs) / 1000)
@@ -128,19 +130,24 @@ extension Orchestrator {
                 guard Date() < deadline else { throw CoreError.invalid("Project chat timed out. Retry to continue the same conversation.") }
                 guard let event = try await client.nextEvent() else {
                     let last = await client.lastEventAt
-                    guard project.settings.stallTimeoutMs <= 0 || Date().timeIntervalSince(last) < Double(project.settings.stallTimeoutMs) / 1000 else { throw CoreError.invalid("Project chat stalled. Retry to continue the same conversation.") }
+                    let runningCommand = await client.hasActiveCommands
+                    guard runningCommand || project.settings.stallTimeoutMs <= 0 || Date().timeIntervalSince(last) < Double(project.settings.stallTimeoutMs) / 1000 else { throw CoreError.invalid("Project chat stalled. Retry to continue the same conversation.") }
                     continue
                 }
                 let method = event["method"].string ?? "", params = event["params"]
                 if try await routeSubagentEvent(event, session: session, client: client) { continue }
+                if try consumeGeneratedImage(event, session: session) { continue }
                 if method == "item/tool/call" || method == "item/tool/requestUserInput" {
                     let start = Date()
                     try await handleProjectTool(event, projectID: projectID, sessionID: session.id, client: client)
                     deadline = deadline.addingTimeInterval(Date().timeIntervalSince(start))
-                } else if event["id"] != .null { try await client.reject(event["id"]) }
-                else if method == "item/agentMessage/delta", let id = params["itemId"].string, let delta = params["delta"].string {
+                } else if event["id"] != .null {
+                    if let diagnostic = try await client.rejectRequest(event) {
+                        try store.save(Message(sessionId: session.id, role: "system", kind: "error", body: diagnostic))
+                    }
+                } else if method == "item/agentMessage/delta", let id = params["itemId"].string, let delta = params["delta"].string {
                     var message = try streaming[id].map { try store.get(Message.self, $0) } ?? Message(sessionId: session.id, role: "agent", body: "")
-                    message.body += runner.redacted(delta); message.payload = .object(["streaming": .bool(true)])
+                    message.body = runner.redacted(message.body + delta); message.payload = .object(["streaming": .bool(true)])
                     streaming[id] = message.id; try store.save(message)
                 } else if method == "item/completed" {
                     let item = params["item"]
@@ -308,28 +315,36 @@ extension Orchestrator {
         if message.payload["allowsFreeText"].bool == false {
             guard message.payload["options"].array.contains(.string(answer)) else { throw CoreError.invalid("Choose one of the offered answers.") }
         }
-        if !files.isEmpty {
-            let attachments = try store.saveChatMessage(Message(sessionId: session.id, role: "user", body: answer), files: files, projectID: projectID, ownerID: projectID)
+        let separateReply = !files.isEmpty || message.payload["blocking"].bool == false
+        if separateReply {
+            let reply = Message(sessionId: session.id, role: "user", body: answer)
+            let attachments = try store.saveChatMessage(reply, files: files, projectID: projectID, ownerID: projectID)
             if let client = chatClients[projectID], let thread = session.codexThreadId, let turn = session.currentTurn {
                 _ = try await client.request("turn/steer", ["threadId": .string(thread), "expectedTurnId": .string(turn), "input": .chatInput("Reference files for my answer: " + answer, attachments: attachments)])
+                try store.acknowledgeInput(session: session, ids: [reply.id] + (message.payload["blocking"].bool == false ? [message.id] : []) + attachments.map(\.id))
             }
         }
         payload["answer"] = .string(answer); message.payload = .object(payload)
         try store.save(message)
-        if chatJobs[projectID] == nil { try await sendProjectMessage(projectID, text: answer) }
+        if chatJobs[projectID] == nil {
+            var latest = try store.session(for: projectID, ownerType: "project")
+            latest.status = "queued"; try store.save(latest)
+            await tick()
+        }
     }
 
-    private func projectQuestion(projectID: UUID, sessionID: UUID, prompt: String, options: [String], allowsFreeText: Bool) async throws -> String {
+    private func projectQuestion(projectID: UUID, sessionID: UUID, prompt: String, options: [String], allowsFreeText: Bool, blocking: Bool = true) async throws -> (id: UUID, answer: String, delivered: Bool) {
         guard !prompt.isEmpty, allowsFreeText || !options.isEmpty else { throw CoreError.invalid("A question needs a prompt and a way to answer.") }
         let message = Message(sessionId: sessionID, role: "agent", kind: "question", body: prompt,
-                              payload: .object(["options": .array(options.map(JSON.string)), "allowsFreeText": .bool(allowsFreeText)]))
+                              payload: .object(["options": .array(options.map(JSON.string)), "allowsFreeText": .bool(allowsFreeText), "blocking": .bool(blocking)]))
         try store.save(message)
+        guard blocking else { return (message.id, "Question recorded. Continue without depending on an answer.", false) }
         var session = try store.session(for: projectID, ownerType: "project"); session.status = "waiting"; try store.save(session)
         while true {
             try Task.checkCancellation()
             if let answer = try store.get(Message.self, message.id).payload["answer"].string {
                 session = try store.session(for: projectID, ownerType: "project"); session.status = "running"; try store.save(session)
-                return answer
+                return (message.id, answer, true)
             }
             try await Task.sleep(for: .milliseconds(100))
         }
@@ -337,15 +352,23 @@ extension Orchestrator {
 
     private func handleProjectTool(_ event: JSON, projectID: UUID, sessionID: UUID, client: CodexClient) async throws {
         let params = event["params"], requestID = event["id"]
+        var answeredIDs: [UUID] = []
         if event["method"].string == "item/tool/requestUserInput" {
             var answers: [String: JSON] = [:]
             for question in params["questions"].array {
                 guard let id = question["id"].string, let prompt = question["question"].string else { continue }
+                if question["isSecret"].bool == true {
+                    answers[id] = .object(["answers": .array([.string("Secret input is not supported here. Ask the user to authenticate through the tool that owns the credentials; do not ask them to paste secrets into chat.")])])
+                    continue
+                }
                 let answer = try await projectQuestion(projectID: projectID, sessionID: sessionID, prompt: prompt,
-                                                      options: question["options"].array.compactMap { $0["label"].string }, allowsFreeText: question["isOther"].bool ?? true)
-                answers[id] = .object(["answers": .array([.string(answer)])])
+                                                      options: question["options"].array.compactMap { $0["label"].string }, allowsFreeText: question["options"].array.isEmpty || question["isOther"].bool == true, blocking: params["isBlocking"].bool ?? true)
+                answers[id] = .object(["answers": .array([.string(answer.answer)])])
+                if answer.delivered { answeredIDs.append(answer.id) }
             }
-            try await client.respondUserInput(requestID, answers: answers); return
+            try await client.respondUserInput(requestID, answers: answers)
+            try store.acknowledgeInput(session: store.session(for: projectID, ownerType: "project"), ids: answeredIDs)
+            return
         }
         do {
             let args = params["arguments"]
@@ -357,7 +380,8 @@ extension Orchestrator {
                 try store.save(Message(sessionId: sessionID, role: "agent", body: runner.redacted(text))); result = "Recorded"
             case "ask_question":
                 guard let prompt = args["prompt"].string else { throw CoreError.invalid("Prompt required") }
-                result = try await projectQuestion(projectID: projectID, sessionID: sessionID, prompt: prompt, options: args["options"].array.compactMap(\.string), allowsFreeText: args["allowsFreeText"].bool ?? true)
+                let answer = try await projectQuestion(projectID: projectID, sessionID: sessionID, prompt: prompt, options: args["options"].array.compactMap(\.string), allowsFreeText: args["allowsFreeText"].bool ?? true)
+                result = answer.answer; answeredIDs.append(answer.id)
             case "propose_tasks":
                 let proposal = try saveProposal(projectID, sessionID: sessionID, items: proposalItems(args["tasks"]))
                 result = "Proposal \(proposal.id). Wait for the user to select tasks or explicitly request creation."
@@ -383,6 +407,7 @@ extension Orchestrator {
             default: throw CoreError.invalid("Tool unavailable for project chat")
             }
             try await client.respond(requestID, text: result)
+            try store.acknowledgeInput(session: store.session(for: projectID, ownerType: "project"), ids: answeredIDs)
         } catch is CancellationError { throw CancellationError() }
         catch { try await client.respond(requestID, text: runner.redacted(error.localizedDescription), success: false) }
     }

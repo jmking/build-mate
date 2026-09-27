@@ -97,6 +97,9 @@ final class Store: Sendable {
               createdAt DATETIME NOT NULL, updatedAt DATETIME NOT NULL, UNIQUE(sessionId, threadId));
             """)
         }
+        migrator.registerMigration("v10-agent-delivery") { db in
+            try db.execute(sql: "CREATE TABLE agentDelivery (id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE, threadId TEXT NOT NULL, context TEXT NOT NULL, deliveredIDs TEXT NOT NULL)")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
