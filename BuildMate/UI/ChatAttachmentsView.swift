@@ -15,6 +15,7 @@ struct ChatAttachmentControls: View {
     var body: some View {
         HStack(spacing: 6) {
             Button("Attach Files", systemImage: "paperclip") { choosing = true }
+                .frame(width: 32, height: 32)
                 .help("Attach images or files").accessibilityIdentifier("attach-files")
             Menu {
                 Button("Capture Window…", systemImage: "macwindow") { capture(window: true) }
@@ -22,6 +23,7 @@ struct ChatAttachmentControls: View {
                 Button("Capture Area…", systemImage: "viewfinder") { capture(window: false) }
                     .help("Draw a rectangle on screen to attach a screenshot; Escape cancels")
             } label: { Label("Screenshot", systemImage: "camera") }
+                .frame(width: 32, height: 32)
                 .menuIndicator(.hidden).help("Attach a screenshot of a window or selected area")
                 .accessibilityLabel("Screenshot").accessibilityIdentifier("attach-screenshot")
         }.labelStyle(.iconOnly).buttonStyle(.borderless).controlSize(.large)

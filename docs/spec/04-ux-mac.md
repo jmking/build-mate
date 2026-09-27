@@ -204,6 +204,8 @@ This pulls forward text project chat and task refinement, not all of milestone 6
 
 Both project and task composers offer a paperclip for the native multiple-file picker and a camera menu with **Capture Window…** and **Capture Area…**. Capture uses macOS's interactive selector: click a window or draw a rectangle; Escape cancels. The app temporarily hides during capture and returns with the image attached to the draft. macOS may request Screen Recording access. Capture never sends automatically.
 
+Attachment controls are centered in 32-point square frames, matching the message field's minimum height. The composer keeps bottom alignment as multiline drafts grow, so the icons align with a single-line message without drifting to the middle of a longer draft.
+
 Drop files or image data anywhere in the chat. Draft attachments show thumbnails/filenames, Preview and Remove actions. Files can be sent without message text (a question still needs a valid answer). Sent images appear in the conversation; clicking an attachment opens native Quick Look. Task brief attachments inherited from project chat are visible in task details. All controls have tooltips and accessibility names. Attachment bytes are cleaned up on merge as described in 02; removed files retain a filename placeholder.
 
 This implements image/file attachments; video frame extraction and clipboard image paste remain separate from the delivered drag/drop, picker and screenshot entry points.
