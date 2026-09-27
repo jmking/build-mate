@@ -26,12 +26,12 @@ Build Mate adapts Symphony's orchestration model (`openai/symphony` `SPEC.md`) i
 |---|---|
 | Tracker adapter (`tracker.kind`) | Built-in tracker backed by SQLite. Linear/Jira adapters are v3. |
 | `WORKFLOW.md` (front matter + prompt body) | Generated per project into Build Mate storage from the project's settings and instructions, never committed. Kept so the configuration stays portable and could later be exported to the repo (v3). |
-| Active / terminal states | Active: `todo` (dispatch candidates), `building`, `in_pr` (watch mode). Waiting on a human: `backlog`, `needs_clarification`, `human_review`. Terminal: `done`, `canceled`. |
+| Active / terminal states | Active: `todo` (dispatch candidates), `building`, `in_pr` (watch mode). Waiting on a human: `needs_clarification`, `human_review`. Terminal: `done`, `canceled`. |
 | `blocked_by`, `dispatchable` | Task dependencies and the pause flag. A task is dispatchable only if not paused, its project is not paused, all dependencies are merged (or its stack base PR exists, see 9), and no approval is pending. |
 | Workspace per issue, hooks (`after_create`, `before_run`, `after_run`, `before_remove`) | Git worktree per task plus the same four hooks, configured per project. |
 | Run attempt, retry with backoff (`min(10000·2^(n-1), max_retry_backoff_ms)`), continuation retry (1 s) | Same semantics and defaults. |
 | `max_concurrent_agents`, per-state limits | "Agents at once" (default 4) plus a heavy-step limit (default 2) for proof recording and previews. |
-| Reconciliation (stop sessions whose issue left an active state) | Same. Used for pause, moving tasks back to backlog, cancel. |
+| Reconciliation (stop sessions whose issue left an active state) | Same. Used for pause, cancel. |
 | Codex app-server as the agent | Same. Codex is the only runner in v1; introduce an abstraction only when a second runner (Claude, v3) is actually built. |
 | Status API | Not needed; the UI reads the core directly. |
 
@@ -73,7 +73,7 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 - `sandbox`: `{ network: true }`.
 - `model`: default Codex model and reasoning effort for task agents. A task-specific choice overrides these defaults; project chat has its own choice, defaulting to Astra High.
 
-**Task**: `id, projectId, number (int, unique per project), title, description (markdown), state (see 5), paused (bool), rank (float, ordering within backlog/todo), dependsOn [taskId], shipAs (own | stackOn(taskId) | featureBranch(name) v1.1), askBeforeBuild (inherit|on|off), proofRequirement (automatic|checksOnly|checksAndRecording), origin (chat|sheet|phone|backlog), branchName, worktreePath, pr { number, url, baseBranch } ?, retry { attempt, dueAt, error } ?, createdAt, updatedAt, doneAt`.
+**Task**: `id, projectId, number (int, unique per project), title, description (markdown), state (see 5), paused (bool), rank (float, ordering within Queue), dependsOn [taskId], shipAs (own | stackOn(taskId) | featureBranch(name) v1.1), askBeforeBuild (inherit|on|off), proofRequirement (automatic|checksOnly|checksAndRecording), origin (chat|sheet|phone), branchName, worktreePath, pr { number, url, baseBranch } ?, retry { attempt, dueAt, error } ?, createdAt, updatedAt, doneAt`.
 
 **Attachment**: `id, ownerType (task|message), ownerId, kind (image|file), path, filename, byteSize, durationSec?, frames [path]?, transcript?, sourceAttachmentId?, removedAt?`.
 
@@ -100,16 +100,16 @@ All IDs are UUIDs unless stated. Timestamps are UTC.
 ## 5. Task lifecycle
 
 ### States
-`backlog → todo → needs_clarification ↔ building → human_review → in_pr → done` (plus `canceled`). `paused` and `retrying` are flags, not states.
+`todo → needs_clarification ↔ building → human_review → in_pr → done` (plus `canceled`). `paused` and `retrying` are flags, not states.
 
 The persisted `done` state is displayed as **Merged** throughout the app. Keep the storage value unchanged for existing tasks.
+
+Existing legacy backlog tasks migrate to Queue after already queued work, preserving their internal priority, pause flags, dependencies and content. New tasks always start in Queue. Unaccepted proposals remain in project chat.
 
 ### Transitions
 | From | To | Trigger | Guard / notes |
 |---|---|---|---|
-| (new) | backlog | Created from project chat (default), New Task sheet "Add to Backlog", phone | |
-| (new) | todo | Chat "start now" / "go straight to Queue", sheet "Add to queue", proposal "Add to queue" | |
-| backlog | todo | User: Move to Queue, swipe Start, chat instruction | |
+| (new) | todo | Every task created by project chat, the New Task sheet or proposal acceptance | |
 | todo | (dispatched) | Scheduler | Dispatchable (section 2) and a slot is free. Highest rank first. |
 | dispatched | needs_clarification | Agent calls `ask_question` with `blocking: true` during its first ("understand") turn | |
 | dispatched | todo + pending plan approval | `askBeforeBuild` effective and agent calls `submit_plan` | Task stays in Queue; appears in Needs You › Approvals. |
@@ -127,7 +127,7 @@ The persisted `done` state is displayed as **Merged** throughout the app. Keep t
 | any | (paused flag) | Pause task / project / all | See section 10. |
 
 ### Task edits
-Title-only edits preserve lifecycle and proof. A scope edit (brief or proof preference) is an atomic replan operation: block dispatch/publication during the edit, pause any started task, interrupt and await its worker, then save the new fields, invalidate proof, supersede prior plan approvals and resolve pending questions as superseded. Started tasks return to Queue paused (or stay Backlog); unstarted drafts keep their state and pause flag. Resume reuses the existing thread/worktree with the current task prompt. Old answers remain historical context; superseded unanswered questions are excluded from the new prompt. Scope edits are rejected once a PR is opening/open or the task is terminal. This does not add a general-purpose Building → Queue transition.
+Title-only edits preserve lifecycle and proof. A scope edit (brief or proof preference) is an atomic replan operation: block dispatch/publication during the edit, pause any started task, interrupt and await its worker, then save the new fields, invalidate proof, supersede prior plan approvals and resolve pending questions as superseded. Started tasks return to Queue paused; unstarted drafts keep their state and pause flag. Resume reuses the existing thread/worktree with the current task prompt. Old answers remain historical context; superseded unanswered questions are excluded from the new prompt. Scope edits are rejected once a PR is opening/open or the task is terminal. This does not add a general-purpose Building → Queue transition.
 
 ### Road to merge (display)
 Five checkpoints derived from state and data: **Clarified** (no open blocking questions and, if needed, plan approved), **Built** (agent requested review), **Proof of work** (proof complete, with sub-items Checks and, when applicable, Recording), **Human review** (approved, or skipped by settings), **Merged**. Each is `done`, `current`, `needsYou` or `todo`. The 5-segment bar on cards and the vertical checklist in the task inspector are two renderings of the same data.
@@ -140,7 +140,7 @@ Follow Symphony's loop with these specifics:
 - **Session**: one Codex thread per task, resumed across attempts and across human-in-the-loop pauses so the agent keeps its context (verify thread resume in spike, see 08). If resume is not possible, start a new thread and replay the task's message history as context.
 - **Turns**: each turn continues until the agent ends it, then the next turn starts automatically up to `maxTurnsPerTask`, unless the agent is waiting (question, approval, review) or the task is paused.
 - **Stall detection**: no Codex event for `stall` ms marks the attempt stalled and schedules a retry.
-- **Reconciliation** every tick: stop sessions for tasks that are paused, canceled, moved to backlog, or whose project is paused.
+- **Reconciliation** every tick: stop sessions for tasks that are paused, canceled, or whose project is paused.
 
 ## 7. Prompt assembly
 For each task session Build Mate builds the initial prompt from, in order:

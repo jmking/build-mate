@@ -3,7 +3,7 @@
 ## Versions
 | Version | Scope |
 |---|---|
-| **v1 — Mac** | Single app process; local Git projects plus projects on **GitHub and Bitbucket Cloud**; Codex app-server runner; built-in tracker; Needs You; project chat with proposals; Backlog; board (+ list view); New Task; task views for every state; clarification questions; plan/PR/merge approvals; proof of work (checks + recording); Run locally previews; Open in editor/Terminal/Finder; stacked PRs; PR watch mode; pause (task/project/all); project and global instructions; Settings (General, Hooks, Instructions); menu bar extra; notifications; usage meter and hold; light and dark mode. |
+| **v1 — Mac** | Single app process; local Git projects plus projects on **GitHub and Bitbucket Cloud**; Codex app-server runner; built-in tracker; Needs You; project chat with proposals; board (+ list view); New Task; task views for every state; clarification questions; plan/PR/merge approvals; proof of work (checks + recording); Run locally previews; Open in editor/Terminal/Finder; stacked PRs; PR watch mode; pause (task/project/all); project and global instructions; Settings (General, Hooks, Instructions); menu bar extra; notifications; usage meter and hold; light and dark mode. |
 | **v1.1** | Ship as one PR (feature branch); `<n>.localhost` preview proxy; list-view polish. |
 | **v2 — Remote** | Settings › Remote, device pairing, private-network API, CloudKit push, iPhone Pro app, iPhone Duo layouts. |
 | **v3** | Claude agent runner; Linear/Jira tracker adapters; Export to repository (`WORKFLOW.md`). |
@@ -16,7 +16,7 @@ Each milestone ends with a demo and its acceptance criteria passing.
 3. **App shell**: window, sidebar, projects (Add Project), Needs You skeleton, task view transcript, board.
 4. **Lifecycle**: questions, plan approval, proof runner, human review, previews, open-in-editor.
 5. **PRs**: SCM providers (GitHub, Bitbucket), open PR, stacking, watch mode, merge rules.
-6. **Project chat**: project agent, proposals, Backlog, New Task, instructions.
+6. **Project chat**: project agent, proposals, Queue, New Task, instructions.
 7. **Controls and polish**: pause, menu bar extra, notifications, usage meter, Settings, dark mode, accessibility, keyboard, empty and error states.
 
 ## Acceptance criteria (v1)
@@ -28,10 +28,10 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 - After a full task lifecycle, `git status` in the user's clone shows no new or modified files, and no files exist in the repo that Build Mate created.
 - Removing a project deletes its data and worktrees and leaves the clone untouched.
 
-**Project chat and backlog**
-- Describing work produces a proposal card; **Add N to Backlog** creates tasks in Backlog with dependencies; **Add to queue** creates them in Queue.
-- Typing "start the first two now, backlog the rest" results in exactly that, echoed as an event.
-- Backlog tasks are never dispatched. Moving to Queue dispatches in rank order when a slot is free.
+**Project chat and task creation**
+- Describing work produces a proposal card; **Add N to Queue** creates the selected tasks with dependencies. All manually or agent-created tasks enter Queue.
+- Unselected ideas remain in the conversation/proposal. No task is created until the user accepts a proposal or explicitly requests creation.
+- Queue dispatches in rank order when a slot is free, respecting dependency, pause and usage gates. Legacy backlog tasks migrate after existing queued tasks without losing content or pause settings.
 - Refine with Agent updates the description and any questions appear in the chat.
 
 **Lifecycle**
@@ -59,6 +59,8 @@ Test in light and dark mode; with VoiceOver; keyboard only; Reduce Transparency 
 - **1 demo:** real Codex 0.151 thread/turn/steer/interrupt/restart-resume and persistent dynamic tools passed. Explicit worktree-only write policy plus networking passed. Three local Playwright recording attempts passed after resolving its ffmpeg prerequisite. TWG was not installed; the documented setup/REST mapping is the allowed GitHub-first fallback, not an authenticated Bitbucket verification. See 08.
 - **2 demo:** three process-boundary e2e tests cover the lifecycle through host merge, scheduler rank/dependency/pause/crash/stall behavior, and failed/timed-out hooks. One state-machine unit test checks every state pair plus proof/question/plan/dependency/merge guards. The user clone stays clean; data and worktrees stay beneath app storage.
 - The native startup screen launches and exposes its text to accessibility. Full designed light/dark screens, keyboard flows, VoiceOver operation, Reduce Motion and Reduce Transparency acceptance belong to milestones 3–7 and have not been claimed complete here.
+
+> Historical implementation notes below may describe superseded UI. The Queue-only change removes Backlog, all routing choices and the separate view; current acceptance criteria above and Mac UX are authoritative.
 
 ## Milestone 3 handoff (2026-09-26)
 

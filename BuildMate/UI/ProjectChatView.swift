@@ -238,17 +238,15 @@ private struct ProjectProposalCard: View {
     @ViewBuilder private var actions: some View {
         Button("Dismiss") { model.perform { try await model.core.dismissProposal(proposal.id, projectID: proposal.projectId) } }.help("Dismiss this proposal without creating tasks")
         Spacer(minLength: 4)
-        Button("Add to queue") { accept(queue: true) }.disabled(selected.isEmpty || model.selectedProject?.runBlockReason != nil)
+        Button("Add \(selected.count) to Queue") { accept() }.buttonStyle(.borderedProminent).disabled(selected.isEmpty)
             .help(model.selectedProject?.runBlockReason ?? "Create selected tasks in Queue; they start when an agent slot is available")
-        Button("Add \(selected.count) to Backlog") { accept(queue: false) }.buttonStyle(.borderedProminent).disabled(selected.isEmpty)
-            .help("Create selected tasks in Backlog without starting coding")
     }
-    private func accept(queue: Bool) {
+    private func accept() {
         let selection = selected
         saving = true
         model.perform {
             defer { saving = false }
-            _ = try await model.core.acceptProposal(proposal.id, projectID: proposal.projectId, selected: selection, queue: queue ? selection : [])
+            _ = try await model.core.acceptProposal(proposal.id, projectID: proposal.projectId, selected: selection)
         }
     }
 }

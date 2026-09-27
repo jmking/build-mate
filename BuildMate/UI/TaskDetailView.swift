@@ -81,7 +81,7 @@ struct TaskDetailView: View {
             }.padding(28).frame(maxWidth: 776).frame(maxWidth: .infinity)
         }
         .safeAreaBar(edge: .bottom, spacing: 0) {
-            if !task.state.terminal && task.state != .backlog {
+            if !task.state.terminal {
                 VStack(alignment: .leading, spacing: 8) {
                     ChatAttachmentTray(files: fileBinding, root: model.store.root)
                     if let explanation = messageStatus ?? composerExplanation {
@@ -109,7 +109,7 @@ struct TaskDetailView: View {
 
             }
         }
-        .modifier(ChatAttachmentDrop(files: fileBinding, root: model.store.root, enabled: !sending && !task.state.terminal && task.state != .backlog))
+        .modifier(ChatAttachmentDrop(files: fileBinding, root: model.store.root, enabled: !sending && !task.state.terminal))
         .inspector(isPresented: $model.showInspector) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -141,13 +141,6 @@ struct TaskDetailView: View {
                     }
                     if let pr = task.pr, let url = URL(string: pr.url) {
                         Link("View Pull Request #\(pr.number)", destination: url).help("Open this pull request in your browser")
-                    }
-                    if task.state == .backlog {
-                        Button("Refine with Agent", systemImage: "sparkles") { model.refineInChat(task) }.help("Discuss and refine this task in project chat without starting coding")
-                        Button("Move to Queue") { model.perform { try await model.moveToTodo(task) } }.buttonStyle(.borderedProminent)
-                            .help(model.selectedProject?.runBlockReason ?? "Queue this task to run when an agent slot is available and the project is resumed")
-                            .disabled(model.selectedProject?.runBlockReason != nil)
-                        if let reason = model.selectedProject?.runBlockReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                     }
                     if task.state == .needsClarification {
                         Button("Let the Agent Decide…") { model.reviewSheet = .defaults(task.id) }

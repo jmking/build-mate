@@ -4,13 +4,13 @@ import UniformTypeIdentifiers
 extension TaskState {
     var title: String {
         switch self {
-        case .backlog: "Backlog"; case .todo: "Queue"; case .needsClarification: "Needs Clarification"
+        case .todo: "Queue"; case .needsClarification: "Needs Clarification"
         case .building: "Building"; case .humanReview: "Awaiting human review"; case .inPR: "In PR"; case .done: "Merged"; case .canceled: "Canceled"
         }
     }
     var symbol: String {
         switch self {
-        case .backlog: "list.bullet.rectangle"; case .todo: "circle.dashed"; case .needsClarification: "questionmark.circle"
+        case .todo: "circle.dashed"; case .needsClarification: "questionmark.circle"
         case .building: "play.circle"; case .humanReview: "eye"; case .inPR: "arrow.triangle.pull"; case .done: "checkmark.circle"; case .canceled: "xmark.circle"
         }
     }
@@ -96,7 +96,7 @@ struct TaskPriorityActions: View {
     @Environment(AppModel.self) private var model
     let task: WorkTask
     var body: some View {
-        if [.backlog, .todo].contains(task.state) {
+        if task.state == .todo {
             Button("Move Earlier") { model.perform { try model.movePriority(task, earlier: true) } }
                 .help("Move this task one place earlier in priority")
                 .disabled(model.priorityNeighbor(task, earlier: true) == nil)
@@ -113,7 +113,7 @@ struct TaskPriorityDrag: ViewModifier {
     @State private var height: CGFloat = 1
     let task: WorkTask
     func body(content: Content) -> some View {
-        if [.backlog, .todo].contains(task.state) {
+        if task.state == .todo {
             content
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
                 .opacity(model.priorityDrag?.taskID == task.id ? 0.25 : 1)

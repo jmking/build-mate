@@ -91,10 +91,10 @@ Exposed to task agents (T) and the project agent (P). All calls are validated by
 | `request_review(summary, needsRecording, rationale, checks, recordingCommand?, screenshotsCommand?)` | T | Declare implementation complete and propose task-specific evidence. `checks` contains `{name, command}` entries. Legacy threads lacking newer fields can encode the full report as JSON in summary. Recording writes to `$BUILD_MATE_RECORDING_PATH`; before/after PNGs write to `$BUILD_MATE_BEFORE_PATH` / `$BUILD_MATE_AFTER_PATH`. | Triggers the proof runner; on success moves to `human_review` (or opens the PR if review is off). |
 | `report_screenshot(path, caption)` | T | Future ad-hoc transcript screenshots. | Not registered in milestone 4: review screenshots are produced by the sandboxed `screenshotsCommand` and saved in media. |
 | `note(text)` | T, P | Short progress note shown as an agent message. | |
-| `propose_tasks(tasks[])` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Add to queue / Add to Backlog. |
-| `create_tasks(tasks[]?, proposalId?, queueIndexes[], selectedIndexes[]?)` | P | Create tasks directly when the user explicitly asked ("go straight to Queue"). | Creates tasks atomically; returns their records. Indices are zero-based; selected items in queueIndexes go to Queue, the rest to Backlog. Refer to an existing proposal by proposalId to avoid duplicates. |
+| `propose_tasks(tasks[])` | P | Show a proposal card in the project chat. | Creates a Proposal; the user chooses Add to Queue. |
+| `create_tasks(tasks[]?, proposalId?, selectedIndexes[]?)` | P | Create tasks directly when the user explicitly asked ("go straight to Queue"). | Creates tasks atomically; returns their records. Indices are zero-based; all selected items go to Queue (legacy queueIndexes arguments are ignored). Refer to an existing proposal by proposalId to avoid duplicates. |
 | `add_dependency(task, dependsOn)` | T, P | Record a newly discovered dependency. | Adds it and posts a Needs You notice (the user can remove it). |
-| `refine_task(taskId, description)` | P | Refine an existing Backlog task when requested. | Updates the description only; rejects other states and other projects. |
+| `refine_task(taskId, description)` | P | Refine an existing task when requested. | Uses the normal scope-edit flow: unstarted tasks remain queued, started tasks are paused for replanning, published/terminal tasks and other projects are rejected. |
 | `project_status()` | P | Read tasks, states, open questions and PRs. | Read-only. |
 
 ### Naming latency and cost follow-up (2026-09-26)

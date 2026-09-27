@@ -18,7 +18,7 @@ struct MainWindow: View {
                         })) {
                             ForEach(ProjectPage.allCases) { page in
                                 Label(page.rawValue, systemImage: page.symbol)
-                                    .badge(page == .backlog ? model.snapshot.tasks.filter { $0.projectId == project.id && $0.state == .backlog }.count : page == .tasks ? model.snapshot.tasks.filter { $0.projectId == project.id && model.needsYou($0) }.count : page == .chat ? model.chatQuestionCount(project.id) : 0)
+                                    .badge(page == .tasks ? model.snapshot.tasks.filter { $0.projectId == project.id && model.needsYou($0) }.count : page == .chat ? model.chatQuestionCount(project.id) : 0)
                                     .tag(Destination.project(project.id, page))
                             }
                         } label: {
@@ -137,7 +137,6 @@ struct MainWindow: View {
         case .project(let id, let page):
             switch page {
             case .tasks: TaskBoard(projectID: id).id(id)
-            case .backlog: TaskList(tasks: model.tasks(id).filter { $0.state == .backlog }, emptyTitle: "Backlog is empty", emptyDescription: "Tasks you add to Backlog wait until you move them to Queue.")
             case .chat: ProjectChatView(projectID: id).id(id)
             case .instructions:
                 InstructionsView(projectID: id).id(id)

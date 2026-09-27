@@ -4,7 +4,7 @@ import Testing
 @Suite(.serialized)
 struct ProjectChatTests {
     // Catches duplicate creation, dependency loss, cross-project edits, clone writes and lost chat context after restart.
-    @Test func projectChatProposesRoutesRefinesAndResumesWithoutEditingTheClone() async throws {
+    @Test func projectChatQueuesEveryCreatedTaskAndRefinesWithoutEditingTheClone() async throws {
         var f = try await CoreTests.Fixture()
         var settings = try f.store.settings(); settings.agentsAtOnce = 1; try f.store.saveSettings(settings)
         let core = Orchestrator(store: f.store, runner: f.runner)
@@ -23,17 +23,22 @@ struct ProjectChatTests {
         #expect(session.activeModel == "gpt-6-astra" && session.activeEffort == "high")
         let requests = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
         #expect(requests.contains("GLOBAL instruction marker") && requests.contains("PROJECT instruction marker"))
+        #expect(requests.contains("Current app workflow (supersedes earlier routing instructions)"))
         try f.store.saveInstructions("UPDATED instruction marker", projectID: f.project.id)
         #expect(try String(contentsOf: f.store.root.appending(path: "projects/\(f.project.id)/WORKFLOW.md"), encoding: .utf8).contains("UPDATED instruction marker"))
         let proposal = try #require(f.store.all(Proposal.self).first)
         #expect(try f.store.all(WorkTask.self).isEmpty)
         #expect(try f.store.all(Message.self).filter { $0.sessionId == session.id && $0.body.hasPrefix("Here are three") }.count == 1)
-        do { _ = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [1], queue: []); Issue.record("Allowed a task without its selected dependency") } catch {}
-        do { _ = try await core.acceptProposal(proposal.id, projectID: UUID(), selected: [0,1,2], queue: []); Issue.record("Allowed cross-project proposal acceptance") } catch {}
-        let tasks = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [0,1,2], queue: [])
-        _ = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [0,1,2], queue: [])
+        do { _ = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [1]); Issue.record("Allowed a task without its selected dependency") } catch {}
+        do { _ = try await core.acceptProposal(proposal.id, projectID: UUID(), selected: [0,1,2]); Issue.record("Allowed cross-project proposal acceptance") } catch {}
+        f.project = try f.store.get(Project.self, f.project.id)
+        f.project.paused = true; try f.store.save(f.project)
+        let tasks = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [0,1,2])
+        _ = try await core.acceptProposal(proposal.id, projectID: f.project.id, selected: [0,1,2])
         #expect(try f.store.all(WorkTask.self).count == 3)
-        #expect(tasks.allSatisfy { $0.state == .backlog && $0.worktreePath == nil && $0.origin == "chat" })
+        #expect(tasks.allSatisfy { $0.state == .todo && $0.worktreePath == nil && $0.origin == "chat" })
+        for var task in tasks { task.paused = true; try f.store.save(task) }
+        f.project.paused = false; try f.store.save(f.project)
         #expect(tasks[1].dependsOn == [tasks[0].id])
         #expect(tasks[0].description == proposal.tasks[0].description) // Markdown structure survives proposal acceptance.
         #expect(tasks[0].description.contains("\n\n## Scope\n\n-"))
@@ -68,10 +73,11 @@ struct ProjectChatTests {
         let turns = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }.filter { $0["method"].string == "turn/start" }
         #expect(turns.last?["params"]["model"].string == "gpt-5.6-luna")
         #expect(turns.last?["params"]["effort"].string == "low")
-        try await resumed.sendProjectMessage(f.project.id, text: "Start the first two now, backlog the rest")
-        try await f.wait("mixed creation") { try f.store.all(WorkTask.self).count == 6 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
+        try await resumed.sendProjectMessage(f.project.id, text: "Create all three tasks")
+        try await f.wait("queued creation") { try f.store.all(WorkTask.self).count == 6 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let routed = try f.store.all(WorkTask.self).sorted { $0.number < $1.number }.suffix(3)
-        #expect(routed.map(\.state) == [.todo, .todo, .backlog])
+        #expect(routed.map(\.state) == [.todo, .todo, .todo])
+        for var task in routed { task.paused = true; try f.store.save(task) }
         #expect(routed.dropFirst().first?.dependsOn == [routed.first!.id])
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("UPDATED instruction marker"))
         // Pause prevents both task dispatch and project inference; resume and process failure retain the same thread.
@@ -87,7 +93,7 @@ struct ProjectChatTests {
         #expect(try f.store.session(for: f.project.id, ownerType: "project").codexThreadId == thread)
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: f.repo.appending(path: "WORKFLOW.md").path))
-        #expect(try f.store.all(WorkTask.self).filter { $0.state == .backlog }.allSatisfy { $0.worktreePath == nil })
+        #expect(try f.store.all(WorkTask.self).filter { $0.state == .todo }.allSatisfy { $0.worktreePath == nil })
         await resumed.shutdown()
         // Recovery removes merged-task copies but preserves the shared source until every linked task merges.
         var first = try f.store.get(WorkTask.self, tasks[0].id); first.state = .done; try f.store.save(first)

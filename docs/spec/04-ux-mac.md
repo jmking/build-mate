@@ -10,22 +10,21 @@ Main window
 │  ├─ Projects
 │  │  └─ <project>  (GitHub or Bitbucket mark)
 │  │     ├─ Chat                                          ⌘2
-│  │     ├─ Backlog                                       ⌘3
-│  │     ├─ Tasks (board / list)                          ⌘4
+│  │     ├─ Tasks (board / list)                          ⌘3
 │  │     │  └─ Task view (one per task, back/forward)
-│  │     └─ Instructions                                  ⌘5
+│  │     └─ Instructions                                  ⌘4
 │  └─ Footer: agents busy · usage · Pause All · Settings
 ├─ Sheets: New Task, Add Project, Delete confirmations
 Menu bar extra (popover)
 Settings window: General · Hooks · Instructions (global) · Remote (v2)
 ```
-⌘1–⌘5 act on the selected project. The last selected project and view are restored on launch; first launch opens Needs You (or Add Project if there are no projects).
+⌘1–⌘4 act on the selected project. The last selected project and view are restored on launch; first launch opens Needs You (or Add Project if there are no projects).
 
 ## 2. Window anatomy (all main-window screens)
 - **Sidebar** (232 pt, collapsible ⌃⌘S): system sidebar material (glass over the desktop), plain right border. Traffic lights at top-left; Hide Sidebar button at top-right of the sidebar.
   - **Needs You** row with a neutral count badge (total items waiting on the user).
   - **Projects** heading with **+** (Add Project). Each project row: disclosure chevron, neutral outline folder SF Symbol in the label colour, name, optional pause glyph (project paused), neutral badge = items needing the user in that project.
-  - Expanded project children (indented): **Chat**, **Backlog** (plain count), **Tasks** (badge = needs-you count), **Instructions**.
+  - Expanded project children (indented): **Chat**, **Tasks** (badge = needs-you count), **Instructions**.
   - Selection: neutral translucent fill, regular weight text, accent-tinted SF Symbols (HIG sidebar).
   - Footer: "N of M agents busy" (tabular numerals), usage meter (see §13), **Pause All** (⌥⌘P), **Settings** (⌘,).
 - **Toolbar** (unified, 52–56 pt): title (15 pt semibold) and optional subtitle on the left; grouped Liquid Glass controls on the right. Related controls share one capsule (for example Search + New Task; Back + Forward; Inspector + More).
@@ -51,36 +50,31 @@ Settings window: General · Hooks · Instructions (global) · Remote (v2)
   - User messages: right-aligned grey bubbles with attachments (images/video thumbnails, 220×140).
   - Agent messages: left-aligned grey bubbles, matching the user bubble padding and radius, with speaker and time inside.
   - Activity rows: collapsed pill "Read 22 files in reports/ and exports/ · 2 min" with chevron; expands to the raw tool list.
-  - Events: centered small grey line with hairlines ("#427 and #428 in Queue · #429 in Backlog").
-  - **Proposal card** (from `propose_tasks`): header "3 tasks for acme/web · each gets its own agent and worktree"; one row per task with a checkbox (checked by default), number, title, "after N" dependency chip, one-line plan; footer: **Ship as** pull-down ("3 PRs, #2 stacked on #1" / "One PR (v1.1)"), **Add to queue** (secondary), **Add N to Backlog** (primary, default). Unchecking a task excludes it. After creation the card collapses to a summary with links to the tasks.
+  - Events: centered small grey line with hairlines ("#427, #428 and #429 in Queue").
+  - **Proposal card** (from `propose_tasks`): header "3 tasks for acme/web · each gets its own agent and worktree"; one row per task with a checkbox (checked by default), number, title, "after N" dependency chip, one-line plan; footer: **Ship as** pull-down ("3 PRs, #2 stacked on #1" / "One PR (v1.1)"), **Add N to Queue** (primary, default). Unchecking a task excludes it. After creation the card collapses to a summary with links to the tasks.
   - Task chips after creation: glass capsules "● #427 Building" that open the task.
 - Composer (floating glass, bottom): attach (paperclip; also drag-and-drop and paste images/video), text field "Describe what you want built…", send (accent circle, ⌘↩ or ↩).
-- Natural-language routing: "start now", "go straight to Queue" → Add to queue; "backlog the rest" etc. The agent echoes the outcome as an event.
-- Inspector: **From this chat** (chat-created tasks ordered newest first, live state, "Backlog · waiting for you to refine", "then waits on #427") and a fixed bottom **Project** section (checkout path, branch, agent, host mark + remote slug, **Open Tasks**). Project information stays outside the task scroll area and remains visible.
+- Every created task goes to Queue. Natural-language requests can create selected tasks; unselected ideas stay in the conversation/proposal. The agent echoes the outcome as an event.
+- Inspector: **From this chat** (chat-created tasks ordered newest first, live state, "then waits on #427") and a fixed bottom **Project** section (checkout path, branch, agent, host mark + remote slug, **Open Tasks**). Project information stays outside the task scroll area and remains visible.
 
-## 5. Backlog — `mac-03-backlog`
-**Purpose:** refine tasks before any agent starts them.
-- Omit the trailing state icon/label on Backlog rows: the page already identifies their state. The grouped Tasks list also omits these repeated labels because its section headings identify each state.
-- Toolbar: "Backlog" + "4 tasks · agents won't start these until you move them to Queue"; Search, New Task.
-- Left list (420 pt): drag handle, title, one-line description, meta ("From chat · today", "2 attachments", "Waits on #412"), number. Drag to reorder (sets start order). Multi-select with ⇧/⌘; **Move to Queue** acts on the selection (⌘↩).
-- Right editor: "#429 · Backlog · created from Chat at 09:11"; title (large inline field); Description (text editor, markdown); Attachments (tiles + add); settings list: **Depends on** (pull-down, multiple), **Ship as** (Its own PR / stacked / one PR v1.1), **Ask me before building** (Use project setting / On / Off). Footer: **Delete…** (destructive, confirm), **Refine with Agent** (sparkles; the project agent rewrites the description and asks questions in the chat), **Move to Queue** (primary).
-- Empty state: "Backlog is empty" + "Tasks you add from the chat land here."
+## 5. Task creation
+Tasks are created manually from New Task or by the project agent and enter Queue directly. There is no separate draft-task state or view. Continue shaping ideas in project chat before accepting a proposal. Pause a task/project to hold queued work. Existing saved Backlog navigation restores to Tasks after upgrade.
 
 ## 6. Tasks board — `mac-04-board`
 - Toolbar: "Tasks"; **Pause Project**; List/Board segmented control (⌘L toggles); Search; New Task (⌘N).
 - Columns (left to right): **Queue**, **Needs Clarification**, **Building**, **Awaiting human review**, **In PR**. Merged is reachable from the list view filter and search (not a column). Column: 20 pt radius, 8 pt padding, header icon + name + count; Queue header has **+**.
-- Queue contains only queued tasks. Backlog is accessed from the project sidebar; do not repeat its link or count inside Queue.
+- Queue contains tasks awaiting dispatch; dependencies, pause, usage holds and available slots govern when they start.
 - Card (12 pt radius): optional attachment preview (image, or video with glass play button), title (3 lines max), attachment count, optional dependency title. Hide task numbers and the repeated column state/icon. Show only additional notices such as "Paused" or "Retry scheduled"; ordinary cards need no status row. Keep the task state in the card's VoiceOver label. Do not show segmented progress bars on board or Needs You cards; the Status checklist lives in task details.
-- Drag and drop reorders tasks within Backlog or Queue; it does not change task state. Use explicit actions to move tasks between Backlog and Queue. Other state changes are agent-driven or use the task's explicit review actions.
-- Context menu: Open, Open in <editor>, Pause/Resume, Move to Backlog, Cancel Task…, Copy Link.
-- **List view** (not drawn): a table grouped by state, excluding Backlog tasks because they have their own view; includes Merged and Canceled. Section headings use the same SF Symbol and icon colour as their board column, in a 16 pt icon slot with 6 pt spacing before the title. Keep the title in the native heading colour and hide the decorative symbol from VoiceOver. With no tasks outside Backlog, show “No work queued yet” and “Move a task to Queue when it is ready to start.”
+- Drag and drop reorders tasks within Queue; it does not change task state. Other state changes are agent-driven or use the task's explicit review actions.
+- Context menu: Open, Open in <editor>, Pause/Resume, Cancel Task…, Copy Link.
+- **List view** (not drawn): a table grouped by state, includes Merged and Canceled. Section headings use the same SF Symbol and icon colour as their board column, in a 16 pt icon slot with 6 pt spacing before the title. Keep the title in the native heading colour and hide the decorative symbol from VoiceOver. With no tasks, show “No work queued yet” and “Create a task or ask the project agent to create one.”
 
 ## 7. New Task sheet — `mac-05-new-task-sheet`
 - Sheet attached to the main window (⌘N anywhere). Fields: project pull-down (neutral folder when an icon is shown), "What should be built" (multiline, initially focused), optional title under **Set a title yourself**, Attachments (tiles + dashed add area; drag-and-drop, paste; milestone 6).
 - A nonblank brief is required. Save and open the task immediately with the user title or a locally shortened first line/sentence (at most 80 characters). Do not wait for Codex or scheduler work to dismiss the sheet. Refine an automatic title once in the background using an available economical model at its lowest supported reasoning effort; keep the local title if unavailable or unsuccessful. Manual titles/edits take precedence. Naming never starts a coding task or creates its worktree/session; Add to queue schedules coding independently. No model requests while typing.
 - The task brief has a visible **Edit** action. **Task › Edit Task…** (⇧⌘E) and board/list context menus open the same native editor for title, brief and proof choice. Save Changes (Return) persists the draft; Cancel (Escape) discards it. Manual titles are never automatically replaced. Title-only changes preserve execution, proof, worktree branch and PR title.
-- Editing the brief/proof before work starts preserves Backlog/Queue and does not dispatch it. For started work, Save pauses and stops the worker, returns it to Queue for replanning (Backlog stays Backlog), supersedes pending questions and old plan approvals, and invalidates previous proof. The user resumes explicitly; the same Codex thread and worktree continue with the updated brief. The editor explains this before saving. In PR, Merged and Canceled tasks allow title-only edits; the core rechecks state on Save.
-- Footer: "Agents only pick up tasks in Queue." · **Cancel** (esc) · **Add to queue** · **Add to Backlog** (primary, ↩).
+- Editing the brief/proof before work starts preserves Queue and does not dispatch it. For started work, Save pauses and stops the worker, returns it to Queue for replanning, supersedes pending questions and old plan approvals, and invalidates previous proof. The user resumes explicitly; the same Codex thread and worktree continue with the updated brief. The editor explains this before saving. In PR, Merged and Canceled tasks allow title-only edits; the core rechecks state on Save.
+- Footer: "Agents only pick up tasks in Queue." · **Cancel** (esc) · **Add to queue** (primary, ↩).
 
 ## 8. Project instructions — `mac-06-project-instructions`
 - Toolbar: "Instructions" + "Every agent in <project> follows these"; More (Export to repository… v3, Reveal data folder).
@@ -147,7 +141,7 @@ Local-only projects run tasks and collect proof without a hosting CLI. They stop
 |---|---|
 | New Task | ⌘N |
 | New Project… | ⇧⌘N |
-| Needs You / Chat / Backlog / Tasks / Instructions | ⌘1 … ⌘5 |
+| Needs You / Chat / Tasks / Instructions | ⌘1 … ⌘4 |
 | Toggle List/Board | ⌘L |
 | Find | ⌘F |
 | Back / Forward | ⌘[ / ⌘] |
@@ -161,19 +155,19 @@ Local-only projects run tasks and collect proof without a hosting CLI. They stop
 | Toggle Sidebar / Inspector | ⌃⌘S / ⌥⌘I |
 | Settings | ⌘, |
 
-Menu bar menus: Build Mate, File (New Task, New Project, Close), Edit, View (Needs You, Chat, Backlog, Tasks, Instructions, as List/Board, Show Sidebar/Inspector), Task (Pause, Open in…, Move to Backlog, Cancel Task…), Window, Help. Every toolbar and context-menu action MUST be reachable from the menu bar.
+Menu bar menus: Build Mate, File (New Task, New Project, Close), Edit, View (Needs You, Chat, Tasks, Instructions, as List/Board, Show Sidebar/Inspector), Task (Pause, Open in…, Cancel Task…), Window, Help. Every toolbar and context-menu action MUST be reachable from the menu bar.
 
 ## Milestone 3 implementation boundary
 
 The native shell implements the sidebar, Add Project, Needs You summary, five-column board, grouped task list, persisted task transcript and inspector. A minimal task-entry sheet and question/plan actions are available to exercise the core. Full New Task attachments, editable instructions and project chat remain milestone 6; lifecycle review controls remain milestones 4–5. Native toolbar geometry and sidebar selection follow macOS controls. See 07 for validation status and 08 for setup assumptions.
 
-Task proof: **Automatic** lets the agent choose checks and visual recording as appropriate to the task and brief. New Task also offers **Checks only** and **Checks + recording**; the inspector shows the choice, evidence rationale and whether recording was required. Missing recording configuration does not block Add to queue or Move to Queue: evidence is proposed and checked before Human review. Bitbucket starts stay disabled until its provider is verified.
+Task proof: **Automatic** lets the agent choose checks and visual recording as appropriate to the task and brief. New Task also offers **Checks only** and **Checks + recording**; the inspector shows the choice, evidence rationale and whether recording was required. Missing recording configuration does not block Add to queue: evidence is proposed and checked before Human review. Bitbucket starts stay disabled until its provider is verified.
 
 The composer distinguishes **Send answer**, **Send message** (an active Codex turn), **Send message** (awaiting human review; returns to Building and requires fresh proof), and **Save message** (other states with no active turn). Saving persists the message for the next run and never starts or resumes a task. Successful submission confirms whether the message was sent or saved. Return submits; ⌘Return is also available. Draft and delivery status reset when changing tasks.
 
 Retained retry diagnostics do not appear as a current Fix item while a recovered turn is running or waiting for a question/approval.
 
-Queue ordering: picking up a Backlog row or Queue card/list row shows a raised native drag preview and fades its placeholder. As the pointer crosses another item's midpoint, surrounding items smoothly shift to preview the new order. Save priority only on a valid drop; Escape or dropping outside the group restores the original order. Reordering stays within a project and state; it never moves tasks into execution or interrupts an existing run. Top is highest priority. Context-menu Move Earlier/Later, accessibility actions, and Task menu ⌃⌘↑/↓ provide alternatives. Search preserves the full queue ordering. Reduce Motion disables the lift scaling and positional animations.
+Queue ordering: picking up a Queue card/list row shows a raised native drag preview and fades its placeholder. As the pointer crosses another item's midpoint, surrounding items smoothly shift to preview the new order. Save priority only on a valid drop; Escape or dropping outside the group restores the original order. Reordering stays within a project and state; it never moves tasks into execution or interrupts an existing run. Top is highest priority. Context-menu Move Earlier/Later, accessibility actions, and Task menu ⌃⌘↑/↓ provide alternatives. Search preserves the full queue ordering. Reduce Motion disables the lift scaling and positional animations.
 
 Usage UI follow-up: the sidebar shows the most constrained Codex account window, a remaining-percentage bar and reset time. Its popover lists every reported bucket/window, shared-account explanation, last refresh, errors and Refresh. Refresh on startup/every minute and consume live account notifications; an account-only app-server process creates no agent thread. Unknown windows/resets remain unavailable, never zero or invented. Failed refreshes retain clearly labelled last-known values. This delivery is informational: automatic 15% holds, Resume Anyway, threshold settings and menu-bar usage remain milestone 7. The percentage bar turns orange below 25% and red below 15% as a warning only.
 
@@ -199,11 +193,11 @@ Editor-icon refinement (2026-09-27): the Open in control shows only a centred 16
 
 ## Project chat delivery brought forward (2026-09-27)
 
-The Chat page now supports persistent text conversations, streamed agent bubbles, expandable inspection output, inline questions/answers, selectable proposals, Add to queue/Add N to Backlog, and live task links in the From this chat inspector. Proposal dependencies are shown by task title. Unselected tasks are not created; dependencies of selected tasks must also be selected. Dismiss makes a proposal inactive. Natural-language routing supports mixed destinations through the project agent. Backlog task details, row context menus and the Task menu expose Refine with Agent, opening project chat without starting coding. Project questions appear in Needs You and the Chat badge.
+The Chat page now supports persistent text conversations, streamed agent bubbles, expandable inspection output, inline questions/answers, selectable proposals, Add N to Queue, and live task links in the From this chat inspector. Proposal dependencies are shown by task title. Unselected tasks are not created; dependencies of selected tasks must also be selected. Dismiss makes a proposal inactive. Every selected task is queued. Queued task row context menus and the Task menu expose Refine with Agent; scope changes to started work pause it for replanning. Project questions appear in Needs You and the Chat badge.
 
-The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector lists chat-created tasks by creation time, newest first, with live states and dependencies. Task number breaks equal-time ties, newest first; priority and recent edits do not change this ordering. Project checkout/branch information and Open Tasks stay pinned in a separate bottom section; older tasks remain available on the task board and in Backlog.
+The glass composer uses the existing neutral bubble palette and system controls; ⌘Return/Return sends, Stop cancels, Retry continues an interrupted or failed conversation. Each project keeps its unsent draft while navigating. No additional messages are submitted during an active response except answers to its question. Project/global pause queues a message until resumed. The inspector lists chat-created tasks by creation time, newest first, with live states and dependencies. Task number breaks equal-time ties, newest first; priority and recent edits do not change this ordering. Project checkout/branch information and Open Tasks stay pinned in a separate bottom section; older tasks remain available on the task board.
 
-This pulls forward text project chat and backlog refinement, not all of milestone 6: image/video attachment entry and instruction editing remain separate remaining work. Proposal Ship as controls remain hidden until the related SCM capability exists. Spoken VoiceOver and reduced-transparency validation are not inferred from accessibility labels alone.
+This pulls forward text project chat and task refinement, not all of milestone 6: image/video attachment entry and instruction editing remain separate remaining work. Proposal Ship as controls remain hidden until the related SCM capability exists. Spoken VoiceOver and reduced-transparency validation are not inferred from accessibility labels alone.
 
 
 ### Screenshot and file attachments (2026-09-27)
@@ -226,9 +220,8 @@ Settings (⌘,) has General, Hooks and Instructions tabs. Global concurrency, he
 
 Menu-bar extra shows attention items, building tasks/project chats, paused state and account usage. Open and notification actions reuse the main window. Notifications are enabled from Settings and grouped by project; Open routes directly to the task or chat. Closing the window keeps the menu-bar app active. Quitting with active agents asks before stopping them.
 
-Queue cards show “Waiting for usage” while held. The usage popover offers Resume Anyway. Merged is always a board column. Task menu includes Move to Backlog and Cancel Task, retaining history/worktrees. ⌃⌘S toggles the sidebar.
+Queue cards show “Waiting for usage” while held. The usage popover offers Resume Anyway. Merged is always a board column. Task menu includes Pause/Resume and Cancel Task, retaining history/worktrees. ⌃⌘S toggles the sidebar.
 
-Backlog’s Select Tasks action enables native Command-click/Shift-click multiselection. Move to Queue (⌘Return) queues the selection together; ordinary row clicks still open the task when selection mode is off.
 
 While an agent responds, project and task chats show a compact tailless three-dot bubble in the agent bubble colour. It expands smoothly on appearance and becomes the next agent text bubble in place, growing with streamed text. Waiting for input, queued and paused states retain explicit labels. The bubble is static with Reduce Motion enabled.
 
@@ -238,7 +231,7 @@ Task and project chat toolbars show the selected model and effort. The native po
 
 ### Delete tasks (2026-09-27)
 
-Every task state, including active work, has Delete Task in the task toolbar, card/list context menu and Task menu (⌘Delete). A destructive confirmation names the task and explains removal of its conversation, attachments, proof and worktree, including uncommitted changes. Existing Git branches and hosted pull requests remain. Dependent tasks are paused for review. On success the open task returns to its project’s board (or Backlog), and navigation history drops the deleted task. Cancel closes the confirmation without modifying anything.
+Every task state, including active work, has Delete Task in the task toolbar, card/list context menu and Task menu (⌘Delete). A destructive confirmation names the task and explains removal of its conversation, attachments, proof and worktree, including uncommitted changes. Existing Git branches and hosted pull requests remain. Dependent tasks are paused for review. On success the open task returns to its project’s board, and navigation history drops the deleted task. Cancel closes the confirmation without modifying anything.
 
 Task composer refinement (2026-09-27): omit the active-turn delivery caption and routine successful-send confirmation. The sent message in the transcript provides confirmation. Keep actionable question, review-feedback and saved-for-later guidance when applicable.
 

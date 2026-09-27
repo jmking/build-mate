@@ -125,7 +125,7 @@ actor Orchestrator {
                 for task in initialTasks {
                     guard let worker = workers[task.id], let project = initialProjects[task.projectId] else { continue }
                     let unroutable = (try? dependenciesReady(task)) != true
-                    if initialSettings.paused || project.paused || task.paused || task.state == .backlog || task.state.terminal || unroutable {
+                    if initialSettings.paused || project.paused || task.paused || task.state.terminal || unroutable {
                         let client = clients[task.id]
                         let session = try? store.session(for: task.id)
                         group.addTask {
@@ -235,7 +235,7 @@ actor Orchestrator {
                 }
                 task = try store.get(WorkTask.self, id)
                 // Replan atomically below, only after the old worker can no longer publish proof.
-                if task.state != .backlog { task.state = .todo }
+                task.state = .todo
                 task.paused = true
             }
             task.retry = nil
@@ -554,7 +554,7 @@ actor Orchestrator {
             attempt?.error = message
             do {
                 var task = try store.get(WorkTask.self, id)
-                if !task.state.terminal && !task.paused && task.state != .backlog {
+                if !task.state.terminal && !task.paused {
                     let number = (task.retry?.attempt ?? 0) + 1
                     let delay = min(10 * pow(2, Double(min(number - 1, 20))), Double(project?.settings.retryBackoffMaxMs ?? 300_000) / 1000)
                     task.retry = Retry(attempt: number, dueAt: Date().addingTimeInterval(delay), error: message)
@@ -581,7 +581,7 @@ actor Orchestrator {
     private func requireRunnable(_ task: WorkTask) throws {
         let project = try store.get(Project.self, task.projectId)
         guard !shuttingDown, !Task.isCancelled, project.runBlockReason == nil, !task.paused, !project.paused, !(try store.settings()).paused,
-              !task.state.terminal, task.state != .backlog, try dependenciesReady(task) else { throw CancellationError() }
+              !task.state.terminal, try dependenciesReady(task) else { throw CancellationError() }
     }
 
     private func prompt(task: WorkTask, project: Project) throws -> String {

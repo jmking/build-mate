@@ -58,6 +58,33 @@ struct CoreTests {
         func cleanup() throws { try FileManager.default.removeItem(at: root) }
     }
 
+    @Test func legacyBacklogMigrationAppendsToQueueWithoutLosingTaskDataOrPause() async throws {
+        let f = try await Fixture()
+        let queued = try f.store.createTask(projectId: f.project.id, title: "Already queued", rank: -10)
+        let first = try f.store.createTask(projectId: f.project.id, title: "First legacy draft", description: "Keep this brief", rank: 100, files: [f.control.appending(path: "proof.png")])
+        var second = try f.store.createTask(projectId: f.project.id, title: "Paused dependent draft", rank: 50, dependsOn: [first.id])
+        second.paused = true; try f.store.save(second)
+        let createdAt = try f.store.get(WorkTask.self, first.id).createdAt
+        let session = try f.store.session(for: first.id)
+        try f.store.save(Message(sessionId: session.id, role: "user", body: "Keep this conversation"))
+        let secondID = second.id
+        // Simulate the pre-upgrade database without retaining a legacy state in the app model.
+        try await f.store.db.write { db in
+            try db.execute(sql: "UPDATE task SET state = 'backlog' WHERE id IN (?, ?)", arguments: [first.id, secondID])
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'v8-queue-only'")
+        }
+        let upgraded = try Store(root: f.store.root)
+        let tasks = try upgraded.all(WorkTask.self).sorted { $0.rank > $1.rank }
+        #expect(tasks.map(\.id) == [queued.id, first.id, second.id])
+        #expect(tasks.allSatisfy { $0.state == .todo && $0.worktreePath == nil })
+        #expect(!tasks[1].paused && tasks[2].paused && tasks[2].dependsOn == [first.id])
+        #expect(tasks[1].description == first.description && tasks[1].createdAt == createdAt)
+        #expect(try upgraded.all(Message.self).first?.body == "Keep this conversation")
+        #expect(try upgraded.all(Attachment.self).allSatisfy { $0.ownerId == first.id && FileManager.default.fileExists(atPath: $0.path) })
+        #expect(try Store(root: f.store.root).all(WorkTask.self).sorted { $0.rank > $1.rank }.map(\.id) == tasks.map(\.id))
+        try f.cleanup()
+    }
+
     @Test @MainActor func deletingRunningTaskStopsProcessesRemovesDirtyWorkAndNeverReusesItsNumber() async throws {
         var f = try await Fixture()
         f.project.settings.previewCommand = "preview"
@@ -353,8 +380,9 @@ struct CoreTests {
         f.project.settings.stallTimeoutMs = 500
         try f.store.save(f.project)
         var settings = AppSettings(); settings.agentsAtOnce = 1; try f.store.saveSettings(settings)
-        let backlog = try f.store.createTask(projectId: f.project.id, title: "Never dispatch", rank: 100)
-        let dependency = try f.store.createTask(projectId: f.project.id, title: "Blocked", state: .todo, rank: 90, dependsOn: [backlog.id])
+        var held = try f.store.createTask(projectId: f.project.id, title: "Paused prerequisite", rank: 100)
+        held.paused = true; try f.store.save(held)
+        let dependency = try f.store.createTask(projectId: f.project.id, title: "Blocked", state: .todo, rank: 90, dependsOn: [held.id])
         let high = try f.store.createTask(projectId: f.project.id, title: "First", state: .todo, rank: 10)
         let low = try f.store.createTask(projectId: f.project.id, title: "Second", state: .todo, rank: 20)
         let ordering = await AppModel(store: f.store, runner: f.runner)
@@ -366,7 +394,7 @@ struct CoreTests {
         let first = try f.store.get(WorkTask.self, high.id)
         #expect(try f.store.get(WorkTask.self, low.id).worktreePath == nil)
         #expect(try f.store.get(WorkTask.self, dependency.id).worktreePath == nil)
-        #expect(try f.store.get(WorkTask.self, backlog.id).worktreePath == nil)
+        #expect(try f.store.get(WorkTask.self, held.id).worktreePath == nil)
         #expect(first.retry!.dueAt.timeIntervalSince(first.createdAt) >= 10)
         let thread = try #require(f.store.session(for: high.id).codexThreadId)
         // Hold other candidates so the retry deadline is observable at the process boundary.
@@ -464,11 +492,10 @@ struct CoreTests {
 
     @Test func transitionRulesRejectSkippingProofQuestionsPlanDependenciesOrMerge() throws {
         let allowed: [TaskState: Set<TaskState>] = [
-            .backlog: [.todo, .backlog, .canceled],
-            .todo: [.backlog, .needsClarification, .building, .canceled],
-            .needsClarification: [.backlog, .todo, .building, .canceled],
-            .building: [.backlog, .needsClarification, .humanReview, .canceled],
-            .humanReview: [.backlog, .building, .inPR, .canceled],
+            .todo: [.needsClarification, .building, .canceled],
+            .needsClarification: [.todo, .building, .canceled],
+            .building: [.needsClarification, .humanReview, .canceled],
+            .humanReview: [.building, .inPR, .canceled],
             .inPR: [.done, .canceled], .done: [], .canceled: []
         ]
         for from in TaskState.allCases {

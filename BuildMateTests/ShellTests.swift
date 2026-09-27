@@ -33,7 +33,7 @@ struct ShellTests {
         try model.pauseProject(project)
         #expect(try f.store.get(Project.self, project.id).paused)
         try model.pauseProject(project)
-        try await model.createTask(projectID: project.id, title: "First local feature", description: "Implement and check a functional change", start: true)
+        try await model.createTask(projectID: project.id, title: "First local feature", description: "Implement and check a functional change")
         await model.refresh()
         let task = try #require(model.selectedTask)
         let store = f.store
@@ -117,7 +117,7 @@ struct ShellTests {
         try f.cleanup()
     }
 
-    @Test func projectDiscoveryAndShellActionsPersistWithoutDispatchingBacklog() async throws {
+    @Test func projectDiscoveryAndQueuedTasksPersistWithoutDispatchingWhilePaused() async throws {
         let f = try await CoreTests.Fixture()
         _ = try await f.runner.run("git", ["remote", "set-url", "origin", "git@github.com:fixture/repo.git"], cwd: f.repo.path)
         _ = try await f.runner.run("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], cwd: f.repo.path)
@@ -142,29 +142,29 @@ struct ShellTests {
         await model.refresh()
         #expect(model.selectedProject?.id == discovered.project.id)
         do { try model.add(discovered); Issue.record("Duplicate clone accepted") } catch {}
-        try await model.createTask(projectID: discovered.project.id, title: "  Make output readable  ", description: "Keep it compact", start: false, files: [f.control.appending(path: "proof.mp4")])
+        try await model.createTask(projectID: discovered.project.id, title: "  Make output readable  ", description: "Keep it compact", files: [f.control.appending(path: "proof.mp4")])
         await model.refresh()
         let task = try #require(model.selectedTask)
-        #expect(task.state == .backlog && task.title == "Make output readable")
+        #expect(task.state == .todo && task.title == "Make output readable")
         #expect(task.worktreePath == nil)
         try await model.editTask(task.id, title: "Keep errors readable", description: "Compact output, with full error details", proofRequirement: .checksOnly)
         let edited = try uiStore.get(WorkTask.self, task.id)
         #expect(edited.title == "Keep errors readable" && edited.description == "Compact output, with full error details" && edited.proofRequirement == .checksOnly)
-        #expect(edited.state == .backlog && !edited.paused && edited.worktreePath == nil)
+        #expect(edited.state == .todo && !edited.paused && edited.worktreePath == nil)
         #expect(try uiStore.all(Session.self).isEmpty) // Editing a draft must not create or dispatch an agent session.
         do { try await model.editTask(task.id, title: "  ", description: "Lost draft", proofRequirement: .automatic); Issue.record("Empty title accepted") } catch {}
         #expect(try uiStore.get(WorkTask.self, task.id).description == edited.description)
         let video = try #require(uiStore.all(Attachment.self).first)
         #expect(video.kind == "video" && video.frames.count == 6)
         #expect(JSON.chatInput("Review", attachments: [video]).array.filter { $0["type"].string == "localImage" }.count == 6)
-        let other = try uiStore.createTask(projectId: discovered.project.id, title: "Other draft", rank: 10)
+        let other = try uiStore.createTask(projectId: discovered.project.id, title: "Other queued task", rank: 10)
         try model.reorderTask(task.id, relativeTo: other.id, after: false)
         await model.refresh()
         #expect(model.tasks(discovered.project.id).first?.id == task.id)
         try model.reorderTask(task.id, relativeTo: other.id, after: true)
         await model.refresh()
         #expect(model.tasks(discovered.project.id).first?.id == other.id)
-        #expect(try uiStore.get(WorkTask.self, task.id).state == .backlog)
+        #expect(try uiStore.get(WorkTask.self, task.id).state == .todo)
         // Hover is only a preview: refresh preserves it, cancellation never writes ranks,
         // and a successful drop publishes and persists the final order without a flash.
         let originalRank = try uiStore.get(WorkTask.self, task.id).rank
@@ -185,18 +185,19 @@ struct ShellTests {
         #expect(model.tasks(discovered.project.id).first?.id == task.id)
         try await model.core.deleteTask(other.id)
         // No recording setup is needed to queue functional work; global pause still prevents dispatch.
-        try await model.createTask(projectID: discovered.project.id, title: "Functional work", description: "Verify an API", start: true, proofRequirement: .checksOnly)
-        let started = try #require(uiStore.all(WorkTask.self).first { $0.title == "Functional work" })
+        try await model.createTask(projectID: discovered.project.id, title: "Functional work", description: "Verify an API", proofRequirement: .checksOnly)
+        var started = try #require(uiStore.all(WorkTask.self).first { $0.title == "Functional work" })
         #expect(started.state == .todo && started.proofRequirement == .checksOnly && started.worktreePath == nil)
+        started.state = .building; try uiStore.save(started)
         model.beginPriorityDrag(task)
         #expect(!model.canDropPriority(on: started))
         model.previewPriorityDrag(over: started, after: false)
         #expect(model.priorityDrag?.targetID == nil)
         model.finishPriorityDrag(commit: false)
         do { try model.reorderTask(task.id, relativeTo: started.id, after: false); Issue.record("Cross-state reorder accepted") } catch {}
+        started.state = .todo; try uiStore.save(started)
         #expect(try await model.core.steer(started.id, text: "For the next run") == .saved)
         #expect(((try? String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)) ?? "").contains("thread/start") == false)
-        try await model.moveToTodo(task)
         #expect(try uiStore.get(WorkTask.self, task.id).state == .todo)
         #expect(try uiStore.get(WorkTask.self, task.id).worktreePath == nil)
         try await model.core.deleteTask(started.id)
@@ -220,18 +221,18 @@ struct ShellTests {
             #expect(await model.core.titleJobs.isEmpty)
         }
         let brief = "Please improve our CLI so verbose output is compact and easy to scan. Keep errors visible."
-        try await model.createTask(projectID: discovered.project.id, title: "  ", description: brief, start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "  ", description: brief)
         let generated = try #require(model.selectedTask)
         #expect(generated.title == Orchestrator.provisionalTitle(brief) && generated.description == brief)
-        #expect(!model.showNewTask && generated.state == .backlog && generated.worktreePath == nil)
+        #expect(!model.showNewTask && generated.state == .todo && generated.worktreePath == nil)
         try await waitForNaming()
         #expect(try uiStore.get(WorkTask.self, generated.id).title == "Keep command output compact")
         #expect(try uiStore.all(Session.self).allSatisfy { $0.ownerId != generated.id })
         try await model.editTask(generated.id, title: "  Keep errors visible in compact output  ", description: generated.description, proofRequirement: generated.proofRequirement)
         let renamed = try uiStore.get(WorkTask.self, generated.id)
-        #expect(renamed.title == "Keep errors visible in compact output" && renamed.description == brief && renamed.state == .backlog)
+        #expect(renamed.title == "Keep errors visible in compact output" && renamed.description == brief && renamed.state == .todo)
         try f.marker("title-failure")
-        try await model.createTask(projectID: discovered.project.id, title: "", description: "Keep errors visible. More detail here.", start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Keep errors visible. More detail here.")
         let fallback = try #require(model.selectedTask)
         try await waitForNaming()
         #expect(try uiStore.get(WorkTask.self, fallback.id).title == "Keep errors visible")
@@ -239,7 +240,7 @@ struct ShellTests {
         // No economical model means no title inference, never the expensive project/default model.
         try f.marker("no-cheap-title-model")
         let callsBefore = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).components(separatedBy: "thread/start").count
-        try await model.createTask(projectID: discovered.project.id, title: "", description: "Local title when cheap models are unavailable", start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Local title when cheap models are unavailable")
         try await waitForNaming()
         #expect(model.selectedTask?.title == "Local title when cheap models are unavailable")
         #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).components(separatedBy: "thread/start").count == callsBefore)
@@ -247,7 +248,7 @@ struct ShellTests {
         try f.marker("title-stall")
         let clock = ContinuousClock()
         let began = clock.now
-        try await model.createTask(projectID: discovered.project.id, title: "", description: "Instant saved brief", start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Instant saved brief")
         let elapsed = began.duration(to: clock.now)
         #expect(elapsed < .seconds(1))
         print("Task creation with stalled naming: \(elapsed)")
@@ -263,7 +264,7 @@ struct ShellTests {
         try await waitForNaming()
         #expect(try uiStore.get(WorkTask.self, instant.id).title == "My authoritative title")
         // Shutdown cancels naming, but the already-created task survives shutdown.
-        try await model.createTask(projectID: discovered.project.id, title: "", description: "Keep this saved task", start: false)
+        try await model.createTask(projectID: discovered.project.id, title: "", description: "Keep this saved task")
         let saved = try #require(model.selectedTask)
         await model.core.shutdown()
         #expect(try uiStore.get(WorkTask.self, saved.id).title == "Keep this saved task")

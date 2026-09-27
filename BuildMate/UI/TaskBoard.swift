@@ -9,7 +9,7 @@ struct TaskBoard: View {
     var body: some View {
         Group {
         if model.listMode {
-            TaskList(tasks: model.tasks(projectID).filter { $0.state != .backlog }, emptyTitle: "No work queued yet", emptyDescription: "Move a task to Queue when it is ready to start.")
+            TaskList(tasks: model.tasks(projectID), emptyTitle: "No work queued yet", emptyDescription: "Create a task or ask the project agent to create one.")
         } else {
             GeometryReader { geometry in
             ScrollView(.horizontal) {
@@ -64,8 +64,6 @@ struct TaskBoard: View {
 struct TaskList: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var selecting = false
-    @State private var selected: Set<UUID> = []
     let tasks: [WorkTask]
     let emptyTitle: String
     let emptyDescription: String
@@ -73,29 +71,23 @@ struct TaskList: View {
         if tasks.isEmpty {
             ContentUnavailableView(emptyTitle, systemImage: "list.bullet.rectangle", description: Text(emptyDescription))
         } else {
-            List(selection: $selected) {
+            List {
                 ForEach(TaskState.allCases, id: \.self) { state in
                     let group = tasks.filter { $0.state == state }
                     if !group.isEmpty {
                         Section {
                             ForEach(group) { task in
-                                Group {
-                                if selecting {
-                                    Text(task.title).foregroundStyle(.primary).padding(.vertical, 8)
-                                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                                } else {
                                 Button { model.destination = .task(task.id) } label: {
                                     Text(task.title).foregroundStyle(.primary).multilineTextAlignment(.leading)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.vertical, 8).contentShape(Rectangle())
                                 }.buttonStyle(.plain)
-                                }
-                                }.tag(task.id)
+                                .tag(task.id)
                                     .help("Open \(task.title)")
                                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                                     .contextMenu {
                                         Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief and proof requirements")
-                                        if task.state == .backlog {
+                                        if task.state == .todo {
                                             Button("Refine with Agent") { model.refineInChat(task) }.help("Refine this task’s description in project chat")
                                         }
                                         TaskPriorityActions(task: task)
@@ -114,27 +106,7 @@ struct TaskList: View {
                         }
                     }
                 }
-            }.toolbar {
-                if tasks.allSatisfy({ $0.state == .backlog }) {
-                    ToolbarItem {
-                        Button(selecting ? "Done Selecting" : "Select Tasks", systemImage: "checkmark.circle") { selecting.toggle(); selected = [] }
-                            .help("Select multiple Backlog tasks with Command-click or Shift-click")
-                    }
-                    if selecting {
-                        ToolbarItem {
-                            Button("Move to Queue") {
-                                let ids = selected
-                                model.perform {
-                                    for task in tasks where ids.contains(task.id) { try await model.core.transition(task.id, to: .todo) }
-                                    selected = []; selecting = false; await model.core.tick()
-                                }
-                            }.keyboardShortcut(.return, modifiers: [.command]).disabled(selected.isEmpty)
-                                .help("Queue the selected tasks (⌘Return)")
-                        }
-                    }
-                }
             }
-                .onChange(of: tasks.map(\.id)) { selected.formIntersection(tasks.map(\.id)) }
                 .scrollContentBackground(.hidden).background(AppSurface.window)
                 .animation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0), value: tasks.map(\.id))
         }

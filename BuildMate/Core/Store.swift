@@ -79,6 +79,16 @@ final class Store: Sendable {
             try db.execute(sql: "CREATE TABLE taskNumber (projectId TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE, lastNumber INTEGER NOT NULL)")
             try db.execute(sql: "INSERT INTO taskNumber SELECT projectId, MAX(number) FROM task GROUP BY projectId")
         }
+        migrator.registerMigration("v8-queue-only") { db in
+            // Keep the current queue first, then append legacy drafts in their existing order.
+            let projects = try UUID.fetchAll(db, sql: "SELECT DISTINCT projectId FROM task WHERE state = 'backlog'")
+            for project in projects {
+                let ids = try UUID.fetchAll(db, sql: "SELECT id FROM task WHERE projectId = ? AND state IN ('todo', 'backlog') ORDER BY CASE state WHEN 'todo' THEN 0 ELSE 1 END, rank DESC, createdAt, number", arguments: [project])
+                for (index, id) in ids.enumerated() {
+                    try db.execute(sql: "UPDATE task SET state = 'todo', rank = ? WHERE id = ?", arguments: [ids.count - index, id])
+                }
+            }
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -128,9 +138,9 @@ final class Store: Sendable {
         try db.execute(sql: "INSERT INTO taskNumber VALUES (?, ?) ON CONFLICT(projectId) DO UPDATE SET lastNumber = excluded.lastNumber", arguments: [projectID, number + count - 1])
         return number
     }
-    func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .backlog,
+    func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .todo,
                     rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) throws -> WorkTask {
-        guard [.backlog, .todo].contains(state) else { throw CoreError.invalid("New tasks must be Backlog or Queue") }
+        guard state == .todo else { throw CoreError.invalid("New tasks must be queued") }
         return try db.write { db in
             let number = try Self.allocateTaskNumbers(db, projectID: projectId)
             let task = WorkTask(projectId: projectId, number: number, title: title, description: description,

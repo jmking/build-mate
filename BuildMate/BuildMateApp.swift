@@ -49,12 +49,10 @@ struct BuildMateApp: App {
                     .help("Show tasks that need your attention (⌘1)")
                 Button("Chat") { model?.navigate(.chat) }.keyboardShortcut("2")
                     .help("Open project chat (⌘2)")
-                Button("Backlog") { model?.navigate(.backlog) }.keyboardShortcut("3")
-                    .help("Show tasks that are not queued to run (⌘3)")
-                Button("Tasks") { model?.navigate(.tasks) }.keyboardShortcut("4")
-                    .help("Show queued, running and completed work (⌘4)")
-                Button("Instructions") { model?.navigate(.instructions) }.keyboardShortcut("5")
-                    .help("Show this project’s instructions (⌘5)")
+                Button("Tasks") { model?.navigate(.tasks) }.keyboardShortcut("3")
+                    .help("Show queued, running and completed work (⌘3)")
+                Button("Instructions") { model?.navigate(.instructions) }.keyboardShortcut("4")
+                    .help("Show this project’s instructions (⌘4)")
                 Divider()
                 Button("Toggle List/Board") { model?.listMode.toggle() }.keyboardShortcut("l")
                     .help("Switch between the task list and board (⌘L)")
@@ -68,8 +66,8 @@ struct BuildMateApp: App {
                     .help("Search tasks in the current view (⌘F)")
             }
             CommandMenu("Task") {
-                Button("Refine Backlog Task in Chat") { if let task = model?.selectedTask { model?.refineInChat(task) } }
-                    .disabled(model?.selectedTask?.state != .backlog).help("Ask the project agent to refine the selected Backlog task")
+                Button("Refine Task in Chat") { if let task = model?.selectedTask { model?.refineInChat(task) } }
+                    .disabled(model?.selectedTask?.state != .todo).help("Ask the project agent to refine the selected queued task")
                 Button("Stop Project Response") { if let model, let project = model.selectedProject { model.perform { await model.core.stopProjectChat(project.id) } } }
                     .disabled(model?.snapshot.sessions.contains { $0.ownerType == "project" && $0.ownerId == model?.selectedProject?.id && ["queued", "running", "waiting"].contains($0.status) } != true)
                     .help("Stop the project agent’s current response")
@@ -128,11 +126,6 @@ struct BuildMateApp: App {
                 }.keyboardShortcut(.downArrow, modifiers: [.command, .control])
                     .help("Move the selected task one place later in priority (⌃⌘↓)")
                     .disabled(model?.selectedTask.flatMap { model?.priorityNeighbor($0, earlier: false) } == nil)
-                Button("Move to Backlog") {
-                    guard let model, let task = model.selectedTask else { return }
-                    model.perform { try await model.core.transition(task.id, to: .backlog); await model.core.tick() }
-                }.disabled(model?.selectedTask.map { [.todo, .needsClarification, .building, .humanReview].contains($0.state) } != true)
-                    .help("Remove this task from active work and keep it in Backlog")
                 Button("Delete Task…", role: .destructive) {
                     guard let model, let task = model.selectedTask else { return }
                     model.taskToDelete = task

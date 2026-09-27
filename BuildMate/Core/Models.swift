@@ -8,7 +8,7 @@ enum Host: String, Codable, Sendable {
     }
 }
 enum TaskState: String, Codable, CaseIterable, Sendable {
-    case backlog, todo, needsClarification = "needs_clarification", building
+    case todo, needsClarification = "needs_clarification", building
     case humanReview = "human_review", inPR = "in_pr", done, canceled
     var terminal: Bool { self == .done || self == .canceled }
 }
@@ -56,7 +56,7 @@ extension ProjectSettings {
 }
 extension Project {
     var runBlockReason: String? {
-        if host == .bitbucket { return "Bitbucket task runs are not available yet. You can save tasks to Backlog." }
+        if host == .bitbucket { return "Bitbucket task runs are not available yet." }
         return nil
     }
 }
@@ -114,7 +114,7 @@ struct WorkTask: Record {
     var number: Int
     var title: String
     var description = ""
-    var state: TaskState = .backlog
+    var state: TaskState = .todo
     var paused = false
     var rank: Double = 0
     var dependsOn: [UUID] = []
@@ -269,10 +269,9 @@ struct TransitionRules {
                          planApproved: Bool = true, merged: Bool = false) throws {
         let permitted: Bool
         if to == .canceled { permitted = !from.terminal }
-        else if to == .backlog { permitted = !from.terminal && from != .inPR }
         else {
             switch (from, to) {
-            case (.backlog, .todo), (.todo, .needsClarification), (.building, .needsClarification),
+            case (.todo, .needsClarification), (.building, .needsClarification),
                  (.needsClarification, .todo), (.humanReview, .building): permitted = true
             case (.todo, .building), (.needsClarification, .building):
                 permitted = questionsAnswered && dependenciesReady && planApproved

@@ -9,6 +9,8 @@ Every designed screen in light and dark mode. PNGs are 2× renders of the HTML r
 
 Mac screens are drawn as a 1440×900 window on a desktop wallpaper so the sidebar and toolbar glass can be seen; the wallpaper is not part of the app. iPhone screens are drawn at device size in points (Duo sizes are estimates).
 
+The Backlog screen and Backlog actions in these original references were retired on 2026-09-27. All created tasks now enter Queue; current specs supersede those draft-state controls.
+
 The live, editable canvas these were exported from is a private claude.ai artifact ("Build Mate", Light and Dark pages); these files are the source of truth for implementation.
 
 | Screen | PNG | HTML | Size (pt) | Spec |

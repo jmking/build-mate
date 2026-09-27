@@ -30,10 +30,10 @@ enum Destination: Hashable {
     case task(UUID)
 }
 enum ProjectPage: String, CaseIterable, Identifiable {
-    case chat = "Chat", backlog = "Backlog", tasks = "Tasks", instructions = "Instructions"
+    case chat = "Chat", tasks = "Tasks", instructions = "Instructions"
     var id: Self { self }
     var symbol: String {
-        switch self { case .chat: "bubble.left"; case .backlog: "list.bullet.rectangle"; case .tasks: "rectangle.split.3x1"; case .instructions: "doc.text" }
+        switch self { case .chat: "bubble.left"; case .tasks: "rectangle.split.3x1"; case .instructions: "doc.text" }
     }
 }
 
@@ -190,7 +190,7 @@ final class AppModel {
         return tasks.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || String($0.number).contains(search) }
     }
     func beginPriorityDrag(_ task: WorkTask) {
-        guard [.backlog, .todo].contains(task.state) else { return }
+        guard task.state == .todo else { return }
         priorityDrag = PriorityDrag(taskID: task.id, projectID: task.projectId, state: task.state)
     }
     func canDropPriority(on task: WorkTask) -> Bool {
@@ -216,8 +216,8 @@ final class AppModel {
         guard id != targetID else { return }
         try store.db.write { db in
             guard let task = try WorkTask.fetchOne(db, key: id), let target = try WorkTask.fetchOne(db, key: targetID),
-                  task.projectId == target.projectId, task.state == target.state, [.backlog, .todo].contains(task.state) else {
-                throw CoreError.invalid("Reorder tasks within the same project's Backlog or Queue list.")
+                  task.projectId == target.projectId, task.state == target.state, task.state == .todo else {
+                throw CoreError.invalid("Reorder tasks within the same project's Queue list.")
             }
             var group = try WorkTask.filter(Column("projectId") == task.projectId && Column("state") == task.state.rawValue)
                 .order(Column("rank").desc, Column("createdAt")).fetchAll(db).map(\.id)
@@ -232,7 +232,7 @@ final class AppModel {
         snapshot.tasks = try store.db.read { try WorkTask.order(Column("rank").desc, Column("createdAt")).fetchAll($0) }
     }
     func priorityNeighbor(_ task: WorkTask, earlier: Bool) -> WorkTask? {
-        guard [.backlog, .todo].contains(task.state) else { return nil }
+        guard task.state == .todo else { return nil }
         let group = snapshot.tasks.filter { $0.projectId == task.projectId && $0.state == task.state }
         guard let index = group.firstIndex(where: { $0.id == task.id }) else { return nil }
         let next = index + (earlier ? -1 : 1)
@@ -261,7 +261,7 @@ final class AppModel {
         guard deletingTasks.insert(task.id).inserted else { return }
         defer { deletingTasks.remove(task.id) }
         try await core.deleteTask(task.id)
-        if destination == .task(task.id) { destination = .project(task.projectId, task.state == .backlog ? .backlog : .tasks) }
+        if destination == .task(task.id) { destination = .project(task.projectId, .tasks) }
         backHistory.removeAll { $0 == .task(task.id) }
         forwardHistory.removeAll { $0 == .task(task.id) }
         if editingTask?.id == task.id { editingTask = nil }
@@ -281,9 +281,7 @@ final class AppModel {
         try add(discovered)
         await refresh()
     }
-    func createTask(projectID: UUID, title: String, description: String, start: Bool, proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) async throws {
-        let project = try store.get(Project.self, projectID)
-        if start, let reason = project.runBlockReason { throw CoreError.invalid(reason) }
+    func createTask(projectID: UUID, title: String, description: String, proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) async throws {
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolvedTitle.isEmpty || !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CoreError.invalid("Describe what you would like built.")
@@ -291,7 +289,7 @@ final class AppModel {
         let needsTitle = resolvedTitle.isEmpty
         if needsTitle { resolvedTitle = Orchestrator.provisionalTitle(description) }
         try Task.checkCancellation()
-        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, state: start ? .todo : .backlog, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files)
+        let task = try store.createTask(projectId: projectID, title: resolvedTitle, description: description, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files)
         snapshot.tasks.append(task)
         showNewTask = false; destination = .task(task.id)
         if needsTitle { await core.refineTitle(of: task) }
@@ -303,13 +301,7 @@ final class AppModel {
     }
     func refineInChat(_ task: WorkTask) {
         destination = .project(task.projectId, .chat)
-        perform { try await self.core.sendProjectMessage(task.projectId, text: "Help me refine this Backlog task: \(task.title) (task ID \(task.id)). Ask about unclear requirements, then update its description with refine_task. Keep it in Backlog.") }
-    }
-    func moveToTodo(_ task: WorkTask) async throws {
-        let project = try store.get(Project.self, task.projectId)
-        if let reason = project.runBlockReason { throw CoreError.invalid(reason) }
-        try await core.transition(task.id, to: .todo)
-        await core.tick()
+        perform { try await self.core.sendProjectMessage(task.projectId, text: "Help me refine this task: \(task.title) (task ID \(task.id)). Ask about unclear requirements, then update its description with refine_task. If coding has already started, pause it for replanning.") }
     }
     func pauseAll() throws { var value = try store.settings(); value.paused.toggle(); try store.saveSettings(value); Task { await core.tick() } }
     func pauseProject(_ project: Project) throws {
@@ -333,7 +325,7 @@ final class AppModel {
         guard let data = try? Data(contentsOf: selectionURL), let value = try? JSONDecoder().decode([String: String].self, from: data) else { return }
         lastProjectID = value["lastProject"].flatMap(UUID.init(uuidString:))
         if let id = value["task"].flatMap(UUID.init(uuidString:)), snapshot.tasks.contains(where: { $0.id == id }) { destination = .task(id) }
-        else if let id = value["project"].flatMap(UUID.init(uuidString:)), snapshot.projects.contains(where: { $0.id == id }), let page = value["page"].flatMap(ProjectPage.init(rawValue:)) { destination = .project(id, page) }
+        else if let id = value["project"].flatMap(UUID.init(uuidString:)), snapshot.projects.contains(where: { $0.id == id }), value["page"] != nil { destination = .project(id, value["page"].flatMap(ProjectPage.init(rawValue:)) ?? .tasks) }
     }
 
     var installedEditors: [InstalledApp] {

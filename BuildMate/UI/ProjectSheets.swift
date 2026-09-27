@@ -231,10 +231,8 @@ struct NewTaskSheet: View {
                 Spacer()
                 Button("Cancel") { creation?.cancel(); dismiss() }.keyboardShortcut(.cancelAction)
                     .help("Cancel task creation and close (Esc)")
-                Button("Add to queue") { create(start: true) }.disabled(!valid || selectedProject?.runBlockReason != nil)
+                Button("Add to queue") { create() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(!valid)
                     .help(selectedProject?.runBlockReason ?? "Queue this task to run when an agent slot is available and the project is resumed")
-                Button("Add to Backlog") { create(start: false) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(!valid)
-                    .help("Save this task for later without starting an agent (Return)")
             }
         }.padding(28).frame(width: 670)
             .modifier(ChatAttachmentDrop(files: $files, root: model.store.root, enabled: creation == nil))
@@ -244,13 +242,13 @@ struct NewTaskSheet: View {
     }
     private var selectedProject: Project? { model.snapshot.projects.first { $0.id == projectID } }
     private var valid: Bool { projectID != nil && creation == nil && !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private func create(start: Bool) {
+    private func create() {
         guard valid, let projectID else { return }
         failure = nil
         creation = Task {
             defer { creation = nil }
             do {
-                try await model.createTask(projectID: projectID, title: title, description: description, start: start, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files)
+                try await model.createTask(projectID: projectID, title: title, description: description, proofRequirement: proofRequirement, askBeforeBuild: askBeforeBuild, files: files)
                 await model.refresh()
             } catch is CancellationError { }
             catch { failure = error.localizedDescription }
