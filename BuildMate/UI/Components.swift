@@ -84,6 +84,9 @@ struct TaskCard: View {
             TaskPriorityActions(task: task)
             Button(task.paused ? "Resume" : "Pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }
                 .help(task.paused ? "Resume work on this task" : "Pause work on this task")
+            Divider()
+            Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
+                .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
         }
         .modifier(TaskPriorityDrag(task: task))
     }

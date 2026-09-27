@@ -195,6 +195,10 @@ struct TaskDetailView: View {
             ToolbarItem { ModelPicker(ownerID: task.id).id(task.id) }
             ToolbarItem { OpenInMenu().disabled(task.worktreePath == nil) }
             ToolbarItem {
+                Button("Delete Task…", systemImage: "trash", role: .destructive) { model.taskToDelete = task }
+                    .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
+            }
+            ToolbarItem {
                 Button(task.paused ? "Resume" : "Pause", systemImage: task.paused ? "play" : "pause") { model.perform { try await model.core.pause(task.id, paused: !task.paused) } }.disabled(task.state.terminal)
                     .help(task.paused ? "Resume work on this task (⌘.)" : "Pause work on this task (⌘.)")
             }

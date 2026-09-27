@@ -58,6 +58,61 @@ struct CoreTests {
         func cleanup() throws { try FileManager.default.removeItem(at: root) }
     }
 
+    @Test @MainActor func deletingRunningTaskStopsProcessesRemovesDirtyWorkAndNeverReusesItsNumber() async throws {
+        var f = try await Fixture()
+        f.project.settings.previewCommand = "preview"
+        f.project.settings.stallTimeoutMs = 0
+        try f.store.save(f.project)
+        try f.marker("stall"); try f.marker("ignore-interrupt")
+        let model = AppModel(store: f.store, runner: f.runner)
+        let task = try f.store.createTask(projectId: f.project.id, title: "Delete while running", state: .todo, files: [f.control.appending(path: "proof.png")])
+        await model.core.tick()
+        let deadline = Date().addingTimeInterval(20)
+        while try f.store.session(for: task.id).currentTurn == nil && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        #expect(try f.store.session(for: task.id).currentTurn != nil)
+        let running = try f.store.get(WorkTask.self, task.id)
+        let cwd = try #require(running.worktreePath)
+        try "unfinished".write(toFile: cwd + "/uncommitted.txt", atomically: true, encoding: .utf8)
+        let url = try await model.core.startPreview(task.id)
+        try await model.core.setModel(ownerID: task.id, projectChat: false, model: "gpt-6-astra", effort: "high")
+        let session = try f.store.session(for: task.id)
+        _ = try f.store.saveChatMessage(Message(sessionId: session.id, role: "user", body: "Keep this attachment"), files: [f.control.appending(path: "proof.png")], projectID: f.project.id, ownerID: task.id)
+        var dependent = try f.store.createTask(projectId: f.project.id, title: "Dependent", state: .todo, dependsOn: [task.id])
+        dependent.stackOn = task.id; try f.store.save(dependent)
+        await model.refresh(); model.destination = .task(task.id)
+        f.project.settings.hooks.beforeRemove = "exit 7"; try f.store.save(f.project)
+        do { try await model.deleteTask(running); Issue.record("Deleted despite failed cleanup hook") } catch {}
+        #expect(try f.store.get(WorkTask.self, task.id).paused)
+        #expect(FileManager.default.fileExists(atPath: cwd + "/uncommitted.txt"))
+        f.project.settings.hooks.beforeRemove = ""; try f.store.save(f.project)
+        try await model.deleteTask(running)
+        #expect(model.destination == .project(f.project.id, .tasks))
+        #expect(!model.snapshot.tasks.contains { $0.id == task.id })
+        #expect(!model.snapshot.sessions.contains { $0.ownerId == task.id })
+        #expect(!model.snapshot.messages.contains { $0.sessionId == session.id })
+        #expect(!model.snapshot.agentConfigurations.contains { $0.id == task.id })
+        #expect(try f.store.all(Attachment.self).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: cwd))
+        #expect(!FileManager.default.fileExists(atPath: f.store.root.appending(path: "projects/\(f.project.id)/media/\(task.id)").path))
+        #expect(await model.core.previews[task.id] == nil)
+        #expect(await model.core.heavySteps == 0)
+        do { _ = try await URLSession.shared.data(from: url); Issue.record("Deleted task left preview running") } catch {}
+        let remaining = try f.store.get(WorkTask.self, dependent.id)
+        #expect(remaining.paused && remaining.dependsOn.isEmpty && remaining.stackOn == nil)
+        #expect(try await f.runner.run("git", ["show-ref", "--verify", "refs/heads/" + running.branchName!], cwd: f.repo.path).status == 0)
+        // Removing the highest number must not reuse a retained branch on the next creation.
+        try await model.deleteTask(remaining)
+        let next = try f.store.createTask(projectId: f.project.id, title: task.title)
+        #expect(next.number > dependent.number)
+        await model.core.tick(); await model.refresh()
+        #expect(!model.snapshot.tasks.contains { $0.id == task.id }) // Late worker cleanup cannot resurrect it.
+        #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
+        await model.core.shutdown()
+        try f.cleanup()
+    }
+
     @Test func lifecycleKeepsCloneCleanGatesProofAndFinishesOnlyAfterMerge() async throws {
         var f = try await Fixture()
         f.project.settings.askBeforeBuild = false

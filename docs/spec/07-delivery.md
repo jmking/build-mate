@@ -126,3 +126,9 @@ User-directed additions: remove clean worktrees after confirmed merge (retain ta
 - Per-task and project-chat model/effort selectors are now v1. Project chat defaults to Astra High. Selections persist independently of lifecycle writes and apply to subsequent turns on the same thread, including after restart.
 - Build and all ten tests pass in approximately 71 seconds. Extended existing process-boundary lifecycle/chat flows verify default Astra High, actual turn overrides, active-turn preservation, unsupported effort/model rejection, proof preservation and restart persistence. No new test suite or real inference calls were added.
 - Installed Codex 0.151.0 currently does not advertise Astra, including hidden models. The default remains Astra High, with an explicit availability error; select an available model to chat on this installation. Native light/dark, keyboard-only and spoken VoiceOver acceptance remain pending because preview-app Computer Use access was previously denied.
+
+## Delete active tasks (2026-09-27)
+
+- Delete Task is available from the task toolbar, Task menu (⌘Delete), board/list/Needs You context menus and the project-chat task link. Confirm before stopping work and removing the local task and its worktree. Dependencies pause for review; branches and remote PRs remain.
+- Eleven tests pass in about 74 seconds. The added process-boundary flow deletes a running fake-Codex task with dirty files, a live preview, task/chat attachments and a dependent task. It checks cleanup-hook failure/retry, process cleanup, navigation, durable record removal, branch/clone preservation, paused dependents and non-reuse of deleted task numbers.
+- Manual confirmation-dialog, light/dark and VoiceOver interaction remain unverified; native UI automation access was previously denied.

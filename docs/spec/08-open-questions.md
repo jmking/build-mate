@@ -213,3 +213,7 @@ Read-only manual `model/list` probe against installed codex-cli 0.151.0 returned
 ### Compact project-chat inspector (2026-09-27)
 
 Interpret “just show the last” as the single most recently created task originating from this project chat, using the project’s monotonically increasing task number. Older tasks remain in the board/Backlog. Keep Project information and Open Tasks in a separate fixed bottom section, outside the task scroll area.
+
+### Deleting active tasks (2026-09-27)
+
+The user explicitly requests deletion even during work. Treat confirmed deletion as authorization to discard unfinished changes in that task’s app-owned worktree. Retain Git branches and hosted PRs; pause dependent tasks and remove their deleted dependency/stack references, requiring deliberate review/resume. A failed cleanup hook or Git removal leaves the task paused for retry. This extends the previous core delete operation, which required manual pause and refused dirty worktrees.

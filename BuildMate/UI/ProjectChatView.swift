@@ -104,6 +104,10 @@ struct ProjectChatView: View {
                                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                             }.contentShape(Rectangle())
                         }.buttonStyle(.plain).help("Open \(task.title)")
+                            .contextMenu {
+                                Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
+                                    .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
+                            }
                     } else {
                         Text("Your latest task from this chat will appear here.").foregroundStyle(.secondary)
                     }

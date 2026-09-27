@@ -65,6 +65,8 @@ final class AppModel {
     var showAddProject = false
     var showNewTask = false
     var editingTask: WorkTask?
+    var taskToDelete: WorkTask?
+    var deletingTasks: Set<UUID> = []
     var showInspector = true
     var toggleSidebar = false
     var listMode = false
@@ -254,6 +256,18 @@ final class AppModel {
             do { try await operation(); await refresh() }
             catch { self.error = error.localizedDescription }
         }
+    }
+    func deleteTask(_ task: WorkTask) async throws {
+        guard deletingTasks.insert(task.id).inserted else { return }
+        defer { deletingTasks.remove(task.id) }
+        try await core.deleteTask(task.id)
+        if destination == .task(task.id) { destination = .project(task.projectId, task.state == .backlog ? .backlog : .tasks) }
+        backHistory.removeAll { $0 == .task(task.id) }
+        forwardHistory.removeAll { $0 == .task(task.id) }
+        if editingTask?.id == task.id { editingTask = nil }
+        if priorityDrag?.taskID == task.id { priorityDrag = nil }
+        chatDrafts[task.id] = nil; attachmentDrafts[task.id] = nil
+        await refresh()
     }
     func add(_ discovered: DiscoveredProject) throws {
         guard !snapshot.projects.contains(where: { $0.repoPath == discovered.project.repoPath }) else { throw CoreError.invalid("This clone is already a project.") }

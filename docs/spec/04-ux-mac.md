@@ -235,3 +235,7 @@ While an agent responds, project and task chats show a compact Messages-style th
 ### Conversation model and effort (2026-09-27)
 
 Task and project chat toolbars show the selected model and effort. The native popover provides model/effort pickers, supported choices from Codex, refresh, errors, tooltips and accessibility labels. Choices can be changed in any task state or during a response, persist across restart, and apply at the next turn without discarding history or interrupting work. A pending-change explanation appears when the current turn uses a different choice. Project chat defaults to Astra High; tasks inherit project/Codex defaults until changed. An unavailable configured model remains visible with guidance to choose another or update Codex; no silent fallback.
+
+### Delete tasks (2026-09-27)
+
+Every task state, including active work, has Delete Task in the task toolbar, card/list context menu and Task menu (⌘Delete). A destructive confirmation names the task and explains removal of its conversation, attachments, proof and worktree, including uncommitted changes. Existing Git branches and hosted pull requests remain. Dependent tasks are paused for review. On success the open task returns to its project’s board (or Backlog), and navigation history drops the deleted task. Cancel closes the confirmation without modifying anything.

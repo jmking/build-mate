@@ -75,6 +75,10 @@ struct NeedsYouView: View {
                         .accessibilityLabel("\(task.title), \(model.projectName(task.projectId)). \(detail(task))")
                         .accessibilityHint("Opens the task")
                         .accessibilityIdentifier("needs-you-\(title)-\(task.number)")
+                        .contextMenu {
+                            Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
+                                .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
+                        }
                 }
             }
         }

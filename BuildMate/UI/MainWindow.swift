@@ -116,6 +116,13 @@ struct MainWindow: View {
         .sheet(isPresented: $model.showNewTask) { NewTaskSheet().presentationBackground(AppSurface.sheet) }
         .sheet(item: $model.reviewSheet) { LifecycleSheet(sheet: $0).presentationBackground(AppSurface.sheet) }
         .sheet(item: $model.editingTask) { EditTaskSheet(task: $0).presentationBackground(AppSurface.sheet) }
+        .alert("Delete task?", isPresented: Binding(get: { model.taskToDelete != nil }, set: { if !$0 { model.taskToDelete = nil } }), presenting: model.taskToDelete) { task in
+            Button("Delete Task", role: .destructive) { model.perform { try await model.deleteTask(task) } }
+                .help("Stop the agent and permanently delete this task")
+            Button("Cancel", role: .cancel) {}.help("Keep this task")
+        } message: { task in
+            Text("Delete ‘\(task.title)’? Its agent and preview will stop. Its chat history, attachments, proof and worktree—including uncommitted changes—will be deleted. Dependent tasks will be paused. Git branches and existing pull requests will remain. This cannot be undone.")
+        }
         .alert("Unable to complete the action", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }.help("Dismiss this error")
         } message: { Text(model.error ?? "") }

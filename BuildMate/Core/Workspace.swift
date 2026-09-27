@@ -39,14 +39,15 @@ struct Workspace: Sendable {
         }
         return task
     }
-    func remove(_ task: WorkTask, project: Project) async throws {
+    func remove(_ task: WorkTask, project: Project, discardChanges: Bool = false) async throws {
         guard let path = task.worktreePath else { return }
         try ensureOwned(path)
         guard FileManager.default.fileExists(atPath: path) else { return }
         try await runner.hook(project.settings.hooks.beforeRemove, cwd: path, timeout: project.settings.hooks.timeoutSeconds)
         try ensureOwned(path)
-        // No --force: uncommitted work must never disappear during cleanup.
-        _ = try await runner.run("git", ["worktree", "remove", path], cwd: project.repoPath)
+        // Only explicit task deletion discards unfinished work; automatic cleanup remains conservative.
+        let arguments = ["worktree", "remove"] + (discardChanges ? ["--force"] : []) + [path]
+        _ = try await runner.run("git", arguments, cwd: project.repoPath)
     }
     func ensureOwned(_ path: String) throws {
         let root = store.root.resolvingSymlinksInPath()

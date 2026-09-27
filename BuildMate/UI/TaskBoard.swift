@@ -99,6 +99,9 @@ struct TaskList: View {
                                             Button("Refine with Agent") { model.refineInChat(task) }.help("Refine this task’s description in project chat")
                                         }
                                         TaskPriorityActions(task: task)
+                                        Divider()
+                                        Button("Delete Task…", role: .destructive) { model.taskToDelete = task }
+                                            .disabled(model.deletingTasks.contains(task.id)).help("Delete this task, including its conversation and worktree")
                                     }
                                     .modifier(TaskPriorityDrag(task: task))
                             }

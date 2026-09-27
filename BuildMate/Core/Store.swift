@@ -75,6 +75,10 @@ final class Store: Sendable {
             try db.execute(sql: "ALTER TABLE session ADD COLUMN activeModel TEXT")
             try db.execute(sql: "ALTER TABLE session ADD COLUMN activeEffort TEXT")
         }
+        migrator.registerMigration("v7-task-number-sequence") { db in
+            try db.execute(sql: "CREATE TABLE taskNumber (projectId TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE, lastNumber INTEGER NOT NULL)")
+            try db.execute(sql: "INSERT INTO taskNumber SELECT projectId, MAX(number) FROM task GROUP BY projectId")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
@@ -118,11 +122,17 @@ final class Store: Sendable {
             var value = try settings(); value.instructions = text; try saveSettings(value)
         }
     }
+    /// Never reuse a deleted task’s branch/worktree number, including proposal batches.
+    static func allocateTaskNumbers(_ db: Database, projectID: UUID, count: Int = 1) throws -> Int {
+        let number = try Int.fetchOne(db, sql: "SELECT MAX(COALESCE((SELECT lastNumber FROM taskNumber WHERE projectId = ?), 0), COALESCE((SELECT MAX(number) FROM task WHERE projectId = ?), 0)) + 1", arguments: [projectID, projectID])!
+        try db.execute(sql: "INSERT INTO taskNumber VALUES (?, ?) ON CONFLICT(projectId) DO UPDATE SET lastNumber = excluded.lastNumber", arguments: [projectID, number + count - 1])
+        return number
+    }
     func createTask(projectId: UUID, title: String, description: String = "", state: TaskState = .backlog,
                     rank: Double = 0, dependsOn: [UUID] = [], proofRequirement: ProofRequirement = .automatic, askBeforeBuild: Bool? = nil, files: [URL] = []) throws -> WorkTask {
         guard [.backlog, .todo].contains(state) else { throw CoreError.invalid("New tasks must be Backlog or Queue") }
         return try db.write { db in
-            let number = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE projectId = ?", arguments: [projectId])!
+            let number = try Self.allocateTaskNumbers(db, projectID: projectId)
             let task = WorkTask(projectId: projectId, number: number, title: title, description: description,
                                 state: state, rank: rank, dependsOn: dependsOn, askBeforeBuild: askBeforeBuild, proofRequirement: proofRequirement)
             guard files.count <= 20 else { throw CoreError.invalid("Attach up to 20 files per task.") }

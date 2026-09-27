@@ -133,6 +133,12 @@ struct BuildMateApp: App {
                     model.perform { try await model.core.transition(task.id, to: .backlog); await model.core.tick() }
                 }.disabled(model?.selectedTask.map { [.todo, .needsClarification, .building, .humanReview].contains($0.state) } != true)
                     .help("Remove this task from active work and keep it in Backlog")
+                Button("Delete Task…", role: .destructive) {
+                    guard let model, let task = model.selectedTask else { return }
+                    model.taskToDelete = task
+                }.keyboardShortcut(.delete, modifiers: .command)
+                    .disabled(model?.selectedTask == nil || model?.selectedTask.map { model?.deletingTasks.contains($0.id) == true } == true)
+                    .help("Delete the selected task after confirmation (⌘Delete)")
                 Button("Cancel Task") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.transition(task.id, to: .canceled); await model.core.tick() }

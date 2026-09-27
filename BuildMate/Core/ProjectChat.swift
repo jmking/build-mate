@@ -248,7 +248,7 @@ extension Orchestrator {
             for index in selected {
                 guard Set(proposal.tasks[index].dependsOnIndex).isSubset(of: selected) else { throw CoreError.invalid("Include the selected task’s dependencies, or ask the agent to revise the proposal.") }
             }
-            let number = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(number), 0) + 1 FROM task WHERE projectId = ?", arguments: [projectID])!
+            let number = try Store.allocateTaskNumbers(db, projectID: projectID, count: selected.count)
             var created: [Int: WorkTask] = [:]
             // Append below existing ranked tasks, preserving proposal order.
             let rank = try Double.fetchOne(db, sql: "SELECT COALESCE(MIN(rank), 0) FROM task WHERE projectId = ?", arguments: [projectID])!

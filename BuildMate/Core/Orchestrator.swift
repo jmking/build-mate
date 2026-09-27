@@ -144,7 +144,7 @@ actor Orchestrator {
             let settings = try store.settings()
             let tasks = try store.all(WorkTask.self)
             let projects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
-            for task in tasks where (task.state == .inPR || (task.state == .done && task.worktreePath != nil)) && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
+            for task in tasks where (task.state == .inPR || (task.state == .done && task.worktreePath != nil)) && !editingTasks.contains(task.id) && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
                 polling.insert(task.id); lastPoll[task.id] = now
                 Task { await pollPR(task.id) }
             }
@@ -382,21 +382,49 @@ actor Orchestrator {
         } catch { lastError = runner.redacted(error.localizedDescription) }
     }
     func deleteTask(_ id: UUID) async throws {
-        guard workers[id] == nil else { throw CoreError.invalid("Pause the task before deleting it") }
+        guard editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
+        defer { editingTasks.remove(id) }
+        var task = try store.get(WorkTask.self, id)
+        task.paused = true; try store.save(task)
+        let naming = titleJobs[id]
+        naming?.cancel()
+        if let worker = workers[id] {
+            let client = clients[id]
+            // Cancel first: closing the process unblocks RPCs without waiting for an agent response.
+            worker.cancel(); await client?.stop(); await worker.value
+        }
+        await naming?.value
         await stopPreview(id)
-        let task = try store.get(WorkTask.self, id)
+        // An already-started publish/poll owns the worktree until its operation completes.
+        // The edit lock prevents new publishes, previews, polls and agent dispatches.
+        while openingPRs.contains(id) || polling.contains(id) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        task = try store.get(WorkTask.self, id)
         let project = try store.get(Project.self, task.projectId)
-        try await Workspace(store: store, runner: runner).remove(task, project: project)
+        try await Workspace(store: store, runner: runner).remove(task, project: project, discardChanges: true)
+        for path in [store.root.appending(path: "logs/\(id)"), store.root.appending(path: "projects/\(project.id)/media/\(id)")] {
+            if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
+        }
+        let deletedTitle = task.title
         try await store.db.write { db in
+            for var dependent in try WorkTask.fetchAll(db) where dependent.dependsOn.contains(id) || dependent.stackOn == id {
+                dependent.dependsOn.removeAll { $0 == id }
+                if dependent.stackOn == id { dependent.stackOn = nil }
+                dependent.paused = true
+                try dependent.save(db)
+                let session = try Session.filter(Column("ownerType") == "task" && Column("ownerId") == dependent.id).fetchOne(db) ?? Session(ownerType: "task", ownerId: dependent.id)
+                try session.save(db)
+                try Message(sessionId: session.id, role: "system", kind: "event", body: "Paused because dependency ‘\(deletedTitle)’ was deleted. Review the task before resuming.").insert(db)
+            }
             try db.execute(sql: "DELETE FROM attachment WHERE ownerType = 'message' AND ownerId IN (SELECT message.id FROM message JOIN session ON session.id = message.sessionId WHERE session.ownerType = 'task' AND session.ownerId = ?)", arguments: [id])
             try db.execute(sql: "DELETE FROM session WHERE ownerType = 'task' AND ownerId = ?", arguments: [id])
             try db.execute(sql: "DELETE FROM attachment WHERE ownerType = 'task' AND ownerId = ?", arguments: [id])
+            _ = try AgentConfiguration.deleteOne(db, key: id)
             _ = try WorkTask.deleteOne(db, key: id)
         }
-        let logs = store.root.appending(path: "logs/\(id)")
-        if FileManager.default.fileExists(atPath: logs.path) { try FileManager.default.removeItem(at: logs) }
-        let media = store.root.appending(path: "projects/\(project.id)/media/\(id)")
-        if FileManager.default.fileExists(atPath: media.path) { try FileManager.default.removeItem(at: media) }
+        lastPoll[id] = nil
+        await tick()
     }
     func deleteProject(_ id: UUID) async throws {
         await stopProjectChat(id)
@@ -552,7 +580,7 @@ actor Orchestrator {
 
     private func requireRunnable(_ task: WorkTask) throws {
         let project = try store.get(Project.self, task.projectId)
-        guard !shuttingDown, project.runBlockReason == nil, !task.paused, !project.paused, !(try store.settings()).paused,
+        guard !shuttingDown, !Task.isCancelled, project.runBlockReason == nil, !task.paused, !project.paused, !(try store.settings()).paused,
               !task.state.terminal, task.state != .backlog, try dependenciesReady(task) else { throw CancellationError() }
     }
 
