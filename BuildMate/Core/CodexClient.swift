@@ -10,6 +10,9 @@ actor CodexClient {
     private(set) var lastEventAt = Date()
     private var timeout: Double = 5
     private var activeCommands: Set<String> = []
+    private var activeTurns: [String: String] = [:]
+    private var startedSubagentActivities: Set<String> = []
+    private var stopping: Task<Void, Never>?
 
     func start(runner: ProcessRunner, cwd: String, timeout: Double) async throws {
         self.timeout = timeout
@@ -31,6 +34,17 @@ actor CodexClient {
     }
     private func receive(_ value: JSON) {
         lastEventAt = Date()
+        let item = value["params"]["item"]
+        if value["method"].string == "item/started", item["type"].string == "subAgentActivity",
+           let thread = value["params"]["threadId"].string, let id = item["id"].string {
+            let key = thread + ":" + id + ":" + (item["kind"].string ?? "")
+            // Replayed interaction notifications must not restart a finished child.
+            guard startedSubagentActivities.insert(key).inserted else { return }
+        }
+        if let thread = value["params"]["threadId"].string, let turn = value["params"]["turn"]["id"].string {
+            if value["method"].string == "turn/started" { activeTurns[thread] = turn }
+            if value["method"].string == "turn/completed", activeTurns[thread] == turn { activeTurns[thread] = nil }
+        }
         if let itemId = value["params"]["item"]["id"].string {
             if value["method"].string == "item/started", value["params"]["item"]["type"].string == "commandExecution" { activeCommands.insert(itemId) }
             if value["method"].string == "item/completed" { activeCommands.remove(itemId) }
@@ -82,7 +96,32 @@ actor CodexClient {
         }
         _ = try? await request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)], timeout: 4)
     }
-    func stop() async { reader?.cancel(); reader = nil; await child.stop() }
+    func stop() async {
+        // Cancellation of the owning task must not skip native child cleanup.
+        if let stopping { await stopping.value; return }
+        let stopping = Task.detached { await self.stopTurnsAndProcess() }
+        self.stopping = stopping
+        await stopping.value
+    }
+    private func stopTurnsAndProcess() async {
+        let turns = activeTurns
+        await withTaskGroup(of: Void.self) { group in
+            for (thread, turn) in turns {
+                group.addTask {
+                    _ = try? await self.request("turn/interrupt", ["threadId": .string(thread), "turnId": .string(turn)], timeout: 2)
+                }
+            }
+        }
+        // Codex can place shell tools in their own process groups. Let its native
+        // interruption finish before terminating the app-server's process group.
+        let deadline = Date().addingTimeInterval(2)
+        while !activeTurns.isEmpty, Date() < deadline, failure == nil {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        reader?.cancel(); reader = nil
+        await child.stop()
+        activeTurns.removeAll()
+    }
 
     static let tools: JSON = .array([
         tool("ask_question", "Ask the user before making an unclear decision. Blocking questions wait for an answer. Include suggestedAnswer only when you have a reasonable default for the user to confirm.",

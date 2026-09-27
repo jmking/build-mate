@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 
 @Suite(.serialized)
@@ -590,6 +591,81 @@ struct CoreTests {
         #expect(try f.store.get(WorkTask.self, task.id).retry!.error.contains("outside Build Mate storage"))
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
         await escaped.shutdown()
+        try f.cleanup()
+    }
+
+    // Catches child/foreign events finishing or mutating the parent, lost delegated results and orphaned delegation on stop.
+    @Test func delegatedAgentsStayIsolatedPersistResultsAndStopWithTheirTask() async throws {
+        let f = try await Fixture()
+        try f.marker("subagents")
+        let task = try f.store.createTask(projectId: f.project.id, title: "Coordinate delegated research", proofRequirement: .checksOnly)
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        await core.tick()
+        try await f.wait("parent question after child completion") {
+            try f.store.get(WorkTask.self, task.id).state == .needsClarification
+                && (try? String(contentsOf: f.control.appending(path: "delegated-rejections.jsonl"), encoding: .utf8))?.contains("missing-thread-lifecycle") == true
+        }
+        let session = try f.store.session(for: task.id)
+        let rootThread = try #require(session.codexThreadId)
+        #expect(session.turnCount == 1 && session.tokensIn == 11 && session.tokensOut == 7)
+        #expect(try f.store.all(Proof.self).isEmpty && f.store.all(Approval.self).isEmpty)
+        #expect(try !f.store.all(Message.self).contains { $0.body.contains("Delegated findings") || $0.body.contains("CHILD MUST") || $0.body.contains("FOREIGN") })
+        let children = try f.store.all(Subagent.self).filter { $0.sessionId == session.id }
+        #expect(children.count == 2 && children.allSatisfy { $0.parentThreadId == rootThread })
+        let research = try #require(children.first { $0.threadId.contains("-research-") })
+        #expect(research.status == "completed" && research.result == "Delegated findings only.")
+        #expect(research.name.lowercased().contains("research"))
+        let rejected = try String(contentsOf: f.control.appending(path: "delegated-rejections.jsonl"), encoding: .utf8)
+        #expect(rejected.contains("delegated-lifecycle") && rejected.contains("foreign-lifecycle") && rejected.contains("missing-thread-lifecycle"))
+        let question = try #require(f.store.all(Question.self).first { $0.taskId == task.id })
+        try await core.answer(question.id, text: "Plain")
+        try await f.wait("only the parent completes proof") {
+            try f.store.get(WorkTask.self, task.id).state == .humanReview && f.store.session(for: task.id).status == "idle"
+        }
+        let fixtureState = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: f.control.appending(path: rootThread + ".json")))
+        // Active turns, early completion activity and pending follow-up interaction all block proof; the fourth request runs it once.
+        #expect(fixtureState["delegated_review_gates"].int == 3 && fixtureState["reviews"].int == 4)
+        let proofs = try f.store.all(Proof.self).filter { $0.taskId == task.id }
+        #expect(proofs.count == 1 && proofs[0].complete)
+        #expect(try f.store.all(Message.self).filter { $0.sessionId == session.id && $0.body == "Proof passed. Ready for review." }.count == 1)
+        #expect(try Store(root: f.store.root).get(Subagent.self, research.id).result == "Follow-up verified.")
+
+        // Native child work belongs to the parent app-server process; pause and shutdown must stop it and persist that outcome.
+        try f.marker("subagent-hold")
+        let held = try f.store.createTask(projectId: f.project.id, title: "Hold delegated work")
+        let heldSession = try f.store.session(for: held.id)
+        await core.tick()
+        try await f.wait("live delegated task") {
+            try f.store.session(for: held.id).currentTurn != nil && f.store.all(Subagent.self).contains { $0.sessionId == heldSession.id && $0.threadId.hasSuffix("checker-turn-1") && $0.isActive }
+        }
+        let firstPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegating-pid"), encoding: .utf8)))
+        let firstChildPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegated-command-pid"), encoding: .utf8)))
+        let heldThread = try #require(f.store.session(for: held.id).codexThreadId)
+        #expect(try f.store.get(WorkTask.self, held.id).state == .todo)
+        try await core.pause(held.id, paused: true)
+        try await f.wait("paused server PID \(firstPID) and child PID \(firstChildPID) exit") {
+            kill(firstPID, 0) != 0 && kill(firstChildPID, 0) != 0
+        }
+        let pauseCalls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }
+        #expect(pauseCalls.contains { $0["method"].string == "turn/interrupt" && $0["params"]["threadId"].string == heldThread + "-checker-turn-1" && $0["params"]["turnId"].string == "child-turn-1-checker" })
+        #expect(try f.store.all(Subagent.self).filter { $0.sessionId == heldSession.id }.allSatisfy { !$0.isActive })
+        #expect(try f.store.all(Subagent.self).contains { $0.sessionId == heldSession.id && $0.status == "interrupted" })
+        try await core.pause(held.id, paused: false)
+        try await f.wait("delegation resumes in the same parent thread") {
+            try f.store.session(for: held.id).turnCount == 2 && f.store.all(Subagent.self).contains { $0.sessionId == heldSession.id && $0.threadId.hasSuffix("checker-turn-2") && $0.isActive }
+        }
+        let resumedPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegating-pid"), encoding: .utf8)))
+        let resumedChildPID = try #require(Int32(String(contentsOf: f.control.appending(path: "delegated-command-pid"), encoding: .utf8)))
+        #expect(try f.store.session(for: held.id).codexThreadId == heldThread)
+        await core.shutdown()
+        try await f.wait("shutdown server PID \(resumedPID) and child PID \(resumedChildPID) exit") {
+            kill(resumedPID, 0) != 0 && kill(resumedChildPID, 0) != 0
+        }
+        let shutdownCalls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }
+        #expect(shutdownCalls.contains { $0["method"].string == "turn/interrupt" && $0["params"]["threadId"].string == heldThread + "-checker-turn-2" && $0["params"]["turnId"].string == "child-turn-2-checker" })
+        let savedChildren = try Store(root: f.store.root).all(Subagent.self).filter { $0.sessionId == heldSession.id }
+        #expect(!savedChildren.isEmpty && savedChildren.allSatisfy { !$0.isActive })
+        #expect(savedChildren.contains { $0.threadId.hasSuffix("checker-turn-2") && $0.status == "interrupted" })
         try f.cleanup()
     }
 

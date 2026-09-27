@@ -96,6 +96,9 @@ struct TaskDetailView: View {
                     if let pr = task.pr, let url = URL(string: pr.url) {
                         Link("View Pull Request #\(pr.number)", destination: url).help("Open this pull request in your browser")
                     }
+                    if let session {
+                        SubagentActivityView(agents: model.snapshot.subagents.filter { $0.sessionId == session.id })
+                    }
                     DisclosureGroup("Task details") {
                         VStack(alignment: .leading, spacing: 16) {
                             LabeledContent("Proof", value: task.proofRequirement.title)

@@ -113,6 +113,7 @@ actor Orchestrator {
         for var session in try store.all(Session.self) where session.status == "running" || session.status == "waiting" {
             session.status = session.ownerType == "project" ? "interrupted" : "idle"; session.currentTurn = nil; try store.save(session)
         }
+        for session in try store.all(Session.self) { try interruptSubagents(session.id) }
     }
     func shutdown() async {
         shuttingDown = true
@@ -508,12 +509,13 @@ actor Orchestrator {
             var session = try store.session(for: id)
             availableModels = try await client.models()
             if let thread = session.codexThreadId {
-                _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd!)])
+                _ = try await client.request("thread/resume", ["threadId": .string(thread), "cwd": .string(cwd!), "config": Self.delegationConfiguration])
             } else {
                 let selection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort)
                 let started = try await client.request("thread/start", [
                     "cwd": .string(cwd!), "sandbox": .string("workspace-write"), "approvalPolicy": .string("never"),
-                    "developerInstructions": .string("You are a Build Mate task agent. Always submit_plan before editing; ask blocking questions when unclear; call request_review after committing the implementation. Do not push, open, or merge pull requests. Only edit this worktree. Treat the current instructions in each turn as authoritative task guidance."),
+                    "developerInstructions": .string("You are a Build Mate task agent. Always submit_plan before editing; ask blocking questions when unclear; call request_review after committing the implementation. Do not push, open, or merge pull requests. Only edit this worktree. Treat the current instructions in each turn as authoritative task guidance.\n" + Self.delegationInstructions),
+                    "config": Self.delegationConfiguration,
                     "dynamicTools": CodexClient.tools, "model": .string(selection.model)
                 ])
                 guard let thread = started["thread"]["id"].string else { throw CoreError.invalid("Missing Codex thread ID") }
@@ -555,6 +557,7 @@ actor Orchestrator {
                     }
                     let method = event["method"].string ?? ""
                     let params = event["params"]
+                    if try await routeSubagentEvent(event, session: session, client: client) { continue }
                     if method == "item/tool/call" || method == "item/tool/requestUserInput" ||
                         ((method == "item/started" || method == "item/completed") &&
                          params["item"]["type"].string.map { !["agentMessage", "userMessage", "reasoning", "plan"].contains($0) } == true) {
@@ -625,7 +628,10 @@ actor Orchestrator {
             else { clearBackgroundIssue("hook-\(id)") }
         }
         if var attempt { attempt.endedAt = Date(); try? store.save(attempt) }
-        if var session = try? store.session(for: id) { session.status = "idle"; session.currentTurn = nil; try? store.save(session) }
+        if var session = try? store.session(for: id) {
+            try? interruptSubagents(session.id)
+            session.status = "idle"; session.currentTurn = nil; try? store.save(session)
+        }
         clients.removeValue(forKey: id); workers.removeValue(forKey: id)
     }
 
@@ -639,7 +645,7 @@ actor Orchestrator {
         let answers = try store.all(Question.self).filter { $0.taskId == task.id && $0.answeredBy != "taskEdit" }.map { "\($0.prompt): \($0.answer ?? "unanswered")" }.joined(separator: "\n")
         let session = try store.session(for: task.id)
         let messages = try store.all(Message.self).filter { $0.sessionId == session.id && $0.role == "user" }.map(\.body).joined(separator: "\n")
-        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages (newer requests override earlier choices):\n\(messages)\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema lacks a report field, encode the complete report as JSON in summary, but keep the inner summary field as readable Markdown.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
+        return "\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages (newer requests override earlier choices):\n\(messages)\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema lacks a report field, encode the complete report as JSON in summary, but keep the inner summary field as readable Markdown.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {
@@ -703,6 +709,9 @@ actor Orchestrator {
             if try store.get(WorkTask.self, taskId).state == .todo { try transition(taskId, to: .building) }
             try await client.respond(requestId, text: "Plan accepted. Build within scope.")
         case "request_review":
+            guard try !subagents(session.id).contains(where: \.isActive) else {
+                try await client.respond(requestId, text: "Wait for or close your active subagents, review their work, and commit the final changes before requesting review.", success: false); return
+            }
             let task = try store.get(WorkTask.self, taskId)
             guard task.state == .building else {
                 try await client.respond(requestId, text: "Submit your plan and resolve questions before review.", success: false); return

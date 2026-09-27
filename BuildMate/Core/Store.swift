@@ -89,6 +89,14 @@ final class Store: Sendable {
                 }
             }
         }
+        migrator.registerMigration("v9-subagents") { db in
+            try db.execute(sql: """
+            CREATE TABLE subagent (id TEXT PRIMARY KEY, sessionId TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+              threadId TEXT NOT NULL, parentThreadId TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+              status TEXT NOT NULL, result TEXT NOT NULL, currentTurn TEXT, model TEXT, effort TEXT,
+              createdAt DATETIME NOT NULL, updatedAt DATETIME NOT NULL, UNIQUE(sessionId, threadId));
+            """)
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

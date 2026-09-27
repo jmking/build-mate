@@ -165,6 +165,36 @@ struct Message: Record, Equatable {
     var payload: JSON = .null
     var createdAt = Date()
 }
+struct Subagent: Record, Equatable {
+    static let databaseTableName = "subagent"
+    var id = UUID()
+    var sessionId: UUID
+    var threadId: String
+    var parentThreadId: String
+    var name = "Subagent"
+    var prompt = ""
+    var status = "pendingInit"
+    var result = ""
+    var currentTurn: String?
+    var model: String?
+    var effort: String?
+    var createdAt = Date()
+    var updatedAt = Date()
+
+    var isActive: Bool { status == "pendingInit" || status == "running" }
+    var statusLabel: String {
+        switch status {
+        case "pendingInit": "Starting"
+        case "running": "Working"
+        case "completed": "Done"
+        case "interrupted": "Stopped"
+        case "errored": "Failed"
+        case "shutdown": "Closed"
+        case "notFound": "Unavailable"
+        default: "Unknown"
+        }
+    }
+}
 /// Presentation-only grouping; original messages remain in storage and agent context.
 enum ChatReactions {
     static func targets(in messages: [Message], attachmentMessageIDs: Set<UUID> = []) -> [UUID: [Message]] {

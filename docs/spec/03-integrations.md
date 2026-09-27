@@ -19,7 +19,7 @@ Build Mate runs agents through `codex app-server` (JSON-RPC over stdio), the sam
 | Next turn (continuation) | `turn/start` on the same thread. |
 | Resume after a pause, question or review | `thread/resume` by `threadId`, then `turn/start` with the answer/note as input. |
 | Message a running agent | `turn/steer` with `expectedTurnId` = active turn, so the agent sees it during its current turn. If no turn is active, `turn/start`. (The Building composer placeholder in the designs says "It reads this on its next turn"; use "Message the agent" instead.) |
-| Pause task | `turn/interrupt` after the current item completes (wait for `item/completed`), then do not start another turn. |
+| Pause task | Interrupt the parent after the current item completes, then explicitly interrupt known active child turns and stop the session process. Do not start another turn. |
 | Attachments | Images are normalized, orientation-correct PNG `localImage` inputs (up to 4096 px on the longest edge); originals are retained for preview. Other files are app-owned local paths in text inputs, available for agent inspection. Both `turn/start` and live `turn/steer` include attachments, including question answers. Videos supply six evenly spaced PNG frames plus the original file reference; audio is explicitly not transcribed. |
 | Activity feed | `item/started`, `item/completed`, `item/commandExecution/outputDelta`, `item/fileChange/*`, `turn/diff/updated`, `item/agentMessage/delta`, `turn/plan/updated`. Group consecutive tool items into one `activity` message. |
 | Token counts | `thread/tokenUsage/updated`. |
@@ -37,6 +37,16 @@ RPC timeout is 5 seconds each; the title turn has a 20-second deadline. Manual e
 Use **experimental client-side dynamic tools**, verified with codex-cli 0.151.0 on 2026-09-26. Initialize with `capabilities: { experimentalApi: true }`, then register `dynamicTools: [{ name, description, inputSchema }]` on `thread/start`. Handle `item/tool/call` server requests and reply on the same JSON-RPC ID with `{ contentItems: [{ type: "inputText", text: "…" }], success: true }`. Tools persist with the thread and survive `thread/resume` after restarting app-server. No MCP server or extra app process is required. Unsupported experimental registration is an actionable compatibility error, never a silent tool-less fallback.
 
 Also handle `item/tool/requestUserInput` (Codex's own ask-the-user request) by converting it into a Build Mate Question.
+
+### Native subagents
+
+Task and project-chat `thread/start` and `thread/resume` include `config: {"agents.enabled": true}`. Fresh developer instructions and every resumed turn permit suitable independent delegation while keeping the parent accountable. Leave Codex’s native child limits and inherited model/effort alone; no new Build Mate setting. Title generation remains a separate minimal workflow.
+
+Installed CLI 0.157.1 emits parent `subAgentActivity` items with `agentThreadId`, `agentPath` and `kind`, followed by automatically subscribed child events. Also handle the schema’s `collabAgentToolCall` with `senderThreadId`, `receiverThreadIds` and `agentsStates`; native wait calls may contain empty receiver/state collections. A child need not emit `thread/started`. Read its metadata with `thread/read(includeTurns: true)` without resuming it. Preserve native path/name, reported prompt when available, status and latest completed agent message. The live thread history may omit the child’s assignment; the inspector hides missing prompt content.
+
+Route child message, usage, tool and turn events by thread ID before parent handlers. Child completion cannot end a root turn, add a main-chat reply, change task state or create project tasks. Reject inherited Build Mate dynamic-tool requests from children with an explanation to report to their parent. Reject unknown/missing-thread tool requests and stale parent-turn requests. Native child turn start/completion owns active status; duplicate parent activity notifications cannot reactivate finished work or clear a still-running turn. Refuse root `request_review` while any child is active.
+
+Parent `turn/interrupt` alone does not stop native children. Before stopping the app-server, explicitly interrupt every known active turn using bounded requests that remain active even if the owning Swift task is canceled. Then stop the app-server’s private process group and persist remaining active children as interrupted. This also applies to project-chat Stop, task deletion and app shutdown. See 08 for the installed-CLI spike and limits of manual validation.
 
 ## 2. GitHub (via `gh`)
 Build Mate uses the user's authenticated GitHub CLI. It checks `gh auth status` when a GitHub project is added and guides the user to `gh auth login` if needed. No tokens stored by Build Mate.

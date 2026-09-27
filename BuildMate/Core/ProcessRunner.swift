@@ -105,7 +105,14 @@ actor ChildProcess {
             try? await Task.sleep(for: .milliseconds(50))
         }
         kill(-pid, SIGKILL)
-        _ = isRunning()
+        // A single WNOHANG check can run before SIGKILL takes effect and leave a
+        // zombie forever. Reap our direct child before reporting shutdown complete.
+        if exitStatus == nil, kill(pid, SIGKILL) == 0 || errno == ESRCH {
+            var status: Int32 = 0
+            var result = waitpid(pid, &status, 0)
+            while result < 0 && errno == EINTR { result = waitpid(pid, &status, 0) }
+            if result == pid { exitStatus = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f) }
+        }
         output.fileHandleForReading.readabilityHandler = nil
         pump?.cancel(); pump = nil
         try? input.fileHandleForWriting.close()

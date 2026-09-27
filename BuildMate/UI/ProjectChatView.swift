@@ -74,6 +74,9 @@ struct ProjectChatView: View {
                         Button("View All Tasks", systemImage: "arrow.right") { model.destination = .project(projectID, .tasks) }
                             .buttonStyle(.borderless).help("Show all tasks in this project (⌘3)")
                     }
+                    if let session {
+                        SubagentActivityView(agents: model.snapshot.subagents.filter { $0.sessionId == session.id })
+                    }
                     let activity = messages.filter { $0.kind == "activity" || $0.kind == "event" }
                     if !activity.isEmpty {
                         DisclosureGroup("Activity") {

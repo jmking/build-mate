@@ -8,6 +8,7 @@ struct ProjectChatTests {
         var f = try await CoreTests.Fixture()
         var settings = try f.store.settings(); settings.agentsAtOnce = 1; try f.store.saveSettings(settings)
         let core = Orchestrator(store: f.store, runner: f.runner)
+        try f.marker("subagents")
         try f.store.saveInstructions("GLOBAL instruction marker", projectID: nil)
         try f.store.saveInstructions("PROJECT instruction marker", projectID: f.project.id)
         let reference = f.root.appending(path: "requirements.txt")
@@ -20,6 +21,11 @@ struct ProjectChatTests {
         try await f.wait("project proposal and final response") { try f.store.all(Proposal.self).count == 1 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         let session = try f.store.session(for: f.project.id, ownerType: "project")
         let thread = try #require(session.codexThreadId)
+        try FileManager.default.removeItem(at: f.control.appending(path: "subagents"))
+        let delegated = try #require(f.store.all(Subagent.self).first { $0.sessionId == session.id })
+        #expect(delegated.parentThreadId == thread && delegated.status == "completed" && delegated.result == "Delegated findings only.")
+        #expect(session.turnCount == 1 && session.tokensIn == 11 && session.tokensOut == 7)
+        #expect(try !f.store.all(Message.self).contains { $0.body.contains("Delegated findings") || $0.body.contains("FOREIGN") })
         #expect(session.activeModel == "gpt-6-astra" && session.activeEffort == "high")
         let requests = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8)
         #expect(requests.contains("GLOBAL instruction marker") && requests.contains("PROJECT instruction marker"))
@@ -83,6 +89,7 @@ struct ProjectChatTests {
         await core.shutdown()
         let resumed = Orchestrator(store: try Store(root: f.store.root), runner: f.runner)
         try await resumed.recover()
+        #expect(try Store(root: f.store.root).get(Subagent.self, delegated.id).result == "Delegated findings only.")
         try await resumed.sendProjectMessage(f.project.id, text: "Plan more account work")
         try await f.wait("second proposal after restart") { try f.store.all(Proposal.self).count == 2 && f.store.session(for: f.project.id, ownerType: "project").status == "idle" }
         #expect(try f.store.session(for: f.project.id, ownerType: "project").codexThreadId == thread)

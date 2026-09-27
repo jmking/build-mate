@@ -16,6 +16,7 @@ struct AppSnapshot: Sendable {
     var projects: [Project] = []
     var tasks: [WorkTask] = []
     var sessions: [Session] = []
+    var subagents: [Subagent] = []
     var messages: [Message] = []
     var questions: [Question] = []
     var approvals: [Approval] = []
@@ -167,7 +168,7 @@ final class AppModel {
             snapshot = try await store.db.read { db in
                 AppSnapshot(agentConfigurations: try AgentConfiguration.fetchAll(db), projects: try Project.order(Column("name")).fetchAll(db),
                             tasks: try WorkTask.order(Column("rank").desc, Column("createdAt")).fetchAll(db),
-                            sessions: try Session.fetchAll(db), messages: try Message.order(Column("createdAt")).fetchAll(db),
+                            sessions: try Session.fetchAll(db), subagents: try Subagent.fetchAll(db), messages: try Message.order(Column("createdAt")).fetchAll(db),
                             questions: try Question.fetchAll(db), approvals: try Approval.fetchAll(db), proofs: try Proof.fetchAll(db), proposals: try Proposal.fetchAll(db), attachments: try Attachment.fetchAll(db))
             }
             settings = try store.settings()

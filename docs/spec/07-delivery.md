@@ -162,3 +162,15 @@ Actual SwiftUI chat/Markdown components were rendered offscreen in light/dark an
 Verification and local previews now have separate capacity. Verification retains its internal default of two simultaneous jobs; at most two previews may be starting/running. Open previews cannot consume all verification slots and stall other tasks. Preview reuse, refusal of a third preview, 30-minute idle cleanup, Stop and quit cleanup remain. The fixed lifetime turn ceiling and heavy-step Settings control were already removed by the UX update; Agents at once remains the main scheduling control.
 
 Validation: app/test build succeeds and all 13 tests pass in 90.6 seconds. Extended the existing preview flow to keep two HTTP previews serving while another fake-Codex task answers a question, commits and completes proof. It also retains third-preview refusal, unique ports, deduplication, startup failure/timeout, cancellation, deletion and quit cleanup coverage. Tests use process-boundary stubs and a local bare remote, with no real inference or hosted SCM mutations.
+
+## Optional native subagents — 2026-09-27
+
+Task agents and project chat now enable native Codex delegation automatically, with the parent responsible for the result and no additional settings. The optional details panel has a collapsed Subagents section showing names and status; selecting a child opens its available assignment and latest result. Records persist across app restarts. Children keep their own messages and usage, cannot invoke parent-owned Build Mate tools, and cannot finish the parent task. Review waits for active delegated work, including follow-ups that have been dispatched but have not yet started a turn.
+
+Shutdown also reaps the direct CLI process after forced termination, fixing a race where a nonblocking exit check left a zombie process behind.
+
+The process-boundary regression covers completed and active children, unrelated/missing-thread requests, stale root turns, duplicated activity, three premature review requests before one successful proof, result persistence, same-thread resumption, explicit child interruption and detached fake-command cleanup on Pause/shutdown. The existing project-chat flow verifies delegated results without unauthorized task creation. No real service calls enter the automated suite.
+
+Offscreen light/dark renders verify the expanded list's narrow layout and the result sheet's header. Native scroll content is not fully represented by ImageRenderer; live sheet interaction, motion and spoken VoiceOver remain manual checks. The installed Codex 0.157.1 compatibility probe verified actual delegation and event routing; its native detached-command cleanup limitation is recorded in 08. The running user app is not restarted by this change.
+
+Validation: the macOS app and test bundle build successfully; all **14 tests pass in 114.4 seconds**. The new regression exposed duplicate activity reactivation and an unreaped CLI process during shutdown; both are fixed and covered by the passing flow.

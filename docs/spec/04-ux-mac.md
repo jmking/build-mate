@@ -1,5 +1,9 @@
 # 04 · Mac UX
 
+### Optional subagent activity (2026-09-27)
+
+Task and project-chat details contain a collapsed Subagents section only after Codex delegates work. Keep it out of the toolbar and main transcript. The summary shows concise active/done counts, falling back to a total when stopped or failed children are present. Expanding reveals newest-first named rows with truthful status. A row opens a native read-only sheet with its assignment when available and latest completed result in Markdown. Long content scrolls, Done/Esc closes, buttons have tooltips and VoiceOver labels, and system colors support both appearances. No delegation toggle, child limit setting or separate Build Mate task is created.
+
 Designs: `docs/design/png/{light,dark}/mac-*.png`, HTML references in `docs/design/html/`. The HTML draws each window at 1440×900 on a wallpaper so the glass materials show; the real app is a resizable window (minimum 900×620).
 
 ## 1. Information architecture

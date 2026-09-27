@@ -1,9 +1,23 @@
 #!/usr/bin/python3
 """Process-boundary fake: speaks real app-server JSONL; never contacts a service."""
-import json, os, pathlib, subprocess, sys, time
+import atexit, json, os, pathlib, signal, subprocess, sys, time
 root=pathlib.Path(os.environ['BUILD_MATE_FIXTURE']);root.mkdir(exist_ok=True)
 log=root/'calls.jsonl'
-thread='';cwd='';turn='';pending={};count=0;title_mode=False;project_mode=False;sandbox=[];git="git"
+thread='';cwd='';turn='';pending={};count=0;title_mode=False;project_mode=False;sandbox=[];git="git";delegated={};delegated_processes={}
+
+def stop_delegated(child_id):
+ process=delegated_processes.pop(child_id,None)
+ if process is None:return
+ try:os.killpg(process.pid,signal.SIGTERM)
+ except ProcessLookupError:pass
+ try:process.wait(timeout=1)
+ except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
+def cleanup_delegated():
+ for child_id in list(delegated_processes):stop_delegated(child_id)
+def terminate_fixture(signum,frame):
+ cleanup_delegated();raise SystemExit(128+signum)
+atexit.register(cleanup_delegated)
+signal.signal(signal.SIGTERM,terminate_fixture)
 
 def emit(value):print(json.dumps(value),flush=True)
 def event(method,params):emit({'method':method,'params':params})
@@ -25,6 +39,48 @@ def project_tasks():
  return [{'title':'Add account search','description':'Search accounts by name.\n\n## Scope\n\n- Match account names.\n- Preserve empty states.\n\n## Acceptance criteria\n\n1. Verify matching results.\n2. Verify no matches.','dependsOnIndex':[]},
          {'title':'Show matching accounts','description':'Show results from account search.','dependsOnIndex':[0]},
          {'title':'Document account search','description':'Explain account search to users.','dependsOnIndex':[]}]
+def activity(child,name,kind,key=None):
+ item={'id':key or child+'-'+kind,'type':'subAgentActivity','agentPath':'/root/'+name,'agentThreadId':child,'kind':kind}
+ for method in ['item/started','item/completed']:event(method,{'threadId':thread,'turnId':turn,'item':item})
+def delegation():
+ # Real 0.157 app-server emits parent subAgentActivity, then direct child events; no thread/started is needed.
+ global count
+ (root/'delegating-pid').write_text(str(os.getpid()))
+ event('thread/tokenUsage/updated',{'threadId':thread,'tokenUsage':{'total':{'inputTokens':11,'outputTokens':7}}})
+ for name,done in ([('research',True)] if project_mode else [('research',True),('checker',False)]):
+  child=thread+'-'+name+'-'+turn;child_turn='child-'+turn+'-'+name;result='Delegated findings only.' if done else ''
+  delegated[child]={'id':child,'parentThreadId':thread,'name':name.title(),'cwd':cwd,
+   'source':{'subAgent':{'thread_spawn':{'parent_thread_id':thread,'depth':1,'agent_path':'/root/'+name,'agent_nickname':name.title(),'agent_role':'explorer'}}},
+   'status':{'type':'idle' if done else 'active'},'turns':[{'id':child_turn,'status':'completed' if done else 'inProgress',
+    'items':[{'id':child+'-result','type':'agentMessage','text':result}] if done else []}]}
+  activity(child,name,'started')
+  if not done and (root/'subagent-hold').exists():
+   # Native child commands can own a separate group. Bound runtime and cleanup even on a failing test.
+   process=subprocess.Popen(['/bin/sleep','30'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+   delegated_processes[child]=process;(root/'delegated-command-pid').write_text(str(process.pid))
+  event('thread/status/changed',{'threadId':child,'status':{'type':'active','activeFlags':[]}})
+  event('turn/started',{'threadId':child,'turn':{'id':child_turn,'status':'inProgress','items':[]}})
+  if not done:continue
+  event('thread/tokenUsage/updated',{'threadId':child,'tokenUsage':{'total':{'inputTokens':999,'outputTokens':888}}})
+  event('item/agentMessage/delta',{'threadId':child,'turnId':child_turn,'itemId':child+'-result','delta':'Delegated findings '})
+  event('item/completed',{'threadId':child,'turnId':child_turn,'item':{'id':child+'-result','type':'agentMessage','text':result}})
+  count+=1;key='delegated-'+str(count);pending[key]='delegated-lifecycle'
+  emit({'id':key,'method':'item/tool/call','params':{'threadId':child,'turnId':child_turn,'callId':key,
+   'tool':'create_tasks' if project_mode else 'submit_plan',
+   'arguments':{'tasks':project_tasks()} if project_mode else {'plan':'CHILD MUST NOT CHANGE THE TASK'}}})
+  activity(child,name,'completed')
+  event('turn/completed',{'threadId':child,'turn':{'id':child_turn,'status':'completed','items':[],'error':None}})
+  # A repeated activity item must not revive an already-finished child.
+  activity(child,name,'started')
+ event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':turn+'-wait','type':'collabAgentToolCall','tool':'wait','status':'completed','senderThreadId':thread,'receiverThreadIds':[],'agentsStates':{}}})
+ # Unknown threads must not finish the parent or invoke its lifecycle tools either.
+ event('item/completed',{'threadId':'unrelated-thread','turnId':'unrelated-turn','item':{'id':'foreign-result','type':'agentMessage','text':'FOREIGN MESSAGE MUST STAY OUT'}})
+ event('turn/completed',{'threadId':'unrelated-thread','turn':{'id':'unrelated-turn','status':'completed','items':[],'error':None}})
+ event('turn/completed',{'threadId':thread,'turn':{'id':'stale-'+turn,'status':'completed','items':[],'error':None}})
+ count+=1;key='foreign-'+str(count);pending[key]='foreign-lifecycle'
+ emit({'id':key,'method':'item/tool/call','params':{'threadId':'unrelated-thread','turnId':'unrelated-turn','callId':key,'tool':'note','arguments':{'text':'FOREIGN NOTE MUST STAY OUT'}}})
+ count+=1;key='missing-thread-'+str(count);pending[key]='missing-thread-lifecycle'
+ emit({'id':key,'method':'item/tool/call','params':{'turnId':turn,'callId':key,'tool':'note','arguments':{'text':'FOREIGN MISSING-THREAD NOTE MUST STAY OUT'}}})
 def review():
  attempt=readstate().get('reviews',0)+1;save(reviews=attempt)
  report={'summary':'Adds the requested feature.','needsRecording':(root/'visual-task').exists(),
@@ -78,6 +134,7 @@ for line in sys.stdin:
   cwd=p['cwd'];thread='fixture-'+pathlib.Path(cwd).parent.name+'-'+pathlib.Path(cwd).name
   title_mode=p.get('ephemeral',False)
   project_mode=any(t['name']=='project_status' for t in p.get('dynamicTools',[]))
+  if not title_mode:assert p.get('config',{}).get('agents.enabled') is True
   if title_mode:
    assert p['model']=='gpt-5.6-luna'
    assert p['sandbox']=='read-only' and p['approvalPolicy']=='never' and not p.get('dynamicTools')
@@ -89,7 +146,10 @@ for line in sys.stdin:
   else:assert p['dynamicTools'] and p['sandbox']=='workspace-write' and p['approvalPolicy']=='never'
   save(cwd=cwd,project_mode=project_mode);reply(req,{'thread':{'id':thread}})
  elif method=='thread/resume':
+  assert p.get('config',{}).get('agents.enabled') is True
   thread=p['threadId'];cwd=readstate()['cwd'];project_mode=readstate().get('project_mode',False);reply(req,{'thread':{'id':thread}})
+ elif method=='thread/read':
+  reply(req,{'thread':delegated.get(p['threadId'],{'id':p['threadId'],'parentThreadId':thread,'status':{'type':'idle'},'turns':[]})})
  elif method=='turn/start':
   if not title_mode:
    assert p.get('model') in ['fake-model','gpt-6-astra','gpt-5.6-luna']
@@ -110,6 +170,7 @@ for line in sys.stdin:
   if project_mode:
    assert p['sandboxPolicy']=={'type':'readOnly','networkAccess':False}
    reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
+   if (root/'subagents').exists():delegation()
    text=p['input'][0]['text'];latest=text.split('user:')[-1].strip()
    if (root/'chat-crash-once').exists():
     (root/'chat-crash-once').unlink();sys.exit(7)
@@ -142,6 +203,9 @@ for line in sys.stdin:
    sandbox=['/usr/bin/sandbox-exec','-p',profile]
    git=subprocess.check_output(['/usr/bin/xcrun','--find','git'],text=True).strip()
   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
+  if (root/'subagents').exists():
+   delegation()
+   if (root/'subagent-hold').exists():continue
   if (root/'crash-once').exists():
    (root/'crash-once').unlink();sys.exit(7)
   if (root/'flood').exists():
@@ -155,9 +219,19 @@ for line in sys.stdin:
   else:call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
  elif method=='turn/steer':reply(req,{'turnId':turn})
  elif method=='turn/interrupt':
-  if not (root/'ignore-interrupt').exists():reply(req,{});event('turn/completed',{'threadId':thread,'turn':{'id':turn,'status':'interrupted','items':[]}})
+  if not (root/'ignore-interrupt').exists():
+   target=p.get('threadId',thread);target_turn=p.get('turnId',turn)
+   if target!=thread:
+    assert target in delegated
+    stop_delegated(target)
+   reply(req,{});event('turn/completed',{'threadId':target,'turn':{'id':target_turn,'status':'interrupted','items':[]}})
  elif 'id' in req and req['id'] in pending:
   tool=pending.pop(req['id'])
+  if tool in ('delegated-lifecycle','foreign-lifecycle','missing-thread-lifecycle'):
+   refused=req.get('result',{}).get('success') is False
+   assert refused if tool=='delegated-lifecycle' else refused or req.get('error') is not None
+   with (root/'delegated-rejections.jsonl').open('a') as f:f.write(json.dumps({'threadId':thread,'tool':tool})+'\n')
+   continue
   if project_mode:
    if tool=='ask_question':
     assert req['result']['contentItems'][0]['text']=='Active'
@@ -176,7 +250,28 @@ for line in sys.stdin:
    call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
   elif tool=='submit_plan':build()
   elif tool=='request_review':
-   if not req['result']['success']:
+   if (root/'subagents').exists() and not req['result']['success']:
+    gate=readstate().get('delegated_review_gates',0)
+    assert gate<3 and 'active subagents' in req['result']['contentItems'][0]['text']
+    save(delegated_review_gates=gate+1)
+    checker=thread+'-checker-'+turn;checker_turn='child-'+turn+'-checker';research=thread+'-research-'+turn
+    if gate==0:
+     # Parent completion activity arrives before the actual child turn finishes.
+     activity(checker,'checker','completed')
+    elif gate==1:
+     event('turn/completed',{'threadId':checker,'turn':{'id':checker_turn,'status':'completed','items':[],'error':None}})
+     # Reusing a completed child starts pending work before turn/started arrives.
+     activity(research,'research','interacted',research+'-followup')
+    else:
+     followup='followup-'+turn
+     event('turn/started',{'threadId':research,'turn':{'id':followup,'status':'inProgress','items':[]}})
+     event('item/completed',{'threadId':research,'turnId':followup,'item':{'id':research+'-followup-result','type':'agentMessage','text':'Follow-up verified.'}})
+     activity(research,'research','completed',research+'-followup-completed')
+     event('turn/completed',{'threadId':research,'turn':{'id':followup,'status':'completed','items':[],'error':None}})
+     activity(research,'research','started')
+     activity(research,'research','interacted',research+'-followup')
+    review()
+   elif not req['result']['success']:
     (root/'proof-repaired').touch();review()
    else:complete()
  else:emit({'id':req.get('id'),'error':{'code':-32601,'message':'Unexpected fake method'}})
