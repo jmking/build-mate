@@ -145,7 +145,7 @@ actor Orchestrator {
             let tasks = try store.all(WorkTask.self)
             let projects = Dictionary(uniqueKeysWithValues: try store.all(Project.self).map { ($0.id, $0) })
             for task in tasks where (task.state == .inPR || (task.state == .done && task.worktreePath != nil)) && !editingTasks.contains(task.id) && !polling.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 60 {
-                polling.insert(task.id); lastPoll[task.id] = now
+                lastPoll[task.id] = now
                 Task { await pollPR(task.id) }
             }
             await reconcileProjectChats(settings: settings, projects: projects)
@@ -293,7 +293,12 @@ actor Orchestrator {
         guard !note.isEmpty || !files.isEmpty else { throw CoreError.invalid("Describe the changes you want.") }
         guard !openingPRs.contains(id), editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
         defer { editingTasks.remove(id) }
-        guard try store.get(WorkTask.self, id).state == .humanReview else { throw CoreError.invalid("Only a task awaiting review can receive review feedback.") }
+        while polling.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        let current = try store.get(WorkTask.self, id)
+        guard [.humanReview, .inPR].contains(current.state) else { throw CoreError.invalid("Only a task awaiting review or in an open pull request can receive review feedback.") }
+        if current.pr != nil {
+            _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: current, project: store.get(Project.self, current.projectId))
+        }
         await stopPreview(id)
         if let worker = workers[id] { worker.cancel(); await clients[id]?.stop(); await worker.value }
         let session = try store.session(for: id)
@@ -301,7 +306,7 @@ actor Orchestrator {
         let message = Message(sessionId: session.id, role: "user", body: note)
         let attachments = try store.prepareAttachments(files, projectID: projectID, ownerID: id, messageID: message.id)
         do { try await store.db.write { db in
-            guard var task = try WorkTask.fetchOne(db, key: id), task.state == .humanReview else { throw CoreError.invalid("The task is no longer awaiting review.") }
+            guard var task = try WorkTask.fetchOne(db, key: id), [.humanReview, .inPR].contains(task.state) else { throw CoreError.invalid("The task is no longer available for review feedback.") }
             task.state = .building; task.retry = nil; task.updatedAt = Date()
             try task.save(db)
             try db.execute(sql: "UPDATE proof SET complete = 0 WHERE taskId = ?", arguments: [id])
@@ -316,7 +321,7 @@ actor Orchestrator {
     @discardableResult
     func steer(_ id: UUID, text: String, files: [URL] = []) async throws -> MessageDelivery {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { throw CoreError.invalid("Enter a message or attach a file.") }
-        if try store.get(WorkTask.self, id).state == .humanReview {
+        if try [.humanReview, .inPR].contains(store.get(WorkTask.self, id).state) {
             try await requestChanges(id, note: text, files: files)
             return .queued
         }
@@ -356,13 +361,16 @@ actor Orchestrator {
         try transition(id, to: .inPR)
     }
     func pollPR(_ id: UUID) async {
+        guard !editingTasks.contains(id), !openingPRs.contains(id), polling.insert(id).inserted else { return }
         defer { polling.remove(id) }
         do {
             let task = try store.get(WorkTask.self, id)
             let project = try store.get(Project.self, task.projectId)
             if task.state == .inPR, try await GitHub(runner: runner, root: store.root).merged(task: task, project: project) {
+                guard !editingTasks.contains(id), try store.get(WorkTask.self, id).state == .inPR else { return }
                 try transition(id, to: .done, merged: true)
             }
+            guard !editingTasks.contains(id) else { return }
             let merged = try store.get(WorkTask.self, id)
             if merged.state == .done {
                 try store.removeMergedTaskAttachments(id)
@@ -588,7 +596,7 @@ actor Orchestrator {
         let answers = try store.all(Question.self).filter { $0.taskId == task.id && $0.answeredBy != "taskEdit" }.map { "\($0.prompt): \($0.answer ?? "unanswered")" }.joined(separator: "\n")
         let session = try store.session(for: task.id)
         let messages = try store.all(Message.self).filter { $0.sessionId == session.id && $0.role == "user" }.map(\.body).joined(separator: "\n")
-        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages:\n\(messages)\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema lacks a report field, encode the complete report as JSON in summary, but keep the inner summary field as readable Markdown.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
+        return "Global instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nThis current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\nAnswers:\n\(answers)\nAdditional user messages (newer requests override earlier choices):\n\(messages)\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository. If your persisted tool schema lacks a report field, encode the complete report as JSON in summary, but keep the inner summary field as readable Markdown.\nState: \(task.state.rawValue). Submit a plan before editing; ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
     }
     private func waitForAnswer(_ question: Question) async throws -> String {
         while true {

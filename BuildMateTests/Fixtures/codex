@@ -30,7 +30,7 @@ def review():
  report={'summary':'Adds the requested feature.','needsRecording':(root/'visual-task').exists(),
          'rationale':'Demonstrate the visual change.' if (root/'visual-task').exists() else 'Functional change verified by checking the generated feature.',
          'checks':[{'name':'Agent feature check','command':'test -f feature.txt && ! touch "$BUILD_MATE_FIXTURE/forbidden-write"'}]}
- if (root/'json-pr-summary').exists():report['summary']=json.dumps({'changes':['Adds the requested feature.', 'Preserves **existing behavior**.'], 'commits':['abc123'], 'validation':{'compile':'Passed'}, 'proof':{'recording':'Private recording details'}})
+ if (root/'json-pr-summary').exists():report['summary']=json.dumps({'changes':['Changes the feature to blue.' if (root/'pr-revision').exists() else 'Adds the requested feature.', 'Preserves **existing behavior**.'], 'commits':['abc123'], 'validation':{'compile':'Passed'}, 'proof':{'recording':'Private recording details'}})
  if attempt==1 and (root/'omit-checks').exists():report['checks']=[]
  if attempt>1:
   report['recordingCommand']='printf invalid > "$BUILD_MATE_RECORDING_PATH"' if attempt==2 else 'cp "$BUILD_MATE_FIXTURE/proof.mp4" "$BUILD_MATE_RECORDING_PATH"'
@@ -41,7 +41,7 @@ def review():
   report={'summary':json.dumps(report)}
  call('request_review',report)
 def build():
- pathlib.Path(cwd,'feature.txt').write_text('implemented\n')
+ pathlib.Path(cwd,'feature.txt').write_text('implemented in blue\n' if (root/'pr-revision').exists() else 'implemented\n')
  subprocess.run(sandbox+[git,'-C',cwd,'add','feature.txt'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  # No changes is valid on a resumed review; any dirty state must still be committed.
  if subprocess.check_output(['git','-C',cwd,'status','--porcelain']):
@@ -144,7 +144,10 @@ for line in sys.stdin:
    while True:
     event('item/agentMessage/delta',{'threadId':thread,'turnId':turn,'delta':'working '});time.sleep(0.005)
   if (root/'stall').exists():continue
-  if not readstate().get('answered'):call('ask_question',{'prompt':'Which output?','options':['Plain','Rich'],'allowsFreeText':True,'blocking':True,'suggestedAnswer':'Plain'})
+  if (root/'pr-revision').exists() and not readstate().get('revision_answered'):
+   save(revision_question=True)
+   call('ask_question',{'prompt':'Which shade of blue?','options':['Light','Dark'],'allowsFreeText':True,'blocking':True})
+  elif not readstate().get('answered'):call('ask_question',{'prompt':'Which output?','options':['Plain','Rich'],'allowsFreeText':True,'blocking':True,'suggestedAnswer':'Plain'})
   else:call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
  elif method=='turn/steer':reply(req,{'turnId':turn})
  elif method=='turn/interrupt':
@@ -161,7 +164,10 @@ for line in sys.stdin:
    elif tool=='project_status':project_reply('I checked the current project tasks.')
    continue
   if tool=='ask_question':
-   assert req['result']['contentItems'][0]['text']=='Plain';save(answered=True)
+   if readstate().get('revision_question') and not readstate().get('revision_answered'):
+    assert req['result']['contentItems'][0]['text']=='Light';save(revision_answered=True)
+   else:
+    assert req['result']['contentItems'][0]['text']=='Plain';save(answered=True)
    time.sleep(0.05)
    call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
   elif tool=='submit_plan':build()

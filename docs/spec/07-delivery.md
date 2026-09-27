@@ -136,3 +136,9 @@ User-directed additions: remove clean worktrees after confirmed merge (retain ta
 - Manual confirmation-dialog, light/dark and VoiceOver interaction remain unverified; native UI automation access was previously denied.
 
 Typing-bubble motion follow-up (2026-09-27): both chat transcripts retain the pending row’s identity when agent text arrives, animate its capsule into the message bubble, and expand new indicators smoothly. Existing history loads without replaying transitions; Reduce Motion skips geometry/scale animation. Build and eleven regression tests pass (~75 seconds). In-app motion, keyboard and spoken VoiceOver inspection remain pending; these are not established by the automated core suite.
+
+## In PR chat feedback — 2026-09-27
+
+Chat feedback on an open PR resumes the same task, worktree, branch and Codex thread through Building, with Needs Clarification for blocking questions. Existing pause, usage and concurrency limits apply. Prior proof is invalidated; after fresh review, Update Pull Request pushes the reviewed commit and refreshes the existing description without creating a second PR. Closed/merged PRs reject further feedback/publication; merge polling rechecks state before completing or cleaning up a task. This user-requested flow does not implement automatic CI/review watching, stacking repairs, Bitbucket or automatic merge.
+
+Acceptance regression: publish, request changes while paused with an attachment, resume through clarification, produce a new commit and fresh proof, then update the same PR. Verify the bare remote branch receives the new commit, the PR is not duplicated, context/attachments survive and a closed or merged PR cannot be revised.

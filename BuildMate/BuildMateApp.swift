@@ -95,11 +95,11 @@ struct BuildMateApp: App {
                     .disabled(model?.selectedProject == nil).help("Set the project’s preview command, port variable and ready path")
                 Button("View Changes…") { if let task = model?.selectedTask { model?.reviewSheet = .changes(task.id) } }
                     .disabled(model?.selectedTask == nil).help("Review the saved proof’s change summary and file list")
-                Button("Open Pull Request") {
+                Button(model?.selectedTask?.pr == nil ? "Open Pull Request" : "Update Pull Request") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.openPullRequest(task.id) }
                 }.disabled(model?.selectedTask?.state != .humanReview || model?.selectedProject?.host != .github || model?.selectedTask?.paused == true)
-                    .help("Publish the selected task’s reviewed changes as a GitHub pull request")
+                    .help(model?.selectedTask?.pr == nil ? "Publish the selected task’s reviewed changes as a GitHub pull request" : "Push the reviewed changes and update this pull request’s description")
                 Button("Let the Agent Decide…") { if let task = model?.selectedTask { model?.reviewSheet = .defaults(task.id) } }
                     .disabled(model?.selectedTask?.state != .needsClarification)
                     .help("Review and confirm the agent’s suggested answers")

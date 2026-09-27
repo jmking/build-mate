@@ -12,7 +12,15 @@ elif a[:2]==['pr','create']:
  body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
  assert body==('- Adds the requested feature.\n- Preserves **existing behavior**.' if (root/'json-pr-summary').exists() else 'Adds the requested feature.')
  assert a[a.index('--base')+1]=='main'
- (root/'pr-body').write_text(body);(root/'pr-created').touch();print(pr['url'])
+ (root/'pr-body').write_text(body);(root/'pr-head').write_text(a[a.index('--head')+1]);(root/'pr-created').touch();print(pr['url'])
+elif a[:2]==['pr','edit']:
+ assert a[2]=='42' and (root/'pr-created').exists()
+ assert not (root/'merged').exists() and not (root/'pr-closed').exists()
+ body=pathlib.Path(a[a.index('--body-file')+1]).read_text()
+ assert body==('- Changes the feature to blue.\n- Preserves **existing behavior**.' if (root/'pr-revision').exists() else '- Adds the requested feature.\n- Preserves **existing behavior**.' if (root/'json-pr-summary').exists() else 'Adds the requested feature.')
+ (root/'pr-body').write_text(body);print(pr['url'])
 elif a[:2]==['pr','view']:
- print(json.dumps({'state':'MERGED' if (root/'merged').exists() else 'OPEN'} if a[-1]=='state' else pr))
+ state='MERGED' if (root/'merged').exists() else 'CLOSED' if (root/'pr-closed').exists() else 'OPEN'
+ detail={**pr,'state':state,'headRefName':(root/'pr-head').read_text() if (root/'pr-head').exists() else ''}
+ print(json.dumps({key:detail[key] for key in a[a.index('--json')+1].split(',')}))
 else:sys.exit('Unexpected gh command')

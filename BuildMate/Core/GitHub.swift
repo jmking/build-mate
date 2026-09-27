@@ -9,23 +9,41 @@ struct GitHub: Sendable {
     func open(task: WorkTask, project: Project, summary: String, base: String) async throws -> PullRequest {
         guard project.host == .github else { throw CoreError.invalid("Set up twg; Bitbucket provider awaits its authenticated spike") }
         guard let branch = task.branchName, let cwd = task.worktreePath else { throw CoreError.invalid("Missing branch") }
-        // Recover an already-created PR after an interrupted response without duplicating it.
-        let existing = try await runner.run("gh", ["pr", "list", "--repo", project.remoteSlug, "--head", branch, "--state", "open", "--json", "number,url,baseRefName"], cwd: cwd)
-        let values = try JSONDecoder().decode(JSON.self, from: Data(existing.output.utf8)).array
-        if let value = values.first, let number = value["number"].int, let url = value["url"].string {
-            return PullRequest(number: number, url: url, baseBranch: value["baseRefName"].string ?? base)
+        var existingPR: PullRequest?
+        if task.pr != nil {
+            existingPR = try await verifiedOpenPR(task: task, project: project)
+        } else {
+            // Recover an already-created PR after an interrupted response without duplicating it.
+            let existing = try await runner.run("gh", ["pr", "list", "--repo", project.remoteSlug, "--head", branch, "--state", "open", "--json", "number,url,baseRefName"], cwd: cwd)
+            let values = try JSONDecoder().decode(JSON.self, from: Data(existing.output.utf8)).array
+            if let value = values.first, let number = value["number"].int, let url = value["url"].string {
+                existingPR = PullRequest(number: number, url: url, baseBranch: value["baseRefName"].string ?? base)
+            }
         }
         let body = try Self.changeDescription(summary)
         _ = try await runner.run("git", ["push", "-u", "origin", branch], cwd: cwd)
         let file = root.appending(path: "projects/\(project.id)/pr-\(task.id).md")
         try body.write(to: file, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: file) }
+        if let existingPR {
+            _ = try await runner.run("gh", ["pr", "edit", String(existingPR.number), "--repo", project.remoteSlug, "--body-file", file.path], cwd: cwd)
+            return existingPR
+        }
         let result = try await runner.run("gh", ["pr", "create", "--repo", project.remoteSlug, "--base", base, "--head", branch, "--title", task.title, "--body-file", file.path], cwd: cwd)
         let url = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         let detail = try await runner.run("gh", ["pr", "view", url, "--repo", project.remoteSlug, "--json", "number,url,baseRefName"], cwd: cwd)
         let value = try JSONDecoder().decode(JSON.self, from: Data(detail.output.utf8))
         guard let number = value["number"].int, let canonical = value["url"].string else { throw CoreError.invalid("Invalid GitHub PR response") }
         return PullRequest(number: number, url: canonical, baseBranch: value["baseRefName"].string ?? base)
+    }
+
+    func verifiedOpenPR(task: WorkTask, project: Project) async throws -> PullRequest {
+        guard project.host == .github, let pr = task.pr, let branch = task.branchName else { throw CoreError.invalid("The task has no supported pull request.") }
+        let result = try await runner.run("gh", ["pr", "view", String(pr.number), "--repo", project.remoteSlug, "--json", "state,headRefName,baseRefName"], cwd: task.worktreePath)
+        let value = try JSONDecoder().decode(JSON.self, from: Data(result.output.utf8))
+        guard value["state"].string == "OPEN" else { throw CoreError.invalid("This pull request is no longer open. Create a new task for further changes.") }
+        guard value["headRefName"].string == branch else { throw CoreError.invalid("The pull request branch no longer matches this task's worktree.") }
+        return PullRequest(number: pr.number, url: pr.url, baseBranch: value["baseRefName"].string ?? pr.baseBranch)
     }
 
     /// A PR contains only the change description, never the full review-evidence report.

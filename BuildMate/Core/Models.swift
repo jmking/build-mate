@@ -324,7 +324,7 @@ struct TransitionRules {
         else {
             switch (from, to) {
             case (.todo, .needsClarification), (.building, .needsClarification),
-                 (.needsClarification, .todo), (.humanReview, .building): permitted = true
+                 (.needsClarification, .todo), (.humanReview, .building), (.inPR, .building): permitted = true
             case (.todo, .building), (.needsClarification, .building):
                 permitted = questionsAnswered && dependenciesReady && planApproved
             case (.building, .humanReview): permitted = proofComplete

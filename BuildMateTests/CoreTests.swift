@@ -249,6 +249,59 @@ struct CoreTests {
         await resumed.pollPR(task.id)
         #expect(try reopened.get(WorkTask.self, task.id).state == .inPR)
         let branch = try #require(reopened.get(WorkTask.self, task.id).branchName)
+        #expect(try String(contentsOf: f.control.appending(path: "pr-body"), encoding: .utf8) == "- Adds the requested feature.\n- Preserves **existing behavior**.")
+
+        // In-PR feedback must resume the same task, require fresh proof, and publish a new commit to the same PR.
+        var published = try reopened.get(WorkTask.self, task.id)
+        let originalPR = try #require(published.pr)
+        let originalRemoteHead = try await f.runner.run("git", ["--git-dir", f.remote.path, "rev-parse", "refs/heads/" + branch]).output
+        published.paused = true; try reopened.save(published)
+        for marker in ["pr-closed", "merged"] {
+            try f.marker(marker)
+            do { _ = try await resumed.steer(task.id, text: "This PR cannot receive changes"); Issue.record("Resumed a closed or merged PR") } catch {}
+            #expect(try reopened.get(WorkTask.self, task.id).state == .inPR)
+            #expect(try reopened.all(Message.self).allSatisfy { $0.body != "This PR cannot receive changes" })
+            #expect(try reopened.all(Proof.self).first { $0.taskId == task.id }?.complete == true)
+            try FileManager.default.removeItem(at: f.control.appending(path: marker))
+        }
+        #expect(try await resumed.steer(task.id, text: "Change the feature to blue", files: [f.control.appending(path: "proof.png")]) == .queued)
+        let revising = try reopened.get(WorkTask.self, task.id)
+        #expect(revising.state == .building && revising.paused)
+        #expect(revising.branchName == branch && revising.worktreePath == published.worktreePath)
+        #expect(revising.pr?.number == originalPR.number && revising.pr?.url == originalPR.url)
+        #expect(try reopened.session(for: task.id).codexThreadId == thread)
+        #expect(try reopened.all(Proof.self).allSatisfy { !$0.complete })
+        let feedback = try #require(reopened.all(Message.self).first { $0.body == "Change the feature to blue" })
+        #expect(try reopened.all(Attachment.self).contains { $0.ownerId == feedback.id && FileManager.default.fileExists(atPath: $0.path) })
+        do { try await resumed.openPullRequest(task.id); Issue.record("Published revision before fresh proof") } catch {}
+        try f.marker("pr-revision")
+        try await resumed.pause(task.id, paused: false)
+        try await f.wait("PR feedback clarification") { try reopened.get(WorkTask.self, task.id).state == .needsClarification }
+        let revisionQuestion = try #require(reopened.all(Question.self).first { $0.taskId == task.id && $0.answer == nil })
+        #expect(revisionQuestion.prompt == "Which shade of blue?")
+        try await resumed.answer(revisionQuestion.id, text: "Light")
+        try await f.wait("fresh PR revision proof and finished worker") {
+            try reopened.get(WorkTask.self, task.id).state == .humanReview && reopened.session(for: task.id).status == "idle"
+        }
+        #expect(try reopened.session(for: task.id).codexThreadId == thread)
+        let revisedHead = try await f.runner.run("git", ["rev-parse", "HEAD"], cwd: worktree).output
+        #expect(revisedHead != originalRemoteHead)
+        #expect(try await f.runner.run("git", ["--git-dir", f.remote.path, "rev-parse", "refs/heads/" + branch]).output == originalRemoteHead)
+        for marker in ["pr-closed", "merged"] {
+            try f.marker(marker)
+            do { try await resumed.openPullRequest(task.id); Issue.record("Updated a closed or merged PR") } catch {}
+            #expect(try reopened.get(WorkTask.self, task.id).state == .humanReview)
+            #expect(try await f.runner.run("git", ["--git-dir", f.remote.path, "rev-parse", "refs/heads/" + branch]).output == originalRemoteHead)
+            try FileManager.default.removeItem(at: f.control.appending(path: marker))
+        }
+        try await resumed.openPullRequest(task.id)
+        #expect(try reopened.get(WorkTask.self, task.id).state == .inPR)
+        #expect(try reopened.get(WorkTask.self, task.id).pr?.number == originalPR.number)
+        #expect(try await f.runner.run("git", ["--git-dir", f.remote.path, "rev-parse", "refs/heads/" + branch]).output == revisedHead)
+        let ghCalls = try String(contentsOf: f.control.appending(path: "gh-calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode([String].self, from: Data($0.utf8)) }
+        #expect(ghCalls.filter { Array($0.prefix(2)) == ["pr", "create"] }.count == 1)
+        #expect(ghCalls.filter { Array($0.prefix(2)) == ["pr", "edit"] }.count == 1)
+        #expect(try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).contains("Change the feature to blue"))
         // Simulate the host merge in the real bare remote; no network host exists in this test.
         _ = try await f.runner.run("git", ["--git-dir", f.remote.path, "update-ref", "refs/heads/main", "refs/heads/" + branch])
         try f.marker("merged")
@@ -271,7 +324,7 @@ struct CoreTests {
         #expect(try reopened.all(Proof.self).contains { $0.taskId == task.id })
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: f.repo.path)) == Set([".git", "README.md"]))
-        #expect(try String(contentsOf: f.control.appending(path: "pr-body"), encoding: .utf8) == "- Adds the requested feature.\n- Preserves **existing behavior**.")
+        #expect(try String(contentsOf: f.control.appending(path: "pr-body"), encoding: .utf8) == "- Changes the feature to blue.\n- Preserves **existing behavior**.")
         #expect(FileManager.default.fileExists(atPath: f.store.root.appending(path: "projects/\(f.project.id)/WORKFLOW.md").path))
         try await resumed.deleteProject(f.project.id)
         #expect(try reopened.all(Project.self).isEmpty)
@@ -520,7 +573,7 @@ struct CoreTests {
             .needsClarification: [.todo, .building, .canceled],
             .building: [.needsClarification, .humanReview, .canceled],
             .humanReview: [.building, .inPR, .canceled],
-            .inPR: [.done, .canceled], .done: [], .canceled: []
+            .inPR: [.building, .done, .canceled], .done: [], .canceled: []
         ]
         for from in TaskState.allCases {
             for to in TaskState.allCases {

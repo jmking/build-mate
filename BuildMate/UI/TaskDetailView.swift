@@ -12,10 +12,12 @@ struct TaskDetailView: View {
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || model.selectedProject?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
-    private var composerTitle: String { openQuestion != nil ? "Answer the question" : (activeTurn || task.state == .humanReview) ? "Message the agent" : "Save a message for the next run" }
-    private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || task.state == .humanReview) ? "Send message" : "Save message" }
+    private var acceptsFeedback: Bool { task.state == .humanReview || task.state == .inPR }
+    private var composerTitle: String { openQuestion != nil ? "Answer the question" : (activeTurn || acceptsFeedback) ? "Message the agent" : "Save a message for the next run" }
+    private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || acceptsFeedback) ? "Send message" : "Save message" }
     private var composerExplanation: String? {
         if let question = openQuestion { return question.allowsFreeText ? "Your answer resolves this question. Paused tasks stay paused." : "Choose one of the answer buttons above." }
+        if task.state == .inPR { return isPaused ? "Tell the agent what to change. Work on this PR’s branch will resume when unpaused." : "Tell the agent what to change. It will continue on this PR’s branch." }
         if task.state == .humanReview { return isPaused ? "Tell the agent what to change. Work will resume when unpaused." : "Tell the agent what to change. It will continue working." }
         return activeTurn ? nil : "Messages are saved for when work resumes."
     }
@@ -168,14 +170,14 @@ struct TaskDetailView: View {
                         HStack {
                             Spacer(minLength: 4)
                             if model.selectedProject?.host == .github {
-                                Button(openingPR ? "Opening…" : "Open Pull Request") {
+                                Button(openingPR ? (task.pr == nil ? "Opening…" : "Updating…") : (task.pr == nil ? "Open Pull Request" : "Update Pull Request")) {
                                     openingPR = true
                                     model.perform {
                                         defer { openingPR = false }
                                         try await model.core.openPullRequest(task.id)
                                     }
                                 }.buttonStyle(.borderedProminent).disabled(openingPR || proof?.complete != true || task.paused)
-                                    .help("Publish the reviewed changes as a GitHub pull request")
+                                    .help(task.pr == nil ? "Publish the reviewed changes as a GitHub pull request" : "Push the reviewed changes and update this pull request’s description")
                             }
                         }.padding(.horizontal, 16).padding(.bottom, 16)
                     }.background(AppSurface.raised)
