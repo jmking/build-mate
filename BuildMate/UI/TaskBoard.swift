@@ -25,11 +25,11 @@ struct TaskBoard: View {
                             ForEach(columns, id: \.self) { state in
                                 VStack(alignment: .leading, spacing: 12) {
                                     HStack(spacing: 8) {
-                                        Image(systemName: state.symbol).font(.system(size: 16, weight: .medium)).foregroundStyle(state.color).frame(width: 20).accessibilityHidden(true)
-                                        Text(state.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                                        Image(systemName: state.symbol).font(.system(size: 18, weight: .medium)).foregroundStyle(state.color).frame(width: 24).accessibilityHidden(true)
+                                        Text(state.title).font(.system(size: 16, weight: .semibold)).lineLimit(1)
                                         Spacer(minLength: 2)
                                         Text("\(tasks.filter { $0.state == state }.count)").font(.body).monospacedDigit().foregroundStyle(.secondary)
-                                    }.frame(height: 24).padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
+                                    }.frame(height: 28).padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
                                     ScrollView {
                                         LazyVStack(spacing: 8) {
                                             ForEach(tasks.filter { $0.state == state }) { task in
@@ -44,7 +44,7 @@ struct TaskBoard: View {
                                         }.padding(1).background(OverlayScrollbars())
                                     }
                                 }
-                                .padding(8).frame(width: max(240, (geometry.size.width - 100) / 6))
+                                .padding(8).frame(width: max(280, (geometry.size.width - 100) / 6))
                                 .background(AppSurface.recessed, in: RoundedRectangle(cornerRadius: 20))
                             }
                         }.frame(height: max(0, geometry.size.height - 40)).padding(20)
