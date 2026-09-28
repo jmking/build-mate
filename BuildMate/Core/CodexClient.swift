@@ -9,6 +9,10 @@ actor CodexClient {
     private var failure: String?
     private(set) var lastEventAt = SuspendingClock.now
     private var timeout: Double = 5
+    /// Starting a conversation can include Codex's own cold-start work (sign-in refresh, remote configuration),
+    /// which routinely exceeds a short response timeout. Session setup gets this floor; other requests keep `timeout`.
+    static let sessionStartFloor: Double = 30
+    var sessionStartTimeout: Double { max(timeout, Self.sessionStartFloor) }
     private var workingDirectory: String?
     private var didReadInheritedConfiguration = false
     private var configuredModel: String?
@@ -34,7 +38,7 @@ actor CodexClient {
         _ = try await request("initialize", [
             "clientInfo": .object(["name": .string("build_mate"), "version": .string("0.1")]),
             "capabilities": .object(["experimentalApi": .bool(true)])
-        ])
+        ], timeout: sessionStartTimeout)
         try await child.write(.object(["method": .string("initialized")]))
     }
     var hasActiveCommands: Bool { !activeCommands.isEmpty }

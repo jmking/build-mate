@@ -143,6 +143,7 @@ for line in sys.stdin:
   if (root/'usage-error').exists():emit({'id':req['id'],'error':{'code':-32000,'message':'Fixture usage unavailable'}})
   else:reply(req,json.loads((root/'usage.json').read_text()) if (root/'usage.json').exists() else {'rateLimits':{'primary':{'usedPercent':10}}})
  elif method=='thread/start':
+  if (root/'slow-thread-start').exists():time.sleep(2)
   cwd=p['cwd'];thread='fixture-'+pathlib.Path(cwd).parent.name+'-'+pathlib.Path(cwd).name
   title_mode=p.get('ephemeral',False)
   project_mode=any(t['name']=='project_status' for t in p.get('dynamicTools',[]))

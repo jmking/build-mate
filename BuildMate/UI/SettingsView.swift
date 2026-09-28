@@ -44,6 +44,7 @@ struct SettingsView: View {
                                     duration("Turn timeout", \.turnTimeoutMs, fallback: 3_600_000, unit: "minutes", scale: 60_000)
                                     duration("Stall timeout", \.stallTimeoutMs, fallback: 300_000, unit: "minutes", scale: 60_000, allowsZero: true)
                                     duration("Response timeout", \.readTimeoutMs, fallback: 5_000, unit: "seconds", scale: 1_000)
+                                        .help("How long to wait for Codex to answer a request. Starting a conversation always allows at least 30 seconds")
                                     duration("Maximum retry delay", \.retryBackoffMaxMs, fallback: 300_000, unit: "minutes", scale: 60_000)
                                 }.disclosureGroupStyle(SettingsDisclosureStyle())
                                     .help("Adjust timeouts only when diagnosing agent connection or execution problems")

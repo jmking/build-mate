@@ -38,6 +38,19 @@ struct CoreTests {
         await core.shutdown()
         try f.cleanup()
     }
+    @Test func slowConversationStartDoesNotExhaustAShortResponseTimeout() async throws {
+        var f = try await Fixture()
+        f.project.settings.readTimeoutMs = 1_000; try f.store.save(f.project) // Shorter than the 2 s cold start below.
+        try f.marker("slow-thread-start")
+        let task = try f.store.createTask(projectId: f.project.id, title: "Cold start")
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        await core.tick()
+        try await f.wait("first turn after a slow conversation start") { try !f.store.all(Question.self).isEmpty }
+        let current = try f.store.get(WorkTask.self, task.id)
+        #expect(!current.paused && current.retry == nil)
+        await core.shutdown(); try f.cleanup()
+    }
+
     @Test func evidenceCannotReachHumanReviewBeforeInspectionOfTheCurrentRevision() async throws {
         let f = try await Fixture()
         try f.marker("hold-qa")
