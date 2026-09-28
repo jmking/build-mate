@@ -16,7 +16,7 @@ Use Xcode 27, Swift 6 strict concurrency and XcodeGen (`brew install xcodegen`).
 
 ```sh
 ./scripts/check.sh                 # Generate, build app/tests, run the isolated suite
-open '.build/Build/Products/Debug/Build Mate.app'
+open '.build/Build/Products/Debug/Build Mate Dev.app'
 ```
 
 For a build without tests:
@@ -28,7 +28,7 @@ xcodebuild -scheme BuildMate -destination 'platform=macOS' -derivedDataPath .bui
 
 Never hand-edit `BuildMate.xcodeproj`; it is generated and ignored. Optional UI tests use `xcodebuild -scheme BuildMateUI -destination 'platform=macOS' test` and need an unlocked Mac with a working Xcode automation host. No signing account or real service credentials are needed to develop or run the automated suite.
 
-For manual testing, launch the executable with `BUILD_MATE_DATA_ROOT` set to a temporary directory so it cannot alter a real workspace. `BUILD_MATE_APPEARANCE=light` or `dark` selects the appearance. External tools are still real unless you supply fixtures on `PATH`.
+Debug builds are a separate app, **Build Mate Dev** (`com.buildmate.app.dev`, orange icon, data in `~/Library/Application Support/Build Mate Dev/`), so they never share preferences or data with an installed release. For manual testing, launch the executable with `BUILD_MATE_DATA_ROOT` set to a temporary directory so it cannot alter a real workspace. `BUILD_MATE_APPEARANCE=light` or `dark` selects the appearance. External tools are still real unless you supply fixtures on `PATH`.
 
 ## Code map
 

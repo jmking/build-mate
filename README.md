@@ -36,11 +36,11 @@ Requires Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen). GRDB is
 ```sh
 brew install xcodegen
 ./scripts/check.sh
-open '.build/Build/Products/Debug/Build Mate.app'
+open '.build/Build/Products/Debug/Build Mate Dev.app'
 ```
 
 Read [AGENTS.md](AGENTS.md) for development rules and a code map, [architecture](docs/architecture.md) for the workflow, and [releasing](docs/releasing.md) for signing and packaging. Human and agent contributions follow the same process: a focused change, relevant validation and a clear pull request.
 
-App data lives in `~/Library/Application Support/Build Mate/`. Codex and GitHub CLI own their credentials. [Security and data handling](SECURITY.md) describes the boundaries.
+App data lives in `~/Library/Application Support/Build Mate/`. Debug builds are a separate app, **Build Mate Dev** (`com.buildmate.app.dev`, orange icon), with their own data in `Build Mate Dev/`, so they can run beside an installed release. Codex and GitHub CLI own their credentials. [Security and data handling](SECURITY.md) describes the boundaries.
 
 [MIT licensed](LICENSE). Built by Justin King. Build Mate is an independent project, not an OpenAI product.

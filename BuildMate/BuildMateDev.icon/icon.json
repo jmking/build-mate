@@ -1,0 +1,38 @@
+{
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "build-mate-mark.png",
+          "name": "build-mate-mark",
+          "position": {
+            "scale": 0.82,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          },
+          "fill": {
+            "solid": "srgb:1.00000,1.00000,1.00000,1.00000"
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.3
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  },
+  "fill": {
+    "solid": "srgb:1.00000,0.58431,0.00000,1.00000"
+  }
+}

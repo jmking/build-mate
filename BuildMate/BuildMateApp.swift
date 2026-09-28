@@ -8,8 +8,11 @@ struct BuildMateApp: App {
     @State private var model: AppModel?
     @State private var error: String?
 
+    /// "Build Mate Dev" in Debug builds, so a dev build keeps its own data folder beside an installed release.
+    private let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Build Mate"
+
     var body: some Scene {
-        Window("Build Mate", id: "main") {
+        Window(appName, id: "main") {
             Group {
                 if let model { MainWindow().environment(model) }
                 else if let error { ContentUnavailableView("Unable to open Build Mate", systemImage: "exclamationmark.triangle", description: Text(error)).frame(minWidth: 900, minHeight: 620) }
@@ -21,7 +24,7 @@ struct BuildMateApp: App {
                 guard model == nil, error == nil else { return }
                 do {
                     let root = ProcessInfo.processInfo.environment["BUILD_MATE_DATA_ROOT"].map { URL(fileURLWithPath: $0) }
-                    let store = try root.map { try Store(root: $0) } ?? Store()
+                    let store = try Store(root: root ?? URL.applicationSupportDirectory.appending(path: appName))
                     let value = AppModel(store: store)
                     delegate.core = value.core; delegate.model = value; model = value
                     let notifications = AttentionNotifications(root: store.root)
