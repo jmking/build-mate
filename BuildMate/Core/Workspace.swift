@@ -17,10 +17,18 @@ struct Workspace: Sendable {
 
     func prepare(_ original: WorkTask, project: Project) async throws -> WorkTask {
         var task = original
+        let destination = store.worktreeRoot.appending(path: "\(project.id)/\(task.number)").path
+        let legacy = store.root.appending(path: "worktrees/\(project.id)/\(task.number)").path
+        if task.worktreePath == legacy, legacy != destination {
+            try await relocateLegacyWorktree(from: legacy, to: destination, project: project, branch: task.branchName)
+            task = try store.get(WorkTask.self, task.id)
+            task.worktreePath = destination
+            try store.save(task)
+        }
         if task.worktreePath == nil {
             let slug = task.title.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
             task.branchName = project.settings.branchPrefix + "\(task.number)-" + (slug.isEmpty ? "task" : String(slug.prefix(60)))
-            task.worktreePath = store.root.appending(path: "worktrees/\(project.id)/\(task.number)").path
+            task.worktreePath = destination
             try store.save(task) // Intent survives a crash between git and SQLite.
         }
         let path = task.worktreePath!
@@ -56,8 +64,15 @@ struct Workspace: Sendable {
         return task
     }
     func remove(_ task: WorkTask, project: Project, discardChanges: Bool = false) async throws {
-        guard let path = task.worktreePath else { return }
+        guard var path = task.worktreePath else { return }
         try ensureOwned(path)
+        let legacy = store.root.appending(path: "worktrees/\(project.id)/\(task.number)").path
+        let destination = store.worktreeRoot.appending(path: "\(project.id)/\(task.number)").path
+        if path == legacy, path != destination, !FileManager.default.fileExists(atPath: path),
+           FileManager.default.fileExists(atPath: destination) {
+            try await relocateLegacyWorktree(from: path, to: destination, project: project, branch: task.branchName)
+            path = destination
+        }
         guard FileManager.default.fileExists(atPath: path) else { return }
         try await runner.hook(project.settings.hooks.beforeRemove, cwd: path, timeout: project.settings.hooks.timeoutSeconds)
         try ensureOwned(path)
@@ -92,21 +107,57 @@ struct Workspace: Sendable {
     }
 
     func ensureOwned(_ path: String) throws {
-        let root = store.root.resolvingSymlinksInPath()
+        for base in [store.root.appending(path: "worktrees"), store.worktreeRoot] {
+            if try isOwned(path, base: base) { return }
+        }
+        throw CoreError.invalid("Worktree is outside Build Mate storage")
+    }
+
+    private func isOwned(_ path: String, base: URL) throws -> Bool {
+        let anchor = base.deletingLastPathComponent()
+        let root = anchor.resolvingSymlinksInPath()
         let supplied = URL(fileURLWithPath: path).standardizedFileURL.path
-        let originalRoot = store.root.standardizedFileURL.path + "/"
+        let originalRoot = anchor.standardizedFileURL.path + "/"
         let candidate = supplied.hasPrefix(originalRoot)
             ? root.appending(path: String(supplied.dropFirst(originalRoot.count)))
             : URL(fileURLWithPath: supplied)
-        let base = root.appending(path: "worktrees").path + "/"
+        let ownedPrefix = root.appending(path: base.lastPathComponent).path + "/"
         // Check each parent: Foundation may leave a nonexistent leaf's symlinks unresolved.
-        guard candidate.path.hasPrefix(base) else { throw CoreError.invalid("Worktree is outside Build Mate storage") }
+        guard candidate.path.hasPrefix(ownedPrefix) else { return false }
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: anchor.path)) == nil else {
+            throw CoreError.invalid("Worktree is outside Build Mate storage: symbolic-link parent")
+        }
         var cursor = root
         for component in candidate.path.dropFirst(root.path.count + 1).split(separator: "/") {
             cursor.append(path: String(component))
             if (try? FileManager.default.destinationOfSymbolicLink(atPath: cursor.path)) != nil {
                 throw CoreError.invalid("Worktree is outside Build Mate storage: symbolic-link parent")
             }
+        }
+        return true
+    }
+
+    /// Git moves the existing checkout and repairs its registration, retaining dirty and ignored files.
+    /// The deterministic destination also recovers a crash between the move and saving the task path.
+    func relocateLegacyWorktree(from old: String, to destination: String, project: Project, branch: String?) async throws {
+        guard old != destination else { return }
+        try ensureOwned(old); try ensureOwned(destination)
+        let oldExists = FileManager.default.fileExists(atPath: old)
+        let newExists = FileManager.default.fileExists(atPath: destination)
+        guard !oldExists || !newExists else { throw CoreError.invalid("Both old and new worktree folders exist. Preserve them before retrying the move.") }
+        guard oldExists || newExists else { return }
+        let path = oldExists ? old : destination
+        let metadata = try await runner.run("git", ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"], cwd: path)
+        let paths = metadata.output.split(separator: "\n").map { URL(fileURLWithPath: String($0)).resolvingSymlinksInPath() }
+        let common = try await runner.run("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd: project.repoPath).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let actualBranch = try await runner.run("git", ["branch", "--show-current"], cwd: path).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard paths.count == 2, paths[0] == URL(fileURLWithPath: path).resolvingSymlinksInPath(),
+              paths[1] == URL(fileURLWithPath: common).resolvingSymlinksInPath(), actualBranch == (branch ?? "") else {
+            throw CoreError.invalid("The worktree repository or branch changed. Review it before moving.")
+        }
+        if oldExists {
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: destination).deletingLastPathComponent(), withIntermediateDirectories: true)
+            _ = try await runner.run("git", ["worktree", "move", old, destination], cwd: project.repoPath)
         }
     }
 }

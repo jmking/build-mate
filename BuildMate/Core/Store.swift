@@ -4,10 +4,12 @@ import GRDB
 /// SQLite owns durable state; the orchestrator is its single logical writer.
 final class Store: Sendable {
     let root: URL
+    let worktreeRoot: URL
     let db: DatabasePool
 
-    init(root: URL = URL.applicationSupportDirectory.appending(path: "Build Mate")) throws {
+    init(root: URL = URL.applicationSupportDirectory.appending(path: "Build Mate"), worktreeRoot: URL? = nil) throws {
         self.root = root
+        self.worktreeRoot = worktreeRoot ?? root.appending(path: "worktrees")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         db = try DatabasePool(path: root.appending(path: "buildmate.sqlite").path)
         var migrator = DatabaseMigrator()

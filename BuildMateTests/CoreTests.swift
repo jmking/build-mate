@@ -38,6 +38,76 @@ struct CoreTests {
         await core.shutdown()
         try f.cleanup()
     }
+    @Test func movingLegacyWorktreesPreservesDirtyFilesAndResumesTheSameThreadWithoutSpaces() async throws {
+        let f = try await Fixture()
+        try f.marker("stall")
+        let original = try f.store.createTask(projectId: f.project.id, title: "Move existing checkout")
+        let oldCore = Orchestrator(store: f.store, runner: f.runner)
+        await oldCore.tick()
+        try await f.wait("old task session starts") { try f.store.session(for: original.id).currentTurn != nil }
+        let thread = try #require(f.store.session(for: original.id).providerSessionID)
+        try await oldCore.pause(original.id, paused: true)
+        await oldCore.shutdown()
+        let oldTask = try f.store.get(WorkTask.self, original.id)
+        let old = try #require(oldTask.worktreePath)
+        #expect(old.contains("Application Support/Build Mate"))
+        try "staged\n".write(toFile: old + "/README.md", atomically: true, encoding: .utf8)
+        _ = try await f.runner.run("git", ["add", "README.md"], cwd: old)
+        try "unstaged\n".write(toFile: old + "/README.md", atomically: true, encoding: .utf8)
+        try "untracked".write(toFile: old + "/notes.txt", atomically: true, encoding: .utf8)
+        try "cache.bin\n".write(toFile: old + "/.gitignore", atomically: true, encoding: .utf8)
+        try "cached build".write(toFile: old + "/cache.bin", atomically: true, encoding: .utf8)
+        let before = try await f.runner.run("git", ["status", "--porcelain"], cwd: old).output
+        let upgraded = try Store(root: f.store.root, worktreeRoot: f.root.appending(path: ".build-mate/worktrees"))
+        let workspace = Workspace(store: upgraded, runner: f.runner)
+        let destination = upgraded.worktreeRoot.appending(path: "\(f.project.id)/\(oldTask.number)")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        do { _ = try await workspace.prepare(oldTask, project: f.project); Issue.record("Overwrote an existing destination") } catch {}
+        #expect(FileManager.default.fileExists(atPath: old + "/notes.txt"))
+        try FileManager.default.removeItem(at: destination) // Empty collision fixture only.
+        let moved = try await workspace.prepare(oldTask, project: f.project)
+        let cwd = try #require(moved.worktreePath)
+        #expect(!cwd.contains(" ") && cwd == destination.path)
+        #expect(!FileManager.default.fileExists(atPath: old))
+        #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: cwd).output == before)
+        #expect(try String(contentsOfFile: cwd + "/cache.bin", encoding: .utf8) == "cached build")
+        #expect(try await f.runner.run("git", ["show", ":README.md"], cwd: cwd).output == "staged\n")
+        #expect(moved.branchName == oldTask.branchName && moved.workspaceReady && moved.paused)
+        _ = try await workspace.agentWritableRoots(moved, project: f.project)
+        try upgraded.save(oldTask) // Simulate a crash after Git moved but before SQLite recorded it.
+        #expect(try await workspace.prepare(oldTask, project: f.project).worktreePath == cwd)
+        #expect(try String(contentsOf: f.control.appending(path: "hooks"), encoding: .utf8).split(separator: "\n").filter { $0 == "create" }.count == 1)
+        let core = Orchestrator(store: upgraded, runner: f.runner)
+        try await core.pause(moved.id, paused: false)
+        try await f.wait("resume at migrated path") { try upgraded.session(for: moved.id).currentTurn != nil }
+        #expect(try upgraded.session(for: moved.id).providerSessionID == thread)
+        let calls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n").map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }
+        #expect(calls.last { $0["method"].string == "thread/resume" }?["params"]["cwd"].string == cwd)
+        try await core.pause(moved.id, paused: true)
+        let legacyChat = await core.chatWorkspace(f.project, legacy: true)
+        _ = try await f.runner.run("git", ["worktree", "add", "--detach", legacyChat.path, "main"], cwd: f.repo.path)
+        try f.marker("chat-stall")
+        try await core.sendProjectMessage(f.project.id, text: "Inspect this project")
+        try await f.wait("project chat migrated") { try upgraded.session(for: f.project.id, ownerType: "project").currentTurn != nil }
+        let chat = await core.chatWorkspace(f.project)
+        #expect(!chat.path.contains(" ") && FileManager.default.fileExists(atPath: chat.path))
+        #expect(!FileManager.default.fileExists(atPath: legacyChat.path))
+        await core.stopProjectChat(f.project.id)
+        // Cleanup still accepts old paths and rejects escapes through either worktree root.
+        #expect(throws: CoreError.self) { try workspace.ensureOwned(f.repo.path) }
+        let link = upgraded.worktreeRoot.appending(path: "escape")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: f.repo)
+        #expect(throws: CoreError.self) { try workspace.ensureOwned(link.appending(path: "child").path) }
+        var interruptedMove = try upgraded.get(WorkTask.self, moved.id)
+        interruptedMove.worktreePath = old; try upgraded.save(interruptedMove)
+        try await core.deleteTask(moved.id)
+        #expect(!FileManager.default.fileExists(atPath: cwd))
+        try await core.deleteProject(f.project.id)
+        #expect(!FileManager.default.fileExists(atPath: chat.path))
+        await core.shutdown()
+        try f.cleanup()
+    }
+
     @Test func slowConversationStartDoesNotExhaustAShortResponseTimeout() async throws {
         var f = try await Fixture()
         f.project.settings.readTimeoutMs = 1_000; try f.store.save(f.project) // Shorter than the 2 s cold start below.

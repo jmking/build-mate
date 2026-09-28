@@ -160,7 +160,7 @@ for line in sys.stdin:
   save(cwd=cwd,project_mode=project_mode);reply(req,{'thread':{'id':thread}})
  elif method=='thread/resume':
   assert p.get('config',{}).get('agents.enabled') is True
-  thread=p['threadId'];cwd=readstate()['cwd'];project_mode=readstate().get('project_mode',False);reply(req,{'thread':{'id':thread}})
+  thread=p['threadId'];cwd=p['cwd'];project_mode=readstate().get('project_mode',False);save(cwd=cwd);reply(req,{'thread':{'id':thread}})
  elif method=='thread/read':
   reply(req,{'thread':delegated.get(p['threadId'],{'id':p['threadId'],'parentThreadId':thread,'status':{'type':'idle'},'turns':[]})})
  elif method=='turn/start':

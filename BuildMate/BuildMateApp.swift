@@ -24,7 +24,11 @@ struct BuildMateApp: App {
                 guard model == nil, error == nil else { return }
                 do {
                     let root = ProcessInfo.processInfo.environment["BUILD_MATE_DATA_ROOT"].map { URL(fileURLWithPath: $0) }
-                    let store = try Store(root: root ?? URL.applicationSupportDirectory.appending(path: appName))
+                    // Build tools often mishandle spaces in their working directory. Keep checkouts
+                    // outside Application Support; custom data roots remain fully isolated.
+                    let worktreeRoot = root == nil ? FileManager.default.homeDirectoryForCurrentUser
+                        .appending(path: appName == "Build Mate Dev" ? ".build-mate-dev/worktrees" : ".build-mate/worktrees") : nil
+                    let store = try Store(root: root ?? URL.applicationSupportDirectory.appending(path: appName), worktreeRoot: worktreeRoot)
                     let value = AppModel(store: store)
                     delegate.core = value.core; delegate.model = value; model = value
                     let notifications = AttentionNotifications(root: store.root)

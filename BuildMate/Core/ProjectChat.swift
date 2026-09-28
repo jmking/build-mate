@@ -2,9 +2,10 @@ import Foundation
 import GRDB
 
 extension Orchestrator {
-    func chatWorkspace(_ project: Project, repositoryID: UUID? = nil) -> URL {
+    func chatWorkspace(_ project: Project, repositoryID: UUID? = nil, legacy: Bool = false) -> URL {
         let suffix = repositoryID == nil || repositoryID == project.id ? "project-chat" : "project-chat-" + repositoryID!.uuidString
-        return store.root.appending(path: "worktrees/\(project.id)/\(suffix)")
+        let root = legacy ? store.root.appending(path: "worktrees") : store.worktreeRoot
+        return root.appending(path: "\(project.id)/\(suffix)")
     }
 
     func sendProjectMessage(_ projectID: UUID, text: String, files: [URL] = []) async throws {
@@ -73,6 +74,8 @@ extension Orchestrator {
         let path = chatWorkspace(project, repositoryID: repository.id).path
         let project = repository.applying(to: project)
         let workspace = Workspace(store: store, runner: runner)
+        try await workspace.relocateLegacyWorktree(from: chatWorkspace(project, repositoryID: repository.id, legacy: true).path,
+                                                  to: path, project: project, branch: nil)
         try workspace.ensureOwned(path)
         try FileManager.default.createDirectory(at: URL(fileURLWithPath: path).deletingLastPathComponent(), withIntermediateDirectories: true)
         let revision = try await workspace.baseRevision(project)

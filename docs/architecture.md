@@ -18,7 +18,9 @@ A project holds its name, instructions and shared settings. `ProjectRepository` 
 
 Unlinking preserves repository files and historical identity. It is blocked while unfinished tasks or retained task worktrees depend on the link. Task deletion stops its processes and removes app-owned data/worktrees; existing PRs and branches are not deleted.
 
-All app data is under `~/Library/Application Support/Build Mate/`: SQLite, generated workflow files, logs, attachments, proof, previews and task/project-chat worktrees. The checkout is not an app-data directory. Git maintains linked-worktree metadata in its normal Git directory.
+SQLite, generated workflow files, logs, attachments, proof and preview metadata remain under `~/Library/Application Support/Build Mate/`. Task and project-chat checkouts use `~/.build-mate/worktrees/` to avoid spaces in working directories (`~/.build-mate-dev/worktrees/` for Debug). A custom `BUILD_MATE_DATA_ROOT` keeps worktrees under that root for isolated testing. The checkout is not an app-data directory. Git maintains linked-worktree metadata in its normal Git directory.
+
+Before the next agent run, legacy checkouts move using `git worktree move`; branches, staged/unstaged changes, untracked/ignored files and native conversation IDs survive. Active task previews stop before relocation. The deterministic destination permits recovery if Git moved successfully before SQLite saved the path. Both roots retain ownership/symlink checks and cleanup support. Existing proof and attachments stay in place. Conflicting destinations, changed repository/branch identity or Git refusing a move (for example, worktrees with submodules) fail visibly without replacing the checkout. Agents receive the current working path so they can regenerate build outputs that cached an old absolute path.
 
 ## Agent integration
 
