@@ -39,6 +39,8 @@ struct ProjectSettings: Codable, Sendable {
     var askBeforeBuild = false
     var askBeforeOpenPR = true
     var askBeforeMerge = false
+    /// nil merges with the repository's own default method.
+    var mergeStrategy: MergeStrategy?
     var branchPrefix = ""
     var editor: String?
     var hooks = Hooks()
@@ -64,9 +66,8 @@ extension Project {
     /// Hosting limitations apply at publication, never to local build or QA work.
     var publicationBlockReason: String? {
         switch host {
-        case .github: nil
+        case .github, .bitbucket: nil
         case .local: "This repository has no hosting service. The reviewed changes are committed in the worktree."
-        case .bitbucket: "Automatic Bitbucket pull requests aren’t supported yet. The reviewed changes are committed in the worktree. Open it in Terminal to push the branch and create the pull request in Bitbucket."
         }
     }
 }

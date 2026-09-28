@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import CryptoKit
 
 struct ReviewFeedback: Codable, Sendable {
     var id: String
@@ -21,6 +20,8 @@ struct PRWatch: Record {
     var requirementsRevision = 0
     var mergeHead: String?
 }
+/// Host-reported PR state, normalized to GitHub's vocabulary: state OPEN/MERGED/CLOSED, mergeState
+/// (DIRTY = conflicts), reviewDecision and check conclusions. `head` is always the full commit SHA.
 struct HostedStatus: Sendable {
     var state: String
     var head: String
@@ -33,78 +34,6 @@ struct HostedStatus: Sendable {
     var checks: [JSON]
     var failed: [JSON] { checks.filter { ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"].contains(($0["conclusion"].string ?? $0["state"].string ?? "").uppercased()) } }
     var passing: Bool { checks.allSatisfy { ["SUCCESS", "NEUTRAL", "SKIPPED"].contains(($0["conclusion"].string ?? $0["state"].string ?? "").uppercased()) } }
-}
-
-extension GitHub {
-    static func fingerprint(_ value: String) -> String { SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined() }
-    static func fingerprint(_ value: JSON) -> String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        return fingerprint(String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self))
-    }
-    func readJSON(_ args: [String], cwd: String? = nil) async throws -> JSON {
-        let output = try await runner.run("gh", args, cwd: cwd).output
-        let value = try JSONDecoder().decode(JSON.self, from: Data(output.utf8))
-        guard value["errors"].array.isEmpty else { throw CoreError.invalid("GitHub could not complete the requested operation.") }
-        return value
-    }
-    func status(task: WorkTask, project: Project) async throws -> HostedStatus {
-        guard let pr = task.pr, project.host == .github else { throw CoreError.invalid("GitHub PR required") }
-        let value = try await readJSON(["pr", "view", String(pr.number), "--repo", project.remoteSlug, "--json", "state,headRefOid,headRefName,baseRefName,mergeStateStatus,reviewDecision,isDraft,statusCheckRollup"], cwd: task.worktreePath)
-        guard let state = value["state"].string, let head = value["headRefOid"].string else { throw CoreError.invalid("Incomplete GitHub status; merge is withheld.") }
-        var feedback: [ReviewFeedback] = []
-        if state == "OPEN" {
-            let comments = try await readJSON(["api", "repos/\(project.remoteSlug)/issues/\(pr.number)/comments?per_page=100", "--paginate", "--slurp"])
-            for comment in comments.array.flatMap(\.array) {
-                guard let id = comment["id"].int, let body = comment["body"].string, !body.isEmpty else { continue }
-                feedback.append(ReviewFeedback(id: "comment:\(id):" + Self.fingerprint(body), body: body))
-            }
-            let reviews = try await readJSON(["api", "repos/\(project.remoteSlug)/pulls/\(pr.number)/reviews?per_page=100", "--paginate", "--slurp"])
-            var latest: [String: JSON] = [:]
-            for review in reviews.array.flatMap(\.array) where ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].contains(review["state"].string ?? "") { latest[review["user"]["login"].string ?? ""] = review }
-            for review in latest.values where review["state"].string == "CHANGES_REQUESTED" {
-                guard let id = review["id"].int else { continue }
-                let body = review["body"].string ?? ""
-                feedback.append(ReviewFeedback(id: "review:\(id):" + Self.fingerprint(body), body: "Reviewer requested changes. " + body))
-            }
-            let slug = project.remoteSlug.split(separator: "/")
-            guard slug.count == 2 else { throw CoreError.invalid("Invalid GitHub repository") }
-            let query = "query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){nodes{id isResolved isOutdated comments(last:100){nodes{id databaseId body updatedAt author{login} commit{oid}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage endCursor}}}}}"
-            let pages = try await readJSON(["api", "graphql", "--paginate", "--slurp", "-f", "query=" + query, "-f", "owner=" + slug[0], "-f", "name=" + slug[1], "-F", "number=\(pr.number)"])
-            for page in pages.array {
-                guard page["errors"] == .null, page["data"]["repository"]["pullRequest"] != .null else { throw CoreError.invalid("Review threads could not be read completely.") }
-                for thread in page["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"].array where thread["isResolved"].bool == false {
-                    guard thread["comments"]["pageInfo"]["hasPreviousPage"].bool != true else { throw CoreError.invalid("A review thread exceeds the inspection limit. Review this conversation manually before merging.") }
-                    let comments = thread["comments"]["nodes"].array
-                    guard let firstID = comments.first?["databaseId"].int else { continue }
-                    for comment in comments {
-                        guard let id = comment["databaseId"].int, let body = comment["body"].string else { continue }
-                        feedback.append(ReviewFeedback(id: "thread:\(id):" + Self.fingerprint(body), body: (thread["isOutdated"].bool == true ? "Comment on an older diff; verify whether it still applies.\n" : "") + body, commentID: firstID, threadID: thread["id"].string))
-                    }
-                }
-            }
-        }
-        var checks = value["statusCheckRollup"].array
-        for index in checks.indices where ["FAILURE", "TIMED_OUT", "STARTUP_FAILURE"].contains(checks[index]["conclusion"].string ?? "") {
-            guard let raw = checks[index]["detailsUrl"].string, let url = URL(string: raw), url.host == "github.com",
-                  url.path.hasPrefix("/" + project.remoteSlug + "/actions/runs/"),
-                  let runID = url.path.split(separator: "/").dropFirst(4).first, runID.allSatisfy(\.isNumber) else { continue }
-            let run = try await readJSON(["run", "view", String(runID), "--repo", project.remoteSlug, "--json", "headSha,status,conclusion,attempt"], cwd: task.worktreePath)
-            guard run["headSha"].string == head else { throw CoreError.invalid("CI information refers to an older head. Waiting for GitHub to refresh it.") }
-            if case .object(var fields) = checks[index] {
-                fields["runId"] = .string(String(runID)); fields["attempt"] = run["attempt"]
-                // A rerun may already be pending while the check rollup still reports its previous failure.
-                if run["status"].string != "completed" { fields["conclusion"] = .null; fields["status"] = .string("IN_PROGRESS") }
-                checks[index] = .object(fields)
-            }
-        }
-        return HostedStatus(state: state, head: head, branch: value["headRefName"].string ?? "", base: value["baseRefName"].string ?? "", mergeState: value["mergeStateStatus"].string ?? "UNKNOWN", reviewDecision: value["reviewDecision"].string ?? "", draft: value["isDraft"].bool ?? true, feedback: feedback, checks: checks)
-    }
-    func merge(task: WorkTask, project: Project, head: String) async throws {
-        let methods = try await readJSON(["repo", "view", project.remoteSlug, "--json", "squashMergeAllowed,rebaseMergeAllowed,mergeCommitAllowed"])
-        let method = methods["squashMergeAllowed"].bool == true ? "--squash" : methods["mergeCommitAllowed"].bool == true ? "--merge" : methods["rebaseMergeAllowed"].bool == true ? "--rebase" : nil
-        guard let method, let pr = task.pr else { throw CoreError.invalid("No supported merge method is enabled for this repository.") }
-        _ = try await runner.run("gh", ["pr", "merge", String(pr.number), "--repo", project.remoteSlug, method, "--auto", "--match-head-commit", head], cwd: task.worktreePath)
-    }
 }
 
 extension Orchestrator {
@@ -127,7 +56,7 @@ extension Orchestrator {
             if status.base != project.defaultBranch {
                 let base = try await Workspace(store: store, runner: runner).baseRevision(project)
                 guard !editingTasks.contains(task.id), try store.get(WorkTask.self, task.id).state == .inPR else { return }
-                _ = try await runner.run("gh", ["pr", "edit", String(task.pr!.number), "--repo", project.remoteSlug, "--base", project.defaultBranch], cwd: task.worktreePath)
+                try await project.pullRequestHost(runner: runner, root: store.root).retarget(task: task, project: project, base: project.defaultBranch)
                 var updated = try store.get(WorkTask.self, task.id)
                 updated.pr?.baseBranch = project.defaultBranch; updated.baseCommitSHA = base; updated.state = .building; updated.updatedAt = Date()
                 watch.head = status.head; watch.requirementsRevision = updated.requirementsRevision; watch.repairing = true; watch.mergeHead = nil
@@ -167,8 +96,8 @@ extension Orchestrator {
             }
         }
         guard try store.get(WorkTask.self, task.id).state == .inPR, !editingTasks.contains(task.id) else { return }
-        // GitHub enforces branch rules and merge queues; never bypass with --admin.
-        try await GitHub(runner: runner, root: store.root).merge(task: task, project: project, head: status.head)
+        // Hosts enforce their own branch rules; Build Mate never bypasses them.
+        try await project.pullRequestHost(runner: runner, root: store.root).merge(task: task, project: project, head: status.head)
         watch.mergeHead = status.head; try store.save(watch)
     }
 }
@@ -177,28 +106,28 @@ extension Orchestrator {
     func reviewAction(_ taskID: UUID, arguments: JSON) async throws -> String {
         let task = try store.get(WorkTask.self, taskID), project = try store.project(for: task)
         guard task.pr != nil, task.state == .building, !task.paused else { throw CoreError.invalid("No active PR review pass.") }
-        let host = GitHub(runner: runner, root: store.root)
+        let host = try project.pullRequestHost(runner: runner, root: store.root)
         var watch = try watch(taskID)
         guard watch.repairing else { throw CoreError.invalid("There is no hosted feedback to process.") }
         let current = try await host.status(task: task, project: project)
         guard current.state == "OPEN", current.head == watch.head, current.branch == task.branchName else { throw CoreError.invalid("The remote head changed. Reconcile the PR before acting on old feedback.") }
         switch arguments["action"].string {
         case "inspect_ci", "retry_ci":
-            guard let runID = arguments["runId"].string, !runID.isEmpty, runID.allSatisfy(\.isNumber) else { throw CoreError.invalid("A numeric GitHub Actions run ID is required.") }
-            let run = try await host.readJSON(["run", "view", runID, "--repo", project.remoteSlug, "--json", "headSha,status,conclusion,attempt"])
-            guard run["headSha"].string == watch.head, run["status"].string == "completed", ["failure", "timed_out", "startup_failure"].contains(run["conclusion"].string ?? "") else { throw CoreError.invalid("Only a failed completed run for the current PR head can be inspected or retried.") }
-            let key = "ci:\(watch.head):\(runID)", attempt = run["attempt"].int ?? 1
+            guard let runID = arguments["runId"].string, !runID.isEmpty, current.failed.contains(where: { $0["runId"].string == runID }) else { throw CoreError.invalid("Use the runId of a failed check on the current PR head.") }
+            let run = try await host.ciRun(task: task, project: project, runID: runID)
+            guard run.head == watch.head, run.completed, run.failed else { throw CoreError.invalid("Only a failed completed run for the current PR head can be inspected or retried.") }
+            let key = "ci:\(watch.head):\(runID)", attempt = run.attempt
             if arguments["action"].string == "inspect_ci" {
-                let log = try await runner.run("gh", ["run", "view", runID, "--repo", project.remoteSlug, "--log-failed"], cwd: task.worktreePath)
+                let log = try await host.ciLog(task: task, project: project, runID: runID)
                 watch.actions[key + ":inspected"] = String(attempt); try store.save(watch)
-                return String(runner.redacted(log.output).suffix(24000))
+                return String(runner.redacted(log).suffix(24000))
             }
             guard watch.actions[key + ":inspected"] == String(attempt), let reason = arguments["reason"].string, !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Inspect this attempt's failure logs and explain the evidence for a transient failure first.") }
             let used = Int(watch.actions[key + ":count"] ?? "0") ?? 0
             guard used < 2, watch.actions[key + ":attempt"] != String(attempt) else { throw CoreError.invalid("This run has already been retried or exhausted its two retries. Investigate a real defect or ask for human input.") }
             // Record the intent before the external call. An ambiguous timeout never spends a second retry on the same attempt.
             watch.actions[key + ":attempt"] = String(attempt); watch.actions[key + ":count"] = String(used + 1); watch.actions[key + ":reason"] = runner.redacted(reason); try store.save(watch)
-            _ = try await runner.run("gh", ["run", "rerun", runID, "--repo", project.remoteSlug, "--failed"], cwd: task.worktreePath)
+            try await host.retryCI(task: task, project: project, runID: runID)
             watch.actions[key + ":result"] = "requested"; try store.save(watch)
             return "Failed jobs queued for retry. Finish this review pass and let monitoring observe the result."
         case "reply":
@@ -214,7 +143,7 @@ extension Orchestrator {
                   let cwd = task.worktreePath,
                   try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines) == current.head,
                   try await runner.run("git", ["status", "--porcelain"], cwd: cwd).output.isEmpty else { throw CoreError.invalid("Local work changed. Run fresh evidence and complete QA before finishing.") }
-            guard watch.feedback.filter({ $0.id.hasPrefix("comment:") || $0.id.hasPrefix("thread:") || $0.id.hasPrefix("review:") }).allSatisfy({ watch.replies[$0.id] != nil }) else { throw CoreError.invalid("Record a response to each reviewer before finishing, or ask the human about decisions outside scope.") }
+            guard watch.feedback.filter(\.needsReply).allSatisfy({ watch.replies[$0.id] != nil }) else { throw CoreError.invalid("Record a response to each reviewer before finishing, or ask the human about decisions outside scope.") }
             for failure in current.failed {
                 guard let runID = failure["runId"].string, watch.actions["ci:\(watch.head):\(runID):result"] == "requested" else { throw CoreError.invalid("A failing check still needs a verified repair, an evidenced retry, or human input.") }
             }
@@ -227,8 +156,8 @@ extension Orchestrator {
 
     func finishHostedPass(_ task: WorkTask, project: Project) async throws {
         var watch = try watch(task.id)
-        guard watch.repairing, let pr = task.pr, !task.paused, !project.paused, !(try store.settings().paused) else { return }
-        let host = GitHub(runner: runner, root: store.root)
+        guard watch.repairing, task.pr != nil, !task.paused, !project.paused, !(try store.settings().paused) else { return }
+        let host = try project.pullRequestHost(runner: runner, root: store.root)
         let current = try await host.status(task: task, project: project)
         guard current.state == "OPEN", current.branch == task.branchName,
               let proof = try store.all(Proof.self).first(where: { $0.taskId == task.id && $0.complete }),
@@ -238,32 +167,24 @@ extension Orchestrator {
             let key = "reply:" + feedback.id
             if watch.actions[key] == "posted" {
                 if watch.resolutions.contains(feedback.id), let thread = feedback.threadID, watch.actions[key + ":resolved"] != "yes" {
-                    _ = try await host.readJSON(["api", "graphql", "-f", "query=mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}", "-f", "id=" + thread])
+                    try await host.resolve(task: task, project: project, threadID: thread)
                     watch.actions[key + ":resolved"] = "yes"; try store.save(watch)
                 }
                 continue
             }
-            let endpoint = feedback.commentID.map { "repos/\(project.remoteSlug)/pulls/\(pr.number)/comments/\($0)/replies" } ?? "repos/\(project.remoteSlug)/issues/\(pr.number)/comments"
-            // A stable hidden receipt lets an interrupted post recover without duplicating a reply.
-            let receipt = "<!-- review-response:\(GitHub.fingerprint(task.id.uuidString + feedback.id + body)) -->"
-            let postedBody = body + "\n\n" + receipt
-            let collection = feedback.commentID == nil ? "repos/\(project.remoteSlug)/issues/\(pr.number)/comments?per_page=100" : "repos/\(project.remoteSlug)/pulls/\(pr.number)/comments?per_page=100"
-            let existing = try await host.readJSON(["api", collection, "--paginate", "--slurp"]).array.flatMap(\.array).first { $0["body"].string?.contains(receipt) == true }
-            let posted: JSON
-            if let existing { posted = existing }
+            // A stable invisible receipt lets an interrupted post recover without duplicating a reply.
+            let receipt = host.receipt(GitHub.fingerprint(task.id.uuidString + feedback.id + body))
+            let postedKey: String
+            if let existing = try await host.existingReply(task: task, project: project, feedback: feedback, receipt: receipt) { postedKey = existing }
             else {
                 watch.actions[key] = "posting"; try store.save(watch)
-                let file = store.root.appending(path: "review-reply-\(task.id).json")
-                try JSON.object(["body": .string(postedBody)]).text.write(to: file, atomically: true, encoding: .utf8)
-                defer { try? FileManager.default.removeItem(at: file) }
-                posted = try await host.readJSON(["api", endpoint, "--method", "POST", "--input", file.path])
+                postedKey = try await host.postReply(task: task, project: project, feedback: feedback, body: body + "\n\n" + receipt)
             }
-            guard let postedID = posted["id"].int else { throw CoreError.invalid("GitHub did not confirm the review reply. It will be reconciled before retrying.") }
             watch.actions[key] = "posted"
-            watch.actions["posted:\(feedback.commentID == nil ? "comment" : "thread"):\(postedID)"] = "posted"
+            watch.actions["posted:" + postedKey] = "posted"
             try store.save(watch)
             if watch.resolutions.contains(feedback.id), let thread = feedback.threadID {
-                _ = try await host.readJSON(["api", "graphql", "-f", "query=mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}", "-f", "id=" + thread])
+                try await host.resolve(task: task, project: project, threadID: thread)
                 watch.actions[key + ":resolved"] = "yes"; try store.save(watch)
             }
         }

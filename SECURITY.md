@@ -4,7 +4,7 @@ For a vulnerability, use [GitHub’s private vulnerability reporting](https://gi
 
 Build Mate runs coding agents, Git and configured shell hooks as your macOS user. Hooks and local previews are trusted commands you choose; the app itself is not an App Sandbox container. Task agents have explicit worktree/Git write permissions, and project chat is read-only. These boundaries do not make untrusted repository code safe to build or execute.
 
-Codex and GitHub CLI retain their own credentials. Signing/notarization credentials stay in the maintainer’s Keychain. Build Mate does not require you to paste tokens into a chat. Permission expansion and unsupported secret-entry requests are declined.
+Codex, GitHub CLI and TWG CLI retain their own credentials. Signing/notarization credentials stay in the maintainer’s Keychain. Build Mate does not require you to paste tokens into a chat. Permission expansion and unsupported secret-entry requests are declined.
 
 App data, including chat history, attachments, logs and worktrees, is stored under `~/Library/Application Support/Build Mate/`. Content sent to an agent is processed by the configured Codex service/account. PRs, comments and commits are sent to GitHub when those workflows run. There is no Build Mate cloud backend or analytics service.
 

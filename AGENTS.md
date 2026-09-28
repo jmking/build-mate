@@ -8,7 +8,7 @@ Read `README.md` and `docs/architecture.md`, then inspect the relevant code and 
 
 Build Mate is a native macOS app that turns project conversations into scoped tasks, builds them with Codex in isolated Git worktrees, verifies the results and follows GitHub review through merge. Projects can link multiple repositories; each task and PR targets exactly one repository.
 
-Current scope: macOS 26+, Apple Silicon releases, Codex, GitHub and local build/QA work for Bitbucket repositories. Bitbucket PR automation, Claude, mobile/remote access, issue-tracker integrations and combined multi-task PRs are not implemented. Do not add these without a specific request.
+Current scope: macOS 26+, Apple Silicon releases, Codex, and GitHub and Bitbucket Cloud pull requests. Claude, mobile/remote access, issue-tracker integrations and combined multi-task PRs are not implemented. Do not add these without a specific request.
 
 ## Build and test
 
@@ -52,7 +52,7 @@ Core filenames in this table live under `BuildMate/Core/` unless shown otherwise
 - SwiftUI first; AppKit where needed. Use native macOS controls, SF Symbols, system colours and materials. Follow Apple’s HIG. Keep spacing, alignment, keyboard navigation, accessibility labels, tooltips and Reduce Motion support deliberate. Check visual changes in light and dark mode; report any checks you could not perform.
 - Keep task identity, project display names and repository identity separate. Resolve task Git/host operations through `store.project(for:)`, not a project’s legacy repository fields.
 - Never put Build Mate metadata in a user’s checkout. App-owned worktrees, generated workflow files, logs and media belong in Application Support. Normal Git worktree metadata necessarily lives in the repository’s Git directory.
-- Keep credentials with Codex, `gh`, or the Keychain. Never print, persist or commit secrets. Don’t weaken sandboxing or approval boundaries to fix an integration.
+- Keep credentials with Codex, `gh`, `twg`, or the Keychain. Never print, persist or commit secrets. Don’t weaken sandboxing or approval boundaries to fix an integration.
 - Preserve native thread IDs, unsent input, attachment ownership and revision-bound proof. Do not resend entire conversations or repeat completed checks without a reason.
 - Only the parent agent may mutate Build Mate task/project lifecycle. Child activity must stay scoped to its parent.
 - PR descriptions contain a concise Markdown change summary, not proof reports, JSON or Build Mate branding. Never bypass repository merge protections.

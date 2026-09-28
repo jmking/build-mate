@@ -123,8 +123,8 @@ struct BuildMateApp: App {
                 Button(model?.selectedTask?.pr == nil ? "Open Pull Request" : "Update Pull Request") {
                     guard let model, let task = model.selectedTask else { return }
                     model.perform { try await model.core.openPullRequest(task.id) }
-                }.disabled(model?.selectedTask?.state != .humanReview || model?.selectedProject?.host != .github || model?.selectedTask?.paused == true || model?.snapshot.proofs.contains { $0.taskId == model?.selectedTask?.id && $0.complete } != true)
-                    .help(model?.selectedTask?.pr == nil ? "Publish the selected task’s reviewed changes as a GitHub pull request" : "Push the reviewed changes and update this pull request’s description")
+                }.disabled(model?.selectedTask?.state != .humanReview || model?.selectedProject?.host.supportsPullRequests != true || model?.selectedTask?.paused == true || model?.snapshot.proofs.contains { $0.taskId == model?.selectedTask?.id && $0.complete } != true)
+                    .help(model?.selectedTask?.pr == nil ? "Publish the selected task’s reviewed changes as a pull request" : "Push the reviewed changes and update this pull request’s description")
                 Button("Use Suggested Answers…") { if let task = model?.selectedTask { model?.reviewSheet = .defaults(task.id) } }
                     .disabled(model?.selectedTask?.state != .needsClarification || model?.selectedTask.map { model?.hasSuggestedAnswers(for: $0.id) == true } != true)
                     .help("Review and confirm the agent’s suggested answers")

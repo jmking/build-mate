@@ -158,7 +158,7 @@ actor Orchestrator {
             for task in tasks where !editingTasks.contains(task.id) && hostJobs[task.id] == nil && !polling.contains(task.id) && !openingPRs.contains(task.id) && now.timeIntervalSince(lastPoll[task.id] ?? .distantPast) >= 15 {
                 let project = try? store.project(for: task)
                 let watch = try watch(task.id)
-                let publish = task.state == .humanReview && !task.paused && !settings.paused && project?.paused == false && project?.host == .github
+                let publish = task.state == .humanReview && !task.paused && !settings.paused && project?.paused == false && project?.host.supportsPullRequests == true
                     && (project?.settings.askBeforeOpenPR == false || watch.repairing && watch.requirementsRevision == task.requirementsRevision)
                 let observe = task.pr != nil && (!task.state.terminal || task.state == .done && task.worktreePath != nil)
                 guard publish || observe else { continue }
@@ -318,7 +318,8 @@ actor Orchestrator {
                 throw CoreError.invalid("Only the title can be edited after a pull request is opening or the task is finished.")
             }
             if task.pr != nil {
-                _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: task, project: store.project(for: task))
+                let project = try store.project(for: task)
+                _ = try await project.pullRequestHost(runner: runner, root: store.root).verifiedOpenPR(task: task, project: project)
             }
             await stopPreview(id)
             if task.worktreePath != nil || workers[id] != nil {
@@ -407,7 +408,8 @@ actor Orchestrator {
         let current = try store.get(WorkTask.self, id)
         guard [.humanReview, .inPR].contains(current.state) else { throw CoreError.invalid("Only a task awaiting review or in an open pull request can receive review feedback.") }
         if current.pr != nil {
-            _ = try await GitHub(runner: runner, root: store.root).verifiedOpenPR(task: current, project: store.project(for: current))
+            let project = try store.project(for: current)
+            _ = try await project.pullRequestHost(runner: runner, root: store.root).verifiedOpenPR(task: current, project: project)
             clearBackgroundIssue("pr-\(id)")
         }
         await stopPreview(id)
@@ -475,7 +477,7 @@ actor Orchestrator {
                 base = branch
             }
         }
-        let pr = try await GitHub(runner: runner, root: store.root).open(task: task, project: project, summary: proof.summary, base: base, commitSHA: head)
+        let pr = try await project.pullRequestHost(runner: runner, root: store.root).open(task: task, project: project, summary: proof.summary, base: base, commitSHA: head)
         clearBackgroundIssue("pr-\(id)")
         var current = try store.get(WorkTask.self, id)
         current.pr = pr; try store.save(current)
@@ -488,7 +490,7 @@ actor Orchestrator {
         do {
             let task = try store.get(WorkTask.self, id)
             let project = try store.project(for: task)
-            let status = try await GitHub(runner: runner, root: store.root).status(task: task, project: project)
+            let status = try await project.pullRequestHost(runner: runner, root: store.root).status(task: task, project: project)
             guard !editingTasks.contains(id), !openingPRs.contains(id) else { return }
             if status.state == "MERGED", !task.state.terminal, task.state != .inPR {
                 var paused = try store.get(WorkTask.self, id); paused.paused = true

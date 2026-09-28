@@ -27,7 +27,7 @@ extension Orchestrator {
               try store.get(Proof.self, proof.id).qaToken == token else { throw CoreError.invalid("The task or evidence changed during QA. Inspect the current state before continuing.") }
         let hosted = try watch(taskID)
         if hosted.repairing {
-            guard hosted.feedback.filter({ $0.id.hasPrefix("comment:") || $0.id.hasPrefix("thread:") || $0.id.hasPrefix("review:") }).allSatisfy({ hosted.replies[$0.id] != nil }) else { throw CoreError.invalid("Queue a response to each reviewer before completing this review pass.") }
+            guard hosted.feedback.filter(\.needsReply).allSatisfy({ hosted.replies[$0.id] != nil }) else { throw CoreError.invalid("Queue a response to each reviewer before completing this review pass.") }
         }
         proof.qaReview = runner.redacted(assessment); proof.complete = true; try store.save(proof)
         try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Self-review completed. Ready for review."))
@@ -36,7 +36,7 @@ extension Orchestrator {
         if let reason = project.publicationBlockReason {
             try store.save(Message(sessionId: session.id, role: "system", body: "QA is complete and the changes are ready for your review. " + reason))
         }
-        if ((hosted.repairing && hosted.requirementsRevision == task.requirementsRevision) || !project.settings.askBeforeOpenPR) && project.host == .github {
+        if ((hosted.repairing && hosted.requirementsRevision == task.requirementsRevision) || !project.settings.askBeforeOpenPR) && project.host.supportsPullRequests {
             do { try await openPullRequest(taskID) }
             catch is CancellationError { throw CancellationError() }
             catch { reportBackgroundIssue(runner.redacted(error.localizedDescription), id: "pr-\(taskID)", taskID: taskID) }

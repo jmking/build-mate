@@ -33,6 +33,10 @@ struct SettingsView: View {
                             }.help("Default editor for this project")
                             Toggle("Ask me before starting to build", isOn: projectSetting(\.askBeforeBuild, fallback: false))
                                 .help("Require plan approval unless a task overrides this preference")
+                            Picker("Merge pull requests with", selection: projectSetting(\.mergeStrategy, fallback: nil)) {
+                                Text("Repository default").tag(Optional<MergeStrategy>.none)
+                                ForEach(MergeStrategy.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
+                            }.help("Use the repository’s default merge method, or choose one for this project. The repository must allow it")
                             DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
                                 TextField("Branch prefix", text: projectSetting(\.branchPrefix, fallback: "")).help("Prefix for newly created task branches")
                                 Toggle("Allow agent network access", isOn: projectSetting(\.network, fallback: true)).help("Allow network access from task agents; project chat remains read-only without network access")

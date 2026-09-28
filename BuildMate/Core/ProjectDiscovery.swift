@@ -71,12 +71,22 @@ struct ProjectDiscovery: Sendable {
         let remoteHead = try await runner.run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd: repo.path, allowFailure: true)
         let head = remoteHead.output.trimmingCharacters(in: .whitespacesAndNewlines)
         var branch = remoteHead.status == 0 && head.hasPrefix("origin/") ? String(head.dropFirst(7)) : ""
-        // Bitbucket uses the clone’s existing Git credentials for worktrees/fetches.
-        // PR automation is a separate capability and must not prevent local work.
-        var signedIn = host == .bitbucket
-        var status = "Ready to build and run QA. Bitbucket pull requests require a manual handoff after review."
+        var signedIn = false
+        var status = ""
         var setup: String? = nil
-        if host == .github {
+        if host == .bitbucket {
+            // Bitbucket uses the clone’s existing Git credentials for worktrees/fetches; TWG handles pull requests.
+            do {
+                let repository = try await Bitbucket.run(runner, ["repo", "get"], remoteSlug: slug, cwd: repo.path)
+                signedIn = true
+                status = "TWG CLI is signed in to Bitbucket"
+                branch = repository["mainbranch"]["name"].string ?? branch
+            } catch {
+                let missing = error.localizedDescription.contains("not installed")
+                status = (missing ? "The TWG CLI is not installed." : "Sign in to Bitbucket with the TWG CLI, then check again.") + " Tasks can still build and run QA."
+                setup = missing ? "Install the TWG CLI, then run twg setup bitbucket" : "twg setup bitbucket"
+            }
+        } else if host == .github {
             let auth = try await runner.run("gh", ["auth", "status", "--hostname", "github.com"], cwd: repo.path, allowFailure: true)
             signedIn = auth.status == 0
             status = signedIn ? "GitHub CLI is signed in" : "Sign in to GitHub CLI, then check again"
@@ -92,7 +102,8 @@ struct ProjectDiscovery: Sendable {
         let local = try await runner.run("git", ["rev-parse", "--verify", "refs/heads/" + branch], cwd: repo.path, allowFailure: true)
         guard local.status == 0 else { throw CoreError.invalid("Check out the default branch (\(branch)) locally before adding this project.") }
         var project = Project(name: slug, repoPath: repo.path, host: host, remoteSlug: slug, defaultBranch: branch)
-        project.paused = !signedIn
+        // Bitbucket pull-request automation is a separate capability and must not prevent local work.
+        project.paused = !signedIn && host == .github
         return DiscoveredProject(project: project, authenticated: signedIn, status: status, setupCommand: setup)
     }
 }

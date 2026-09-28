@@ -65,4 +65,67 @@ struct HostedReviewTests {
         #expect(try f.store.get(WorkTask.self, task.id).state == .done)
         await resumed.shutdown(); try f.cleanup()
     }
+
+    @Test func bitbucketPublishesRepairsFeedbackResolvesTasksAndMergesWithTheRepositoryDefault() async throws {
+        var f = try await CoreTests.Fixture()
+        f.project.host = .bitbucket; try f.store.save(f.project)
+        try f.marker("bitbucket")
+        let task = try f.store.createTask(projectId: f.project.id, title: "Bitbucket workflow")
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        await core.tick()
+        try await f.wait("initial clarification") { try !f.store.all(Question.self).isEmpty }
+        try await core.answer(try #require(f.store.all(Question.self).first).id, text: "Plain")
+        try await f.wait("initial QA") { try f.store.get(WorkTask.self, task.id).state == .humanReview && f.store.session(for: task.id).status == "idle" }
+        try await core.openPullRequest(task.id)
+        #expect(try f.store.get(WorkTask.self, task.id).pr?.url == "https://bitbucket.org/fixture/repo/pull-requests/7")
+        #expect(try f.store.get(WorkTask.self, task.id).state == .inPR)
+
+        // A failed Pipelines run is inspected before an evidenced retry, and retried at most once per attempt.
+        try f.marker("ci-failed"); await core.pollPR(task.id)
+        #expect(try f.store.get(WorkTask.self, task.id).state == .building)
+        let retry: JSON = .object(["action": .string("retry_ci"), "runId": .string("12"), "reason": .string("The log shows the runner lost its network before tests ran.")])
+        do { _ = try await core.reviewAction(task.id, arguments: retry); Issue.record("Retried without inspecting failure logs") } catch {}
+        #expect(try await core.reviewAction(task.id, arguments: .object(["action": .string("inspect_ci"), "runId": .string("12")])).contains("No tests ran"))
+        _ = try await core.reviewAction(task.id, arguments: retry)
+        do { _ = try await core.reviewAction(task.id, arguments: retry); Issue.record("Retried the same Pipelines attempt twice") } catch {}
+        #expect(FileManager.default.fileExists(atPath: f.control.appending(path: "ci-retried").path))
+        _ = try await core.reviewAction(task.id, arguments: .object(["action": .string("finish")]))
+        try FileManager.default.removeItem(at: f.control.appending(path: "ci-failed"))
+
+        // General, inline and task feedback is repaired, answered exactly once, and resolved.
+        try "[{\"id\":101,\"body\":\"Use blue for this existing requirement.\"}]".write(to: f.control.appending(path: "review-feedback"), atomically: true, encoding: .utf8)
+        try f.marker("thread-feedback"); try f.marker("bb-task"); try f.marker("lose-reply-response"); try f.marker("hosted-feedback"); try f.marker("pr-revision")
+        await core.pollPR(task.id)
+        #expect(try f.store.get(WorkTask.self, task.id).state == .building)
+        await core.tick()
+        try await f.wait("Bitbucket repair and replies") { try f.store.get(WorkTask.self, task.id).state == .inPR && f.store.session(for: task.id).status == "idle" && FileManager.default.fileExists(atPath: f.control.appending(path: "posted-replies").path) }
+        await core.pollPR(task.id) // Recover the reply whose response was lost; never duplicate it.
+        let posts = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: f.control.appending(path: "posted-replies"))).array
+        #expect(posts.count == 3)
+        #expect(posts.allSatisfy { $0["body"].string?.contains("[//]: # (review-response:") == true && $0["body"].string?.contains("<!--") == false })
+        #expect(posts.contains { $0["parent"].int == 102 } && posts.contains { $0["parent"].int == 101 })
+        #expect(FileManager.default.fileExists(atPath: f.control.appending(path: "thread-resolved").path))
+        #expect(FileManager.default.fileExists(atPath: f.control.appending(path: "task-resolved").path))
+
+        // Bitbucket does not enforce requested changes; Build Mate must.
+        let current = try f.store.get(WorkTask.self, task.id)
+        try f.marker("merge-ready"); try f.marker("bb-changes-requested")
+        let blocked = try await Bitbucket(runner: f.runner, root: f.store.root).status(task: current, project: f.project)
+        #expect(blocked.reviewDecision == "CHANGES_REQUESTED" && blocked.feedback.contains { $0.id.hasPrefix("review:") })
+        #expect(blocked.head.count == 40)
+        try FileManager.default.removeItem(at: f.control.appending(path: "bb-changes-requested"))
+
+        // A project override the repository forbids withholds the merge; the repository default is used otherwise.
+        f.project.settings.mergeStrategy = .rebase; try f.marker("no-fast-forward"); try f.store.save(f.project)
+        await core.pollPR(task.id)
+        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "merge-requested").path))
+        #expect(await core.backgroundIssues.values.contains { $0.message.contains("Settings") })
+        f.project.settings.mergeStrategy = nil; try f.store.save(f.project)
+        await core.pollPR(task.id)
+        #expect(try String(contentsOf: f.control.appending(path: "merge-requested"), encoding: .utf8) == "squash")
+        await core.pollPR(task.id)
+        #expect(try f.store.get(WorkTask.self, task.id).state == .done)
+        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "gh-calls.jsonl").path))
+        await core.shutdown(); try f.cleanup()
+    }
 }

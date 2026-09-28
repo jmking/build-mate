@@ -4,11 +4,12 @@ import GRDB
 
 extension CoreTests {
     // Host authentication/publication must never gate project-created work, QA or follow-up chat.
-    @Test func bitbucketTasksBuildThroughQAThenExplainThePublicationHandoff() async throws {
+    @Test func signedOutBitbucketStillBuildsThroughQAAndExplainsPublicationFailure() async throws {
         var f = try await Fixture()
         f.project.host = .bitbucket
         f.project.settings.askBeforeOpenPR = false
         try f.store.save(f.project)
+        try f.marker("bitbucket"); try f.marker("bb-signed-out")
         let core = Orchestrator(store: f.store, runner: f.runner)
         try await core.sendProjectMessage(f.project.id, text: "Plan account search")
         try await f.wait("project proposal") {
@@ -26,19 +27,25 @@ extension CoreTests {
         #expect(try await core.steer(task.id, text: "Please start the work") == .queued)
         try await f.wait("Bitbucket task agent question") { try !f.store.all(Question.self).isEmpty }
         try await core.answer(try #require(f.store.all(Question.self).first).id, text: "Plain")
-        try await f.wait("Bitbucket QA and publication explanation") {
-            try f.store.get(WorkTask.self, task.id).state == .humanReview && f.store.all(Message.self).contains { $0.body.contains("Automatic Bitbucket pull requests") }
+        try await f.wait("Bitbucket QA and publication failure") {
+            try f.store.get(WorkTask.self, task.id).state == .humanReview && f.store.session(for: task.id).status == "idle"
         }
+        // Automatic publication is attempted and its failure explained, without losing reviewed work.
+        for _ in 0..<200 where !(await core.backgroundIssues.values.contains { $0.taskID == task.id && $0.message.contains("twg setup bitbucket") }) {
+            await core.tick(); try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(await core.backgroundIssues.values.contains { $0.taskID == task.id && $0.message.contains("twg setup bitbucket") })
         let reviewed = try f.store.get(WorkTask.self, task.id)
         #expect(reviewed.pr == nil)
         #expect(try f.store.all(Proof.self).first?.complete == true)
         #expect(try f.store.all(Proof.self).first?.qaReview != nil)
         #expect(FileManager.default.fileExists(atPath: reviewed.worktreePath! + "/feature.txt"))
         let diagnostics = try await core.projectStatus(f.project.id)["tasks"].array.first
-        #expect(diagnostics?["publicationBlockReason"].string?.contains("Bitbucket") == true)
+        #expect(diagnostics?["publicationBlockReason"] == .null)
         #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "gh-calls.jsonl").path))
-        do { try await core.openPullRequest(task.id); Issue.record("Sent Bitbucket publication to GitHub") }
+        do { try await core.openPullRequest(task.id); Issue.record("Published while signed out of Bitbucket") }
         catch { #expect(error.localizedDescription.contains("Bitbucket")) }
+        #expect(try f.store.get(WorkTask.self, task.id).pr == nil)
         #expect(try await core.steer(task.id, text: "Please review this once more") == .queued)
         await core.shutdown(); try f.cleanup()
     }

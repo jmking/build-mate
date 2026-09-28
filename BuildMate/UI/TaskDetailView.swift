@@ -70,7 +70,7 @@ struct TaskDetailView: View {
                 ForEach(pendingPlans) { approval in
                     VStack(alignment: .leading, spacing: 12) {
                         Text(approval.kind == "merge" ? "Ready to merge" : "Review plan").font(.headline).accessibilityAddTraits(.isHeader)
-                        if approval.kind == "merge" { Text("Approve merging the current reviewed commit. GitHub’s repository rules still apply.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                        if approval.kind == "merge" { Text("Approve merging the current reviewed commit. \(project?.host.title ?? "The host")’s repository rules still apply.").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                         else if let plan = approval.planText { MarkdownBrief(plan) }
                         Button(approving.contains(approval.id) ? "Approving…" : (approval.kind == "merge" ? "Approve Merge" : "Approve Plan")) {
                             approving.insert(approval.id)
@@ -148,7 +148,7 @@ struct TaskDetailView: View {
                     .background(OverlayScrollbars())
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if task.state == .humanReview && project?.host == .github {
+                if task.state == .humanReview && project?.host.supportsPullRequests == true {
                     VStack(spacing: 12) {
                         Divider()
                         Button(openingPR ? (task.pr == nil ? "Opening…" : "Updating…") : (task.pr == nil ? "Open Pull Request" : "Update Pull Request")) {
@@ -158,7 +158,7 @@ struct TaskDetailView: View {
                                 try await model.core.openPullRequest(task.id)
                             }
                         }.buttonStyle(.borderedProminent).disabled(openingPR || proof?.complete != true || task.paused)
-                            .help(task.pr == nil ? "Publish the reviewed changes as a GitHub pull request" : "Push the reviewed changes and update this pull request’s description")
+                            .help(task.pr == nil ? "Publish the reviewed changes as a \(project?.host.title ?? "") pull request" : "Push the reviewed changes and update this pull request’s description")
                             .padding(.horizontal, 16).padding(.bottom, 16)
                     }.frame(maxWidth: .infinity).background(AppSurface.raised)
                 }

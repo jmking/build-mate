@@ -240,7 +240,7 @@ for line in sys.stdin:
   if (root/'hosted-feedback').exists() and 'Feedback ID: comment:' in task_context:
    hosted_replies=[line.removeprefix('Feedback ID: ') for line in task_context.splitlines() if line.startswith('Feedback ID: ')]
    feedback=hosted_replies.pop(0)
-   call('review_action',{'action':'reply','feedbackId':feedback,'body':'Updated the implementation and verified the requested behavior.','resolve':feedback.startswith('thread:')});continue
+   call('review_action',{'action':'reply','feedbackId':feedback,'body':'Updated the implementation and verified the requested behavior.','resolve':feedback.startswith(('thread:','task:'))});continue
   if (root/'subagents').exists():
    delegation()
    if (root/'subagent-hold').exists():continue
@@ -318,7 +318,7 @@ for line in sys.stdin:
   elif tool=='review_action':
    assert req['result']['success'], req['result']
    if hosted_replies:
-    feedback=hosted_replies.pop(0);call('review_action',{'action':'reply','feedbackId':feedback,'body':'Preserved the account filter and verified it.','resolve':feedback.startswith('thread:')})
+    feedback=hosted_replies.pop(0);call('review_action',{'action':'reply','feedbackId':feedback,'body':'Preserved the account filter and verified it.','resolve':feedback.startswith(('thread:','task:'))})
    else:save(revision_answered=True);build()
   elif tool=='complete_qa':
    assert req['result']['success'], req['result']

@@ -19,13 +19,14 @@ You also need:
 
 - [Codex CLI](https://github.com/openai/codex), installed and signed in with `codex login`.
 - Git, and [GitHub CLI](https://cli.github.com/) signed in with `gh auth login` for GitHub projects.
+- For Bitbucket Cloud projects, the TWG CLI signed in with `twg setup bitbucket`. Tasks still build and run QA without it; only pull requests need it.
 - The tools your repositories need to build and test.
 
 Open Build Mate, add a repository, and describe what you want in project chat. Review the proposed tasks before queuing them. Project Settings lets you add repositories, rename the project and configure checks or previews.
 
 ## Current limits
 
-GitHub is the supported PR host. Bitbucket repositories can build and run QA; creating and monitoring their pull requests still requires a manual handoff. Claude is not available yet. Local repositories can build and reach human review, but publishing and merging local-only work are not implemented. PR monitoring runs while the app is open. Tool availability depends on your installed Codex CLI; desktop-only Codex features are not guaranteed.
+GitHub and Bitbucket Cloud pull requests are automated end to end. On Bitbucket, only Bitbucket Pipelines failures can be inspected and retried; other CI appears as checks the agent must fix or escalate. Bitbucket has no conditional merge, so Build Mate re-verifies the reviewed head immediately before merging. Claude is not available yet. Local repositories can build and reach human review, but publishing and merging local-only work are not implemented. PR monitoring runs while the app is open. Tool availability depends on your installed Codex CLI; desktop-only Codex features are not guaranteed.
 
 This is an early preview. Start with a repository you can comfortably experiment with and review the results. There is no in-app updater yet; install newer builds from Releases.
 
@@ -41,6 +42,6 @@ open '.build/Build/Products/Debug/Build Mate Dev.app'
 
 Read [AGENTS.md](AGENTS.md) for development rules and a code map, [architecture](docs/architecture.md) for the workflow, and [releasing](docs/releasing.md) for signing and packaging. Human and agent contributions follow the same process: a focused change, relevant validation and a clear pull request.
 
-App data lives in `~/Library/Application Support/Build Mate/`. Debug builds are a separate app, **Build Mate Dev** (`com.buildmate.app.dev`, orange icon), with their own data in `Build Mate Dev/`, so they can run beside an installed release. Codex and GitHub CLI own their credentials. [Security and data handling](SECURITY.md) describes the boundaries.
+App data lives in `~/Library/Application Support/Build Mate/`. Debug builds are a separate app, **Build Mate Dev** (`com.buildmate.app.dev`, orange icon), with their own data in `Build Mate Dev/`, so they can run beside an installed release. Codex, GitHub CLI and TWG CLI own their credentials. [Security and data handling](SECURITY.md) describes the boundaries.
 
 [MIT licensed](LICENSE). Built by Justin King. Build Mate is an independent project, not an OpenAI product.
