@@ -24,12 +24,12 @@ struct TaskBoard: View {
                         HStack(alignment: .top, spacing: 12) {
                             ForEach(columns, id: \.self) { state in
                                 VStack(alignment: .leading, spacing: 12) {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: state.symbol).font(.caption).foregroundStyle(state.color).frame(width: 16).accessibilityHidden(true)
-                                        Text(state.title).font(.caption.weight(.semibold))
+                                    HStack(spacing: 8) {
+                                        Image(systemName: state.symbol).font(.system(size: 16, weight: .medium)).foregroundStyle(state.color).frame(width: 20).accessibilityHidden(true)
+                                        Text(state.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                                         Spacer(minLength: 2)
-                                        Text("\(tasks.filter { $0.state == state }.count)").font(.caption).foregroundStyle(.secondary)
-                                    }.frame(height: 20).padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
+                                        Text("\(tasks.filter { $0.state == state }.count)").font(.body).monospacedDigit().foregroundStyle(.secondary)
+                                    }.frame(height: 24).padding(.horizontal, 4).padding(.top, 6).accessibilityAddTraits(.isHeader)
                                     ScrollView {
                                         LazyVStack(spacing: 8) {
                                             ForEach(tasks.filter { $0.state == state }) { task in
