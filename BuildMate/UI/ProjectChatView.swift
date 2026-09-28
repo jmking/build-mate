@@ -5,6 +5,7 @@ struct ProjectChatView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let projectID: UUID
     @State private var sending = false
+    @State private var textSelection: TextSelection?
     @FocusState private var focused: Bool
     private var project: Project? { model.snapshot.projects.first { $0.id == projectID } }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerType == "project" && $0.ownerId == projectID } }
@@ -128,7 +129,8 @@ struct ProjectChatView: View {
             ChatAttachmentTray(files: fileBinding, root: model.store.root)
             HStack(alignment: .bottom, spacing: 10) {
                 ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
-                TextField(question != nil ? "Your answer…" : "Message the agent…", text: draft, axis: .vertical)
+                TextField(question != nil ? "Your answer…" : "Message the agent…", text: draft, selection: $textSelection, axis: .vertical)
+                    .chatLineBreaks(text: draft, selection: $textSelection)
                     .font(.system(size: 14)).lineLimit(1...5).textFieldStyle(.plain).padding(.vertical, 7).frame(minHeight: 32)
                     .focused($focused).accessibilityLabel("Project message").accessibilityIdentifier("project-message")
                     .disabled(sending || question?.payload["allowsFreeText"].bool == false).onSubmit(send)

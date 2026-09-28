@@ -74,15 +74,24 @@ final class WorkspaceTests: XCTestCase {
         try app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/buildmate-task-light.png"))
         let composer = app.textFields["task-message"]
         composer.click(); composer.typeText("Remember this next time")
+        // Shift–Return must insert a newline, not submit; Markdown source stays intact.
+        composer.typeKey(.return, modifierFlags: .shift)
+        composer.typeText("* First item")
+        composer.typeKey(.return, modifierFlags: .shift)
+        composer.typeText("* **Second** item")
+        let markdownDraft = "Remember this next time\n* First item\n* **Second** item"
+        XCTAssertEqual(composer.value as? String, markdownDraft)
+        XCTAssertFalse(try store.all(Message.self).contains { $0.role == "user" && $0.body == markdownDraft })
         // Navigation must not discard an unsent task draft.
         app.typeKey("3", modifierFlags: .command)
         XCTAssertTrue(app.buttons["task-1"].waitForExistence(timeout: 5))
         app.buttons["task-1"].click()
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
-        XCTAssertEqual(composer.value as? String, "Remember this next time")
+        XCTAssertEqual(composer.value as? String, markdownDraft)
         XCTAssertEqual(app.buttons["send-task-message"].label, "Save message")
         app.buttons["send-task-message"].click()
         XCTAssertTrue(visibleText("Remember this next time").waitForExistence(timeout: 5))
+        XCTAssertTrue(try store.all(Message.self).contains { $0.sessionId == session.id && $0.body == markdownDraft })
         app.terminate()
         app.launchEnvironment["BUILD_MATE_APPEARANCE"] = "dark"
         app.launch()
@@ -114,6 +123,12 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertTrue(visibleText("No matches").waitForExistence(timeout: 5))
         app.typeKey("2", modifierFlags: .command)
         XCTAssertTrue(app.searchFields.firstMatch.waitForNonExistence(timeout: 5))
+        let projectComposer = app.textFields["project-message"]
+        XCTAssertTrue(projectComposer.waitForExistence(timeout: 5))
+        projectComposer.click(); projectComposer.typeText("1. First step")
+        projectComposer.typeKey(.return, modifierFlags: .shift)
+        projectComposer.typeText("2. Next step")
+        XCTAssertEqual(projectComposer.value as? String, "1. First step\n2. Next step")
         app.typeKey("3", modifierFlags: .command)
         XCTAssertTrue(visibleText("No matches").waitForExistence(timeout: 5))
         app.typeKey("f", modifierFlags: .command)

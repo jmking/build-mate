@@ -6,6 +6,7 @@ struct TaskDetailView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let task: WorkTask
     @State private var sending = false
+    @State private var textSelection: TextSelection?
     @State private var openingPR = false
     @State private var approving: Set<UUID> = []
     private var project: Project? { model.project(for: task) }
@@ -245,7 +246,8 @@ struct TaskDetailView: View {
             ChatAttachmentTray(files: fileBinding, root: model.store.root)
             HStack(alignment: .bottom, spacing: 10) {
                 ChatAttachmentControls(files: fileBinding, root: model.store.root).disabled(sending)
-                TextField(openQuestion != nil ? "Your answer…" : "Message the agent…", text: message, axis: .vertical)
+                TextField(openQuestion != nil ? "Your answer…" : "Message the agent…", text: message, selection: $textSelection, axis: .vertical)
+                    .chatLineBreaks(text: message, selection: $textSelection)
                     .lineLimit(1...5).textFieldStyle(.plain).font(.system(size: 14))
                     .padding(.vertical, 7).frame(minHeight: 32)
                     .accessibilityLabel(openQuestion != nil ? "Your answer" : "Task message").accessibilityIdentifier("task-message")
