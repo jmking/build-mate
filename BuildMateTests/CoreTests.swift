@@ -75,7 +75,7 @@ struct CoreTests {
         await core.shutdown(); try f.cleanup()
     }
 
-    @Test func overlappingScopesYieldWhileIndependentWorkRunsWithinTheAgentLimit() async throws {
+    @Test func overlappingScopesRunConcurrentlyWithoutExceedingTheAgentLimit() async throws {
         let f = try await Fixture()
         var settings = try f.store.settings(); settings.agentsAtOnce = 2; try f.store.saveSettings(settings)
         try f.marker("stall")
@@ -87,10 +87,10 @@ struct CoreTests {
         independent.affectedPaths = ["docs"]; try f.store.save(independent)
         let core = Orchestrator(store: f.store, runner: f.runner)
         await core.tick()
-        try await f.wait("independent work alongside shared scope") { try f.store.session(for: first.id).currentTurn != nil && f.store.session(for: independent.id).currentTurn != nil }
-        #expect(try f.store.get(WorkTask.self, overlapping.id).worktreePath == nil)
+        try await f.wait("overlapping scopes run in separate worktrees") { try f.store.session(for: first.id).currentTurn != nil && f.store.session(for: overlapping.id).currentTurn != nil }
+        #expect(try f.store.get(WorkTask.self, independent.id).worktreePath == nil)
         try await core.pause(first.id, paused: true)
-        try await f.wait("overlap proceeds after scope released") { try f.store.session(for: overlapping.id).currentTurn != nil }
+        try await f.wait("next ranked task starts when capacity is free") { try f.store.session(for: independent.id).currentTurn != nil }
         #expect(try f.store.all(Session.self).filter { $0.currentTurn != nil }.count == 2)
         await core.shutdown(); try f.cleanup()
     }

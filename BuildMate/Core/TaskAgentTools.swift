@@ -40,10 +40,6 @@ extension Orchestrator {
             let project = try store.project(for: task)
             if args["affectedPaths"] != .null {
                 var claimed = task; claimed.affectedPaths = try WorkTask.validatedPaths(args["affectedPaths"].array.compactMap(\.string)); try store.save(claimed)
-                if scopeIsBusy(claimed) {
-                    try await request.respond("Another task currently owns overlapping paths. Your plan is saved; work will resume when that task yields.", success: false)
-                    throw CancellationError()
-                }
             }
             let previousPlan = try store.all(Message.self).filter { $0.sessionId == session.id && $0.kind == "plan" }.max { $0.createdAt < $1.createdAt }?.body
             try store.save(Message(sessionId: session.id, role: "agent", kind: "plan", body: plan))

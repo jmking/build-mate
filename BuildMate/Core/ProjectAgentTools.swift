@@ -30,7 +30,7 @@ extension Orchestrator {
                 guard let text = args["text"].string else { throw CoreError.invalid("Text required") }
                 if text.hasPrefix("BUILD_MATE_REPOSITORY_TASKS ") {
                     let payload = try JSONDecoder().decode(JSON.self, from: Data(text.dropFirst("BUILD_MATE_REPOSITORY_TASKS ".count).utf8))
-                    guard let operation = payload["operation"].string, ["propose_tasks", "create_tasks", "reshape_tasks"].contains(operation) else { throw CoreError.invalid("Invalid repository task operation") }
+                    guard let operation = payload["operation"].string, ["propose_tasks", "create_tasks", "reshape_tasks", "set_task_dependencies", "delete_task"].contains(operation) else { throw CoreError.invalid("Invalid repository task operation") }
                     try await handleProjectRequest(AgentRequest(name: operation, arguments: payload["arguments"], reply: request.reply), projectID: projectID, sessionID: sessionID)
                     return
                 }
@@ -56,6 +56,28 @@ extension Orchestrator {
                 let ids = args["taskIds"].array.compactMap { $0.string.flatMap(UUID.init(uuidString:)) }
                 let tasks = try await reshapeTasks(projectID: projectID, sourceIDs: ids, items: proposalItems(args["tasks"]), reason: args["reason"].string ?? "")
                 result = String(decoding: try JSONEncoder().encode(tasks), as: UTF8.self)
+            case "set_task_dependencies":
+                guard let raw = args["taskId"].string, let id = UUID(uuidString: raw),
+                      case .array(let values) = args["dependsOnTaskIds"] else { throw CoreError.invalid("Task ID and complete dependsOnTaskIds array required.") }
+                let ids = try values.map { value -> UUID in
+                    guard let raw = value.string, let id = UUID(uuidString: raw) else { throw CoreError.invalid("Every dependency must be a valid task ID.") }
+                    return id
+                }
+                let updated = try await setTaskDependencies(id, projectID: projectID, dependencyIDs: ids)
+                result = JSON.object([
+                    "taskId": .string(id.uuidString), "dependsOn": .array(updated.dependsOn.map { .string($0.uuidString) }),
+                    "stackOn": updated.stackOn.map { .string($0.uuidString) } ?? .null,
+                    "paused": .bool(updated.paused), "waitingReason": try waitingReason(updated).map(JSON.string) ?? .null
+                ]).text
+                try store.save(Message(sessionId: sessionID, role: "system", kind: "event", body: "Updated dependencies for \(updated.title)."))
+            case "delete_task":
+                guard let raw = args["taskId"].string, let id = UUID(uuidString: raw) else { throw CoreError.invalid("Task ID required.") }
+                let task = try store.get(WorkTask.self, id)
+                guard task.projectId == projectID else { throw CoreError.invalid("Task belongs to another project.") }
+                let dependents = try store.all(WorkTask.self).filter { $0.projectId == projectID && ($0.dependsOn.contains(id) || $0.stackOn == id) }.map { $0.id.uuidString }
+                try await deleteTask(id)
+                try store.save(Message(sessionId: sessionID, role: "system", kind: "event", body: "Deleted \(task.title)."))
+                result = "Deleted task \(id). Existing PRs and remote branches are unchanged. Paused dependents: \(dependents.joined(separator: ", "))."
             case "refine_task":
                 guard let raw = args["taskId"].string, let id = UUID(uuidString: raw), let description = args["description"].string,
                       !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.invalid("Task and description required") }

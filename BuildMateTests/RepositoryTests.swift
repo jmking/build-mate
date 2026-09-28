@@ -101,9 +101,6 @@ extension CoreTests {
         #expect(proposed[1].repositoryID == second.id && proposed[1].dependsOn == [proposed[0].id])
         #expect(try await !core.dependenciesReady(proposed[1]))
         for task in proposed { try await core.deleteTask(task.id) }
-        var firstScope = first; firstScope.affectedPaths = ["."]
-        var secondScope = secondTask; secondScope.affectedPaths = ["."]
-        #expect(!firstScope.overlaps(secondScope))
         let firstWork = try await Workspace(store: f.store, runner: f.runner).prepare(first, project: f.store.project(for: first))
         let secondWork = try await Workspace(store: f.store, runner: f.runner).prepare(secondTask, project: f.store.project(for: secondTask))
         #expect(FileManager.default.fileExists(atPath: firstWork.worktreePath! + "/README.md"))

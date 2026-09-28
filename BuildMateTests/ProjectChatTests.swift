@@ -3,6 +3,73 @@ import Testing
 
 @Suite(.serialized)
 struct ProjectChatTests {
+    @Test func projectAgentEditsDependenciesAndDeletesRunningTasksWithoutSerializingSharedPaths() async throws {
+        var f = try await CoreTests.Fixture()
+        f.project.paused = true; f.project.settings.stallTimeoutMs = 0; try f.store.save(f.project)
+        var settings = try f.store.settings(); settings.agentsAtOnce = 3; try f.store.saveSettings(settings)
+        try f.marker("hold-shared-plan")
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        var first = try f.store.createTask(projectId: f.project.id, title: "First independent change")
+        first.affectedPaths = ["Sources"]; first.paused = true; try f.store.save(first)
+        var second = try f.store.createTask(projectId: f.project.id, title: "Second independent change", dependsOn: [first.id])
+        second.affectedPaths = ["Sources/View.swift"]; second.paused = true; try f.store.save(second)
+        let foreignPath = f.root.appending(path: "other-clone")
+        _ = try await f.runner.run("git", ["clone", f.remote.path, foreignPath.path])
+        var foreign = f.project; foreign.id = UUID(); foreign.repoPath = foreignPath.path; try f.store.save(foreign)
+        let foreignTask = try f.store.createTask(projectId: foreign.id, title: "Another project's task")
+        f.project.paused = false; try f.store.save(f.project)
+        let responsePath = f.control.appending(path: "project-action-result.json")
+        func action(_ name: String, _ arguments: JSON, compatibility: Bool = false) async throws -> JSON {
+            try? FileManager.default.removeItem(at: responsePath)
+            let action: JSON = .object(["operation": .string(name), "arguments": arguments, "compatibility": .bool(compatibility)])
+            try Data(action.text.utf8).write(to: f.control.appending(path: "project-action.json"))
+            try await core.sendProjectMessage(f.project.id, text: "Manage task: " + name)
+            try await f.wait("project task action") {
+                try FileManager.default.fileExists(atPath: responsePath.path) && f.store.session(for: f.project.id, ownerType: "project").status == "idle"
+            }
+            return try JSONDecoder().decode(JSON.self, from: Data(contentsOf: responsePath))
+        }
+        func dependencies(_ id: UUID, _ ids: [String]) -> JSON {
+            .object(["taskId": .string(id.uuidString), "dependsOnTaskIds": .array(ids.map(JSON.string))])
+        }
+        // Reject cycles, self references, foreign tasks and malformed IDs without changing the graph.
+        for (id, ids) in [(first.id, [second.id.uuidString]), (second.id, [second.id.uuidString]),
+                          (second.id, [foreignTask.id.uuidString]), (second.id, ["not-an-id"])] {
+            #expect(try await action("set_task_dependencies", dependencies(id, ids))["success"].bool == false)
+        }
+        #expect(try f.store.get(WorkTask.self, second.id).dependsOn == [first.id])
+        #expect(try await action("delete_task", .object(["taskId": .string(foreignTask.id.uuidString)]), compatibility: true)["success"].bool == false)
+        #expect(try f.store.get(WorkTask.self, foreignTask.id).id == foreignTask.id)
+        // Old native threads can use the existing note envelope without resetting conversation context.
+        let chatThread = try f.store.session(for: f.project.id, ownerType: "project").providerSessionID
+        #expect(try await action("set_task_dependencies", dependencies(second.id, []), compatibility: true)["success"].bool == true)
+        second = try f.store.get(WorkTask.self, second.id)
+        #expect(second.paused && second.dependsOn.isEmpty)
+        second.paused = false; try f.store.save(second)
+        first.paused = false; try f.store.save(first)
+        await core.tick()
+        try await f.wait("both shared-path plans run concurrently") {
+            try [first.id, second.id].allSatisfy { id in
+                try f.store.get(WorkTask.self, id).state == .building && f.store.session(for: id).currentTurn != nil
+            }
+        }
+        let firstPath = try #require(f.store.get(WorkTask.self, first.id).worktreePath)
+        #expect(try f.store.get(WorkTask.self, second.id).worktreePath != firstPath)
+        let taskThread = try f.store.session(for: second.id).providerSessionID
+        #expect(try await action("set_task_dependencies", dependencies(second.id, [first.id.uuidString]))["success"].bool == true)
+        #expect(try f.store.session(for: second.id).currentTurn == nil)
+        #expect(try !f.store.get(WorkTask.self, second.id).paused)
+        #expect(try await action("set_task_dependencies", dependencies(second.id, []), compatibility: true)["success"].bool == true)
+        try await f.wait("removed dependency resumes existing thread") { try f.store.session(for: second.id).currentTurn != nil }
+        #expect(try f.store.session(for: second.id).providerSessionID == taskThread)
+        #expect(try f.store.session(for: f.project.id, ownerType: "project").providerSessionID == chatThread)
+        #expect(try await action("delete_task", .object(["taskId": .string(first.id.uuidString)]))["success"].bool == true)
+        #expect(try !f.store.all(WorkTask.self).contains { $0.id == first.id })
+        #expect(!FileManager.default.fileExists(atPath: firstPath))
+        #expect(try f.store.session(for: second.id).currentTurn != nil)
+        await core.shutdown(); try f.cleanup()
+    }
+
     @Test func intakePreservesExplicitChoicesReferencesAndDependenciesWhenResizingWork() async throws {
         var f = try await CoreTests.Fixture()
         f.project.paused = true; try f.store.save(f.project)

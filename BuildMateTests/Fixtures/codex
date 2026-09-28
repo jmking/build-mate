@@ -200,7 +200,11 @@ for line in sys.stdin:
    assert 'Write task descriptions as readable Markdown' in context
    assert 'Every created task goes straight to Queue.' in context
    if (root/'chat-stall').exists():continue
-   if (root/'repository-proposal.json').exists():
+   if latest.startswith('Manage task'):
+    action=json.loads((root/'project-action.json').read_text());save(management=True)
+    if action.get('compatibility'):call('note',{'text':'BUILD_MATE_REPOSITORY_TASKS '+json.dumps(action)})
+    else:call(action['operation'],action['arguments'])
+   elif (root/'repository-proposal.json').exists():
     items=json.loads((root/'repository-proposal.json').read_text())
     for item in items:
      line=next(line for line in context.splitlines() if line.startswith(item['repositoryID']+':'))
@@ -245,6 +249,8 @@ for line in sys.stdin:
   if (root/'subagents').exists():
    delegation()
    if (root/'subagent-hold').exists():continue
+  if (root/'hold-shared-plan').exists():
+   call('submit_plan',{'plan':'Work independently in this task worktree.','affectedPaths':['Sources']});continue
   if (root/'crash-once').exists():
    (root/'crash-once').unlink();sys.exit(7)
   if (root/'flood').exists():
@@ -296,6 +302,9 @@ for line in sys.stdin:
    with (root/'delegated-rejections.jsonl').open('a') as f:f.write(json.dumps({'threadId':thread,'tool':tool})+'\n')
    continue
   if project_mode:
+   if readstate().get('management'):
+    (root/'project-action-result.json').write_text(json.dumps(req['result']));save(management=False)
+    project_reply('Task action completed.');continue
    if tool=='ask_question':
     assert req['result']['contentItems'][0]['text']=='Active'
     project_reply('I will focus on active accounts.')
@@ -315,7 +324,11 @@ for line in sys.stdin:
     assert req['result']['contentItems'][0]['text']=='Plain';save(answered=True)
    time.sleep(0.05)
    call('submit_plan',{'plan':'Implement the chosen plain output, then run checks.'})
-  elif tool=='submit_plan':build()
+  elif tool=='submit_plan':
+   if (root/'hold-shared-plan').exists():
+    assert req['result']['success'],req['result']
+    continue
+   build()
   elif tool=='review_action':
    assert req['result']['success'], req['result']
    if hosted_replies:

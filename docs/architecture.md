@@ -4,8 +4,8 @@ Build Mate is one native macOS process. SwiftUI presents durable state from SQLi
 
 ## From an idea to a merge
 
-1. Project chat inspects read-only checkouts of the linked repositories. It clarifies requirements, searches existing tasks, and proposes work or revises existing requirements. It creates tasks only after the user accepts a proposal or explicitly asks to queue them.
-2. Each task targets one repository and enters Queue. Dependencies, explicit pauses, agent capacity, usage and overlapping file scopes govern dispatch. Cross-repository dependencies are supported; branch stacks stay in one repository.
+1. Project chat inspects read-only checkouts of the linked repositories. It clarifies requirements, searches existing tasks, and proposes work or revises existing requirements. It creates tasks only after the user accepts a proposal or explicitly asks to queue them. Project chat can replace task dependencies (validated against cycles and project boundaries) and delete tasks on explicit request using the same cleanup path as the UI. Removing a dependency allows eligible work to dispatch without changing explicit pauses.
+2. Each task targets one repository and enters Queue. Dependencies, explicit pauses, agent capacity and usage govern dispatch. Possible file overlap does not serialize isolated worktrees; dependencies represent real prerequisites only. Cross-repository dependencies are supported; branch stacks stay in one repository.
 3. The task gets an app-owned worktree based on the fetched default branch, or its approved stack parent. Codex plans and builds there, asking for clarification or plan approval when needed. Follow-up messages can revise active or reviewed work, including an existing PR.
 4. Verification runs checks and captures required evidence. The agent receives the actual artifacts for self-review and fixes issues before human review. Proof is tied to both the commit and requirements revision; changes invalidate it.
 5. After human review, publication pushes the verified commit and writes a short Markdown PR description. GitHub reconciliation reads reviews and CI, repairs routine issues, bounds retries and escalates decisions requiring human input. Merge respects repository rules and the reviewed head.
@@ -28,7 +28,7 @@ Task and project sessions keep native thread IDs across runs. Delivery receipts 
 
 Task turns receive scoped worktree and Git-metadata write roots. Project chat is read-only. Only the parent can call lifecycle tools; child activity is recorded separately. Requests for unsupported approvals, permission expansion or secret entry are declined rather than silently granted. Desktop-specific capabilities are not guaranteed by the CLI integration.
 
-Dynamic tool definitions are durable in older Codex threads. Compatibility paths are deliberately narrow: for example, older project threads can pass repository-targeted operations through the existing `note` envelope. Remove compatibility paths only with an explicit migration strategy.
+Dynamic tool definitions are durable in older Codex threads. Compatibility paths are deliberately narrow: for example, older project threads can pass repository-targeted operations and task deletion/dependency edits through the existing `note` envelope. Remove compatibility paths only with an explicit migration strategy.
 
 The protocol was manually exercised with Codex CLI 0.157.1. If changing it, inspect the installed CLI’s generated schema and run a bounded, explicitly authorized integration probe. Generated schemas are not checked in: regenerate locally with `codex app-server generate-json-schema --out <temporary-directory>`. Do not run inference or service mutations as part of CI.
 

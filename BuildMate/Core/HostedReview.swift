@@ -89,7 +89,7 @@ extension Orchestrator {
             try await store.db.write { db in try savedWatch.save(db); try savedTask.save(db); try message.insert(db) }
             return
         }
-        guard status.passing, !status.draft, ["CLEAN", "HAS_HOOKS", "BLOCKED", "UNSTABLE"].contains(status.mergeState), status.reviewDecision != "CHANGES_REQUESTED", status.reviewDecision != "REVIEW_REQUIRED", watch.mergeHead != status.head else { return }
+        guard try dependenciesReady(store.get(WorkTask.self, task.id)), status.passing, !status.draft, ["CLEAN", "HAS_HOOKS", "BLOCKED", "UNSTABLE"].contains(status.mergeState), status.reviewDecision != "CHANGES_REQUESTED", status.reviewDecision != "REVIEW_REQUIRED", watch.mergeHead != status.head else { return }
         // Open PR tasks are merge requirements even where the host does not enforce them.
         guard status.openTasks == 0 else {
             reportBackgroundIssue("\(status.openTasks == 1 ? "An open pull request task" : "\(status.openTasks) open pull request tasks") must be resolved before Build Mate merges.", id: "pr-tasks-\(task.id)", taskID: task.id, projectID: project.id)

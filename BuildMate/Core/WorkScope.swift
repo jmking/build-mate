@@ -9,9 +9,4 @@ extension WorkTask {
             return path.precomposedStringWithCanonicalMapping.lowercased()
         })).sorted()
     }
-    func overlaps(_ other: WorkTask) -> Bool {
-        projectId == other.projectId && (repositoryID ?? projectId) == (other.repositoryID ?? other.projectId) && affectedPaths.contains { lhs in
-            other.affectedPaths.contains { rhs in lhs == "." || rhs == "." || lhs == rhs || lhs.hasPrefix(rhs + "/") || rhs.hasPrefix(lhs + "/") }
-        }
-    }
 }

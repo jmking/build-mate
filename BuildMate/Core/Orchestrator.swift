@@ -198,7 +198,7 @@ actor Orchestrator {
             }
             for task in ordered {
                 guard occupied < settings.agentsAtOnce else { break }
-                guard try !usageBlocksDispatch(provider: configuredProvider(for: task.id)), workers[task.id] == nil, !scopeIsBusy(task), !editingTasks.contains(task.id), let project = try? store.project(for: task), !project.paused, !task.paused,
+                guard try !usageBlocksDispatch(provider: configuredProvider(for: task.id)), workers[task.id] == nil, !editingTasks.contains(task.id), let project = try? store.project(for: task), !project.paused, !task.paused,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
                       (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
                 do { try project.settings.validate(); clearBackgroundIssue("project-\(project.id)") }
@@ -221,24 +221,16 @@ actor Orchestrator {
         if project.paused { return "Project is paused. Resume it to start queued work." }
         if try openQuestions(task.id) { return "Waiting for your answer to the task’s question." }
         if try pendingPlan(task.id) { return "Waiting for your approval of the plan." }
+        if try !dependenciesReady(task) { return "Waiting for prerequisite tasks to finish." }
         if task.state == .humanReview { return project.publicationBlockReason ?? "Waiting for human review." }
         if task.state == .inPR { return "Waiting for pull request review and CI." }
         if let retry = task.retry, retry.dueAt > Date() { return "Retry scheduled: " + runner.redacted(retry.error) }
-        if try !dependenciesReady(task) { return "Waiting for prerequisite tasks to finish." }
         if workers[task.id] != nil { return nil }
         if editingTasks.contains(task.id) { return "Waiting for the task edit to finish." }
-        if scopeIsBusy(task) { return "Another agent is changing overlapping files." }
         if try usageBlocksDispatch(provider: configuredProvider(for: task.id)) { return "Account usage is holding new work. Check usage in the agent menu." }
         return "Queued for the next available agent."
     }
 
-    func scopeIsBusy(_ task: WorkTask) -> Bool {
-        guard !task.affectedPaths.isEmpty else { return false }
-        return workers.keys.contains { id in
-            guard id != task.id, let other = try? store.get(WorkTask.self, id) else { return false }
-            return task.overlaps(other)
-        }
-    }
     static func computeCapacity(_ requested: Int) -> Int {
         switch ProcessInfo.processInfo.thermalState {
         case .critical: return min(requested, 1)
@@ -255,6 +247,48 @@ actor Orchestrator {
         }
         return true
     }
+    func setTaskDependencies(_ id: UUID, projectID: UUID, dependencyIDs: [UUID]) async throws -> WorkTask {
+        guard editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
+        defer { editingTasks.remove(id) }
+        while openingPRs.contains(id) || polling.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        var task = try store.get(WorkTask.self, id)
+        guard task.projectId == projectID, !task.state.terminal else { throw CoreError.invalid("Choose an unfinished task in this project.") }
+        let dependencies = Array(Set(dependencyIDs)).sorted { $0.uuidString < $1.uuidString }
+        task.dependsOn = dependencies
+        let blocked = try !dependenciesReady(task)
+        guard try !blocked || watch(id).mergeHead == nil else {
+            throw CoreError.invalid("A merge has already been requested from the host. Cancel it there before adding an unfinished prerequisite.")
+        }
+        task.updatedAt = Date()
+        let saved = task, session = try store.session(for: id)
+        try await store.db.write { db in
+            let tasks = try WorkTask.fetchAll(db)
+            for dependencyID in dependencies {
+                guard dependencyID != id, let dependency = tasks.first(where: { $0.id == dependencyID }),
+                      dependency.projectId == projectID, dependency.state != .canceled else {
+                    throw CoreError.invalid("Dependencies must be other, non-canceled tasks in this project.")
+                }
+            }
+            let graph = Dictionary(uniqueKeysWithValues: tasks.map { item in
+                (item.id, (item.id == id ? dependencies : item.dependsOn) + (item.stackOn.map { [$0] } ?? []))
+            })
+            var visited: Set<UUID> = []
+            func visit(_ node: UUID, path: Set<UUID>) throws {
+                guard !path.contains(node) else { throw CoreError.invalid("These dependencies would create a cycle.") }
+                guard visited.insert(node).inserted else { return }
+                for next in graph[node] ?? [] { try visit(next, path: path.union([node])) }
+            }
+            try visit(id, path: [])
+            // Validate and update the graph in one transaction, preserving concurrent agent edits.
+            try db.execute(sql: "UPDATE task SET dependsOn = ?, updatedAt = ? WHERE id = ?", arguments: [String(decoding: JSONEncoder().encode(saved.dependsOn), as: UTF8.self), saved.updatedAt, id])
+            try Message(sessionId: session.id, role: "system", kind: "event", body: dependencies.isEmpty ? "Task dependencies removed." : "Task dependencies updated.").insert(db)
+        }
+        if blocked { await stopForReshape(id) }
+        editingTasks.remove(id)
+        await tick()
+        return try store.get(WorkTask.self, id)
+    }
+
     private func pendingPlan(_ id: UUID) throws -> Bool {
         try store.all(Approval.self).contains { $0.taskId == id && $0.kind == "plan" && $0.status == "pending" }
     }
@@ -459,7 +493,7 @@ actor Orchestrator {
         let task = try store.get(WorkTask.self, id)
         guard openingPRs.insert(id).inserted else { throw CoreError.invalid("Pull request is already opening") }
         defer { openingPRs.remove(id) }
-        guard task.state == .humanReview, !task.paused else { throw CoreError.invalid("Task is not ready for a PR") }
+        guard task.state == .humanReview, !task.paused, try dependenciesReady(task) else { throw CoreError.invalid("Task is not ready for a PR") }
         guard let proof = try store.all(Proof.self).first(where: { $0.taskId == id && $0.complete }) else { throw CoreError.invalid("Proof is incomplete") }
         guard let cwd = task.worktreePath else { throw CoreError.invalid("The worktree is unavailable.") }
         await stopPreview(id)
@@ -738,7 +772,7 @@ actor Orchestrator {
     }
 
     private func prompt(task: WorkTask, project: Project) throws -> String {
-        return "\(Self.hostedInstructions)\n\((try? watch(task.id).feedback.map { "Feedback ID: \($0.id)\n\($0.body)" }.joined(separator: "\n\n")) ?? "")\n\(Self.qaInstructions)\n\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nCurrent base commit: \(task.baseCommitSHA ?? "repository default"). Before final QA, ensure your branch incorporates this base; when a stacked parent merges, reconcile its changes rather than submitting them again. This current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository.\nDeclare affectedPaths in submit_plan when known so overlapping edits can be coordinated. Keep builds and tests proportionate to available compute and avoid redundant parallel heavy processes. Submit a plan before the first edit or after the brief changes; continue an accepted plan without submitting it again. Ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
+        return "\(Self.hostedInstructions)\n\((try? watch(task.id).feedback.map { "Feedback ID: \($0.id)\n\($0.body)" }.joined(separator: "\n\n")) ?? "")\n\(Self.qaInstructions)\n\(Self.delegationInstructions)\nGlobal instructions:\n\(try store.settings().instructions)\nProject instructions (override global):\n\(project.instructions)\nTask #\(task.number): \(task.title)\n\(task.description)\nCurrent base commit: \(task.baseCommitSHA ?? "repository default"). Before final QA, ensure your branch incorporates this base; when a stacked parent merges, reconcile its changes rather than submitting them again. This current brief and proof preference supersede earlier versions of this task. Reassess the plan after an edit; use earlier answers only where they still apply.\n\(task.pr.map { "Continue work on existing PR #\($0.number) in this same worktree and branch. Ask a blocking question if the requested changes are unclear. After changes, commit and request fresh review; Build Mate updates the existing PR after review. The summary must describe the full branch change against the PR base, not just the latest feedback. Do not push or create another PR." } ?? "")\nProof preference: \(task.proofRequirement.title). Automatic means choose relevant evidence for this task: checks for functional work and a recording for visual work, respecting explicit user instructions in the brief. Checks only suppresses recordings; Checks + recording requires one. Explain the choice in your plan. Write the review summary as concise, readable Markdown describing the changes, using paragraphs and bullets where useful, never JSON. This summary becomes the PR body: include only what changed and why, with no proof reports, recording details, validation logs, commit hashes or Build Mate branding. Put evidence explanations in rationale and checks instead. At request_review supply summary, needsRecording, rationale, checks [{name, command}], and recordingCommand when needed. At least one relevant check must pass; documentation-only work may use a meaningful content or formatting check. The app independently executes these commands in the worktree. Visual screenshot requirement: \(project.settings.screenshotsForUI && task.proofRequirement != .checksOnly). For visual changes when enabled, supply screenshotsCommand writing before (default/base branch) and after PNGs to $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH. All evidence output paths are app-owned. A recording command writes MP4/H.264 to $BUILD_MATE_RECORDING_PATH; do not write proof artifacts into the repository.\nDeclare affectedPaths in submit_plan when known as informational scope. Tasks run in isolated worktrees; possible file overlap does not block independent work. Reconcile actual merge conflicts when needed. Keep builds and tests proportionate to available compute and avoid redundant parallel heavy processes. Submit a plan before the first edit or after the brief changes; continue an accepted plan without submitting it again. Ask questions if unclear. Commit changes before request_review. The current sandbox permits staging and commits on your task branch, including its Git metadata outside the worktree. Retry earlier Git permission failures with these current permissions; do not change repository configuration, other branches, or the main checkout."
     }
     func waitForAnswer(_ question: Question) async throws -> String {
         while true {
