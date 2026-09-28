@@ -11,7 +11,10 @@ struct AgentApprovalTests {
         let task = try f.store.createTask(projectId: f.project.id, title: "Launch app for QA")
         await core.tick()
         func pending() throws -> [Message] { try f.store.all(Message.self).filter(\.isPendingAgentApproval) }
-        try await f.wait("four native approval cards") { try pending().count == 4 }
+        func resolvedCount() throws -> Int { try f.store.all(Message.self).filter { $0.kind == "agentApproval" && $0.payload["status"].string == "resolved" }.count }
+        // The fixture sends one extra request and immediately resolves it. Wait for that event
+        // before capturing cards, rather than racing its transient fifth approval.
+        try await f.wait("four native approval cards") { try pending().count == 4 && resolvedCount() == 1 }
         let original = try f.store.session(for: task.id)
         #expect(original.status == "approval")
         #expect(try f.store.all(Message.self).contains { $0.body == "Allow command?" && $0.payload["status"].string == "resolved" })
@@ -41,7 +44,7 @@ struct AgentApprovalTests {
         await #expect(throws: (any Error).self) { try await core.resolveAgentApproval(prompts[0].id, allow: true) }
         try await core.pause(task.id, paused: true)
         try await core.pause(task.id, paused: false)
-        try await f.wait("fresh approvals after resume") { try pending().count == 4 }
+        try await f.wait("fresh approvals after resume") { try pending().count == 4 && resolvedCount() == 2 }
         let stale = try #require(pending().first)
         try await core.pause(task.id, paused: true)
         #expect(try pending().isEmpty)
@@ -49,7 +52,7 @@ struct AgentApprovalTests {
         // Project chat uses the same approval UI/response path, without inheriting full task access.
         f.project.settings.approvalMode = .fullAccess; try f.store.save(f.project)
         try await core.sendProjectMessage(f.project.id, text: "Inspect the preview")
-        try await f.wait("project approvals") { try pending().count == 4 }
+        try await f.wait("project approvals") { try pending().count == 4 && resolvedCount() == 3 }
         let chat = try f.store.session(for: f.project.id, ownerType: "project")
         #expect(try pending().allSatisfy { $0.sessionId == chat.id })
         for prompt in try pending() { try await core.resolveAgentApproval(prompt.id, allow: false) }
