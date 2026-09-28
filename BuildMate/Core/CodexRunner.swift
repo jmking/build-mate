@@ -5,14 +5,16 @@ extension CodexClient: AgentRunner {
 
     func openSession(id: String?, cwd: String, model: String, instructions: String, tools: JSON, access: AgentAccess) async throws -> String {
         let configuration: JSON = .object(["agents.enabled": .bool(true)])
+        let sandbox = access.approvalMode == .fullAccess ? "danger-full-access" : access.isReadOnly ? "read-only" : "workspace-write"
         if let id {
             _ = try await request("thread/resume", ["threadId": .string(id), "cwd": .string(cwd), "config": configuration,
+                "sandbox": .string(sandbox),
                 "approvalPolicy": .string(access.approvalMode == .fullAccess ? "never" : "on-request"), "approvalsReviewer": .string(access.approvalMode == .autoReview ? "auto_review" : "user"),
                 "developerInstructions": .string(instructions), "excludeTurns": .bool(true)], timeout: sessionStartTimeout)
             return id
         }
         let response = try await request("thread/start", ["cwd": .string(cwd), "model": .string(model),
-            "sandbox": .string(access.approvalMode == .fullAccess ? "danger-full-access" : access.isReadOnly ? "read-only" : "workspace-write"),
+            "sandbox": .string(sandbox),
             "approvalPolicy": .string(access.approvalMode == .fullAccess ? "never" : "on-request"), "approvalsReviewer": .string(access.approvalMode == .autoReview ? "auto_review" : "user"),
             "developerInstructions": .string(instructions), "dynamicTools": tools, "config": configuration], timeout: sessionStartTimeout)
         guard let id = response["thread"]["id"].string else { throw CoreError.invalid("Missing Codex thread ID") }

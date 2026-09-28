@@ -40,6 +40,7 @@ struct ProofRunner: Sendable {
 
     func run(task: WorkTask, project: Project, submission: ProofSubmission) async throws -> Proof {
         guard let cwd = task.worktreePath else { throw CoreError.invalid("Missing worktree") }
+        let approvalMode = task.approvalMode ?? project.settings.approvalMode ?? .ask
         let originalHead = try await runner.run("git", ["rev-parse", "HEAD"], cwd: cwd).output.trimmingCharacters(in: .whitespacesAndNewlines)
         let directory = store.root.appending(path: "projects/\(project.id)/media/\(task.id)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -66,7 +67,7 @@ struct ProofRunner: Sendable {
             let started = Date()
             let log = logs.appending(path: "check-\(index).log")
             do {
-                let result = try await runCommand(check.command, cwd: cwd, media: directory, project: project, timeout: Double(project.settings.turnTimeoutMs) / 1000)
+                let result = try await runCommand(check.command, cwd: cwd, media: directory, project: project, approvalMode: approvalMode, timeout: Double(project.settings.turnTimeoutMs) / 1000)
                 try runner.redacted(result.output).write(to: log, atomically: true, encoding: .utf8)
                 proof.checks.append(CheckResult(name: check.name, status: result.status == 0 ? "passed" : "failed", durationSec: Date().timeIntervalSince(started), logPath: log.path))
                 if check.required && result.status != 0 { proof.complete = false }
@@ -84,7 +85,7 @@ struct ProofRunner: Sendable {
             let path = directory.appending(path: "recording-\(UUID()).mp4")
             let log = logs.appending(path: "recording.log")
             do {
-                let result = try await runCommand(command, cwd: cwd, media: directory, project: project, timeout: 180, environment: ["BUILD_MATE_RECORDING_PATH": path.path])
+                let result = try await runCommand(command, cwd: cwd, media: directory, project: project, approvalMode: approvalMode, timeout: 180, environment: ["BUILD_MATE_RECORDING_PATH": path.path])
                 try runner.redacted(result.output).write(to: log, atomically: true, encoding: .utf8)
                 guard result.status == 0 else { throw CoreError.invalid("Recording command failed") }
                 let asset = AVURLAsset(url: path)
@@ -109,7 +110,7 @@ struct ProofRunner: Sendable {
                 guard let command = submission.screenshotsCommand, !command.isEmpty else { throw CoreError.invalid("Supply screenshotsCommand for before/after PNGs at $BUILD_MATE_BEFORE_PATH and $BUILD_MATE_AFTER_PATH.") }
                 let before = directory.appending(path: "before-\(UUID()).png")
                 let after = directory.appending(path: "after-\(UUID()).png")
-                let result = try await runCommand(command, cwd: cwd, media: directory, project: project, timeout: 180,
+                let result = try await runCommand(command, cwd: cwd, media: directory, project: project, approvalMode: approvalMode, timeout: 180,
                     environment: ["BUILD_MATE_BEFORE_PATH": before.path, "BUILD_MATE_AFTER_PATH": after.path])
                 try runner.redacted(result.output).write(to: log, atomically: true, encoding: .utf8)
                 guard result.status == 0 else { throw CoreError.invalid("Screenshot command failed.") }
@@ -186,10 +187,16 @@ struct ProofRunner: Sendable {
         return String(sections.joined(separator: "\n\n").prefix(2_000))
     }
 
-    private func runCommand(_ command: String, cwd: String, media: URL, project: Project, timeout: Double,
+    private func runCommand(_ command: String, cwd: String, media: URL, project: Project, approvalMode: AgentApprovalMode, timeout: Double,
                             environment: [String: String] = [:]) async throws -> CommandResult {
         let temporary = media.appending(path: "tmp")
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        let environment = environment.merging(["TMPDIR": temporary.path + "/"]) { _, new in new }
+        // QA follows the task's explicitly selected execution access, including inherited defaults.
+        if approvalMode == .fullAccess {
+            return try await runner.run("/bin/zsh", ["-c", command], cwd: cwd, timeout: timeout,
+                                        extraEnvironment: environment, allowFailure: true, captureErrors: true)
+        }
         func canonicalPath(_ url: URL) throws -> String {
             // Foundation intentionally preserves /var aliases; Seatbelt matches /private/var.
             guard let path = realpath(url.path, nil) else { throw CoreError.invalid("Proof directory is unavailable") }
@@ -202,6 +209,6 @@ struct ProofRunner: Sendable {
             "-D", "WORKTREE=" + canonicalPath(URL(fileURLWithPath: cwd)),
             "-D", "MEDIA=" + canonicalPath(media), "/bin/zsh", "-c", command],
             cwd: cwd, timeout: timeout,
-            extraEnvironment: environment.merging(["TMPDIR": temporary.path + "/"]) { _, new in new }, allowFailure: true, captureErrors: true)
+            extraEnvironment: environment, allowFailure: true, captureErrors: true)
     }
 }

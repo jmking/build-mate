@@ -65,6 +65,33 @@ struct AgentApprovalTests {
         await core.shutdown(); try f.cleanup()
     }
 
+    @Test func fullAccessAppliesToQACommandsWhileTaskOverridesRestoreTheSandbox() async throws {
+        var f = try await CoreTests.Fixture()
+        f.project.settings.checks = []; f.project.settings.network = false
+        try f.store.save(f.project)
+        var task = try f.store.createTask(projectId: f.project.id, title: "QA cache access", proofRequirement: .checksOnly)
+        task = try await Workspace(store: f.store, runner: f.runner).prepare(task, project: f.project)
+        let marker = f.control.appending(path: "qa-outside-worktree")
+        let submission = try ProofSubmission(.object([
+            "summary": .string("Validate cache access"), "needsRecording": .bool(false), "rationale": .string("QA needs a cache outside the checkout"),
+            "checks": .array([.object(["name": .string("Cache access"), "command": .string("printf checked > \"$BUILD_MATE_FIXTURE/qa-outside-worktree\"")])])
+        ]))
+        let proofRunner = ProofRunner(store: f.store, runner: f.runner)
+        for (projectMode, override, allowed) in [
+            (AgentApprovalMode.ask, Optional<AgentApprovalMode>.none, false),
+            (.ask, .fullAccess, true), (.fullAccess, nil, true),
+            (.fullAccess, .ask, false), (.fullAccess, .autoReview, false)
+        ] {
+            f.project.settings.approvalMode = projectMode; task.approvalMode = override
+            try f.store.save(f.project); try f.store.save(task)
+            let proof = try await proofRunner.run(task: task, project: f.project, submission: submission)
+            #expect((proof.checks.first?.status == "passed") == allowed)
+            #expect(FileManager.default.fileExists(atPath: marker.path) == allowed)
+            if allowed { try FileManager.default.removeItem(at: marker) }
+        }
+        try f.cleanup()
+    }
+
     @Test func approvalModesInheritFromProjectAndChangeLiveWithoutReplacingTheThread() async throws {
         var f = try await CoreTests.Fixture()
         f.project.settings.approvalMode = .autoReview; f.project.settings.stallTimeoutMs = 0; try f.store.save(f.project)
@@ -81,6 +108,11 @@ struct AgentApprovalTests {
             try await core.setTaskApprovalMode(task.id, mode: mode)
             try await f.wait("new live permissions") { (try? active()["turn"].string) != previous }
             let parameters = try active()["params"]
+            let calls = try String(contentsOf: f.control.appending(path: "calls.jsonl"), encoding: .utf8).split(separator: "\n")
+                .map { try JSONDecoder().decode(JSON.self, from: Data($0.utf8)) }
+            let resumed = try #require(calls.last { $0["method"].string == "thread/resume" })["params"]
+            #expect(resumed["sandbox"].string == (mode == .fullAccess ? "danger-full-access" : "workspace-write"))
+            #expect(resumed["approvalPolicy"].string == (mode == .fullAccess ? "never" : "on-request"))
             #expect(try active()["thread"].string == thread)
             #expect(parameters["approvalPolicy"].string == (mode == .fullAccess ? "never" : "on-request"))
             #expect(parameters["approvalsReviewer"].string == (mode == .autoReview ? "auto_review" : "user"))
