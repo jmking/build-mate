@@ -93,6 +93,7 @@ struct ProjectChatView: View {
                         }.help("Show project inspection history")
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(OverlayScrollbars())
             }.background(AppSurface.raised)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if let project {
@@ -144,7 +145,7 @@ struct ProjectChatView: View {
                         .accessibilityIdentifier("send-project-message").help("Send message (⌘Return)")
                 }
             }
-            ModelPicker(ownerID: projectID, projectChat: true).id(projectID).padding(.leading, 80)
+            ModelPicker(ownerID: projectID, projectChat: true).id(projectID).frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 4)
         }.padding(12).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
             .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16).frame(maxWidth: 776).frame(maxWidth: .infinity)
     }

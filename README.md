@@ -25,7 +25,7 @@ Open Build Mate, add a repository, and describe what you want in project chat. R
 
 ## Current limits
 
-GitHub is the supported PR host. Bitbucket execution and Claude are not available yet. Local repositories can build and reach human review, but publishing and merging local-only work are not implemented. PR monitoring runs while the app is open. Tool availability depends on your installed Codex CLI; desktop-only Codex features are not guaranteed.
+GitHub is the supported PR host. Bitbucket repositories can build and run QA; creating and monitoring their pull requests still requires a manual handoff. Claude is not available yet. Local repositories can build and reach human review, but publishing and merging local-only work are not implemented. PR monitoring runs while the app is open. Tool availability depends on your installed Codex CLI; desktop-only Codex features are not guaranteed.
 
 This is an early preview. Start with a repository you can comfortably experiment with and review the results. There is no in-app updater yet; install newer builds from Releases.
 

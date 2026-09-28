@@ -97,11 +97,6 @@ struct MainWindow: View {
                     }.padding(12).background(AppSurface.raised)
                         .onChange(of: error) { showErrorDetails = false }
                 }
-                if let project = model.selectedProject, model.repositories(project.id).allSatisfy({ $0.host == .bitbucket }), let reason = project.runBlockReason,
-                   case .project(_, .tasks) = model.destination {
-                    Label(reason, systemImage: "info.circle").font(.callout).padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading).background(AppSurface.raised)
-                }
                 ZStack { content.transition(.opacity) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

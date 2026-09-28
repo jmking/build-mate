@@ -231,6 +231,13 @@ final class AppModel {
         guard case .task(let id) = destination else { return nil }
         return snapshot.tasks.first { $0.id == id }
     }
+    func isWorking(_ task: WorkTask) -> Bool {
+        guard [.todo, .building].contains(task.state), !task.paused, !settings.paused,
+              project(for: task)?.paused == false,
+              !snapshot.questions.contains(where: { $0.taskId == task.id && $0.answer == nil && $0.blocking }),
+              !snapshot.approvals.contains(where: { $0.taskId == task.id && $0.status == "pending" }) else { return false }
+        return snapshot.sessions.contains { $0.ownerType == "task" && $0.ownerId == task.id && $0.status == "running" }
+    }
     func retryNeedsAttention(_ task: WorkTask) -> Bool {
         guard let retry = task.retry, retry.attempt == 0 || retry.attempt >= 3, task.paused, !task.state.terminal else { return false }
         return !snapshot.sessions.contains { $0.ownerId == task.id && $0.status == "running" && $0.currentTurn != nil }
@@ -270,7 +277,6 @@ final class AppModel {
         if settings.paused { return "All work is paused" }
         if let project = project(for: task) {
             if project.paused { return "Project is paused" }
-            if let reason = project.runBlockReason { return reason }
         }
         if snapshot.sessions.contains(where: { $0.ownerId == task.id && $0.status == "running" && $0.currentTurn != nil }) { return nil }
         for id in Set(task.dependsOn + (task.stackOn.map { [$0] } ?? [])) {
@@ -407,8 +413,8 @@ final class AppModel {
         if needsTitle { await core.refineTitle(of: task) }
         Task { await core.tick() }
     }
-    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement) async throws {
-        try await core.editTask(id, title: title, description: description, proofRequirement: proofRequirement)
+    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement, configuration: AgentConfiguration? = nil) async throws {
+        try await core.editTask(id, title: title, description: description, proofRequirement: proofRequirement, configuration: configuration)
         await refresh()
     }
     func refineInChat(_ task: WorkTask) {

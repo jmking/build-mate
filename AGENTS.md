@@ -8,7 +8,7 @@ Read `README.md` and `docs/architecture.md`, then inspect the relevant code and 
 
 Build Mate is a native macOS app that turns project conversations into scoped tasks, builds them with Codex in isolated Git worktrees, verifies the results and follows GitHub review through merge. Projects can link multiple repositories; each task and PR targets exactly one repository.
 
-Current scope: macOS 26+, Apple Silicon releases, Codex and GitHub. Bitbucket execution, Claude, mobile/remote access, issue-tracker integrations and combined multi-task PRs are not implemented. Do not add these without a specific request.
+Current scope: macOS 26+, Apple Silicon releases, Codex, GitHub and local build/QA work for Bitbucket repositories. Bitbucket PR automation, Claude, mobile/remote access, issue-tracker integrations and combined multi-task PRs are not implemented. Do not add these without a specific request.
 
 ## Build and test
 

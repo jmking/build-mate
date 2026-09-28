@@ -9,45 +9,52 @@ struct ChatScrollView<Content: View>: View {
     @ViewBuilder let content: (@escaping () -> Void) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var followsLatest = true
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var hasUnread = false
     @State private var scrolling = false
     @State private var nearBottom = true
+    @State private var contentHeight: CGFloat = 0
+    @State private var followTask: Task<Void, Never>?
 
     private struct Position: Equatable {
         let viewport: CGFloat
+        let contentHeight: CGFloat
         let nearBottom: Bool
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
+        Group {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     content { followsLatest = false }
-                    Color.clear.frame(height: 1).id("chat-latest")
+                    Color.clear.frame(height: 1)
                 }
                 .padding(24).frame(maxWidth: 776).frame(maxWidth: .infinity)
+                .background(OverlayScrollbars())
             }
+            .scrollPosition($scrollPosition)
             .defaultScrollAnchor(messages.isEmpty || !followsLatest ? .top : .bottom, for: .initialOffset)
             .defaultScrollAnchor(.top, for: .alignment)
-            // Keep the bottom attached throughout typing/streaming layout animations.
             .defaultScrollAnchor(followsLatest && !scrolling ? .bottom : nil, for: .sizeChanges)
             .onScrollGeometryChange(for: Position.self) { geometry in
-                Position(viewport: geometry.containerSize.height,
+                Position(viewport: geometry.containerSize.height, contentHeight: geometry.contentSize.height,
                          nearBottom: geometry.contentSize.height - geometry.visibleRect.maxY < 80)
             } action: { old, new in
+                contentHeight = new.contentHeight
                 nearBottom = new.nearBottom
                 // Only a reader's scroll changes follow mode, never layout or a programmatic scroll.
                 if scrolling {
                     followsLatest = new.nearBottom
                     if followsLatest { hasUnread = false }
                 }
-                if followsLatest && !scrolling && old.viewport != new.viewport {
-                    proxy.scrollTo("chat-latest", anchor: .bottom)
+                if old.viewport != new.viewport || old.contentHeight != new.contentHeight {
+                    followLatest()
                 }
             }
             .onScrollPhaseChange { _, phase in
                 let moving = phase == .interacting || phase == .decelerating
                 if moving {
+                    followTask?.cancel()
                     scrolling = true
                     followsLatest = false
                 } else if phase == .idle && scrolling {
@@ -57,24 +64,38 @@ struct ChatScrollView<Content: View>: View {
                 }
             }
             .onChange(of: messages) {
-                if followsLatest && !scrolling { proxy.scrollTo("chat-latest", anchor: .bottom) }
+                if followsLatest && !scrolling { followLatest() }
                 else { hasUnread = true }
             }
             .onChange(of: responding) {
-                if responding && (!followsLatest || scrolling) { hasUnread = true }
+                if followsLatest && !scrolling { followLatest() }
+                else if responding { hasUnread = true }
             }
+            .onDisappear { followTask?.cancel() }
             .overlay(alignment: .bottomTrailing) {
                 if !followsLatest && hasUnread {
                     Button("Latest", systemImage: "arrow.down") {
                         followsLatest = true
                         hasUnread = false
                         withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
-                            proxy.scrollTo("chat-latest", anchor: .bottom)
+                            scrollPosition.scrollTo(y: contentHeight)
                         }
                     }.buttonStyle(.bordered).buttonBorderShape(.capsule)
                         .help("Go to the latest message").accessibilityIdentifier("chat-latest-message")
                         .padding(12)
                 }
+            }
+        }
+    }
+    private func followLatest() {
+        guard followsLatest && !scrolling else { return }
+        followTask?.cancel()
+        followTask = Task { @MainActor in
+            // Wait for transcript rows (including the delayed typing bubble) to lay out.
+            await Task.yield()
+            guard !Task.isCancelled, followsLatest, !scrolling else { return }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) {
+                scrollPosition.scrollTo(y: contentHeight)
             }
         }
     }

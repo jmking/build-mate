@@ -18,8 +18,15 @@ enum ProofRequirement: String, Codable, CaseIterable, Sendable {
     var title: String {
         switch self {
         case .automatic: "Automatic"
-        case .checksOnly: "Checks only"
-        case .checksAndRecording: "Checks + recording"
+        case .checksOnly: "Tests and validation"
+        case .checksAndRecording: "Tests and screen recording"
+        }
+    }
+    var explanation: String {
+        switch self {
+        case .automatic: "The agent runs relevant tests, builds or other validation, and records visual changes."
+        case .checksOnly: "The agent runs relevant tests, builds or other validation. No screen recording is required."
+        case .checksAndRecording: "The agent runs relevant validation and records the behavior so you can review it."
         }
     }
 }
@@ -54,9 +61,13 @@ extension ProjectSettings {
     }
 }
 extension Project {
-    var runBlockReason: String? {
-        if host == .bitbucket { return "Bitbucket task runs are not available yet." }
-        return nil
+    /// Hosting limitations apply at publication, never to local build or QA work.
+    var publicationBlockReason: String? {
+        switch host {
+        case .github: nil
+        case .local: "This repository has no hosting service. The reviewed changes are committed in the worktree."
+        case .bitbucket: "Automatic Bitbucket pull requests aren’t supported yet. The reviewed changes are committed in the worktree. Open it in Terminal to push the branch and create the pull request in Bitbucket."
+        }
     }
 }
 

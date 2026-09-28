@@ -71,9 +71,11 @@ struct ProjectDiscovery: Sendable {
         let remoteHead = try await runner.run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd: repo.path, allowFailure: true)
         let head = remoteHead.output.trimmingCharacters(in: .whitespacesAndNewlines)
         var branch = remoteHead.status == 0 && head.hasPrefix("origin/") ? String(head.dropFirst(7)) : ""
-        var signedIn = false
-        var status = "Bitbucket integration requires verification. This project will stay paused."
-        var setup: String? = "twg setup bitbucket"
+        // Bitbucket uses the clone’s existing Git credentials for worktrees/fetches.
+        // PR automation is a separate capability and must not prevent local work.
+        var signedIn = host == .bitbucket
+        var status = "Ready to build and run QA. Bitbucket pull requests require a manual handoff after review."
+        var setup: String? = nil
         if host == .github {
             let auth = try await runner.run("gh", ["auth", "status", "--hostname", "github.com"], cwd: repo.path, allowFailure: true)
             signedIn = auth.status == 0

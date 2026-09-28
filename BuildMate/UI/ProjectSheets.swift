@@ -112,6 +112,7 @@ struct EditTaskSheet: View {
     @State private var title: String
     @State private var description: String
     @State private var proofRequirement: ProofRequirement
+    @State private var modelSelection: AgentConfiguration?
     @State private var saving = false
     @State private var failure: String?
     @FocusState private var titleFocused: Bool
@@ -140,12 +141,15 @@ struct EditTaskSheet: View {
                     .accessibilityLabel("Task description").accessibilityIdentifier("edit-task-description")
                     .disabled(saving || scopeLocked)
             }
-            Picker("Proof", selection: $proofRequirement) {
+            Picker("QA approach", selection: $proofRequirement) {
                 ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
             }.fixedSize().disabled(saving || scopeLocked).accessibilityIdentifier("edit-task-proof")
                 .help("Choose the evidence the agent must provide for this task")
-            Text(scopeLocked ? "Only the title can be changed once a pull request is open or the task is finished."
-                 : "Changes to the brief or proof pause work that has already started. Resume the task when you’re ready for a new plan and fresh proof.")
+            Text(proofRequirement.explanation).font(.caption).foregroundStyle(.secondary)
+            LabeledContent("Model and effort") { ModelPicker(ownerID: task.id, draftSelection: $modelSelection) }
+                .disabled(saving)
+            Text(scopeLocked ? "The title and model can be changed. Model changes apply to the next agent turn."
+                 : "Changing the brief or QA approach pauses work for replanning. Model changes apply to the next agent turn.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let failure { Text(failure).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             HStack(alignment: .firstTextBaseline) {
@@ -165,7 +169,7 @@ struct EditTaskSheet: View {
         Task {
             defer { saving = false }
             do {
-                try await model.editTask(task.id, title: title, description: description, proofRequirement: proofRequirement)
+                try await model.editTask(task.id, title: title, description: description, proofRequirement: proofRequirement, configuration: modelSelection)
                 dismiss()
             } catch { failure = error.localizedDescription }
         }
@@ -221,10 +225,11 @@ struct NewTaskSheet: View {
                             .accessibilityLabel("Task title (optional)").accessibilityIdentifier("task-title")
                             .help("Leave blank to generate a title from the brief")
                     }
-                    Picker("Proof", selection: $proofRequirement) {
+                    Picker("QA approach", selection: $proofRequirement) {
                         ForEach(ProofRequirement.allCases, id: \.self) { Text($0.title).tag($0) }
                     }.accessibilityIdentifier("task-proof")
-                        .help("Automatic chooses relevant checks and records visual changes; choose an override when needed")
+                        .help("Choose how the agent validates this task")
+                    Text(proofRequirement.explanation).font(.caption).foregroundStyle(.secondary)
                     Picker("Plan approval", selection: $askBeforeBuild) {
                         Text("Project default (\(selectedProject?.settings.askBeforeBuild == true ? "ask first" : "build automatically"))").tag(Optional<Bool>.none)
                         Text("Ask me before building").tag(Optional(true))
@@ -232,7 +237,7 @@ struct NewTaskSheet: View {
                     }.help("Choose whether to review the plan before this task starts building")
                 }.padding(.top, 12)
             }.disabled(creation != nil).accessibilityIdentifier("task-options")
-                .help("Set an optional title, proof requirements or plan approval")
+                .help("Set an optional title, QA approach or plan approval")
             if creation != nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -258,7 +263,6 @@ struct NewTaskSheet: View {
     private var repositories: [ProjectRepository] { projectID.map { model.repositories($0) } ?? [] }
     private var selectedProject: Project? { model.snapshot.projects.first { $0.id == projectID } }
     private var blocker: String? {
-        if (repositories.count == 1 ? repositories.first : repositories.first(where: { $0.id == repositoryID }))?.host == .bitbucket { return "Bitbucket task runs are not available yet." }
         if model.settings.paused { return "All agents are paused. This task will wait in the queue." }
         if selectedProject?.paused == true { return "This project is paused. The task will wait in the queue." }
         if model.usageHeld { return "New work is on hold until Codex usage resets or you resume it." }

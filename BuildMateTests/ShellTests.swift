@@ -173,6 +173,15 @@ struct ShellTests {
         #expect(task.state == .todo && task.title == "Make output readable")
         #expect(task.worktreePath == nil)
         try await model.editTask(task.id, title: "Keep errors readable", description: "Compact output, with full error details", proofRequirement: .checksOnly)
+        _ = try await model.core.models()
+        try await model.editTask(task.id, title: "Keep errors readable", description: "Compact output, with full error details", proofRequirement: .checksOnly,
+                                 configuration: AgentConfiguration(id: task.id, model: "gpt-6-astra", effort: "high"))
+        #expect(try uiStore.get(AgentConfiguration.self, task.id).model == "gpt-6-astra")
+        do {
+            try await model.editTask(task.id, title: "Must not save", description: "Must not save", proofRequirement: .automatic,
+                                     configuration: AgentConfiguration(id: task.id, model: "gpt-5.6-luna", effort: "ultra"))
+            Issue.record("Saved an edit with an unsupported model/effort")
+        } catch {}
         let edited = try uiStore.get(WorkTask.self, task.id)
         #expect(edited.title == "Keep errors readable" && edited.description == "Compact output, with full error details" && edited.proofRequirement == .checksOnly)
         #expect(edited.state == .todo && !edited.paused && edited.worktreePath == nil)
@@ -312,7 +321,7 @@ struct ShellTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: uiStore.root.appending(path: "title-drafts").path).isEmpty)
         _ = try await f.runner.run("git", ["remote", "set-url", "origin", "https://bitbucket.org/team/project.git"], cwd: f.repo.path)
         let bitbucket = try await discovery.inspect(path: f.repo.path)
-        #expect(bitbucket.project.host == .bitbucket && bitbucket.project.paused && !bitbucket.authenticated)
+        #expect(bitbucket.project.host == .bitbucket && !bitbucket.project.paused && bitbucket.authenticated)
         #expect(bitbucket.project.remoteSlug == "team/project")
         #expect(try await f.runner.run("git", ["status", "--porcelain"], cwd: f.repo.path).output.isEmpty)
         await model.core.shutdown()

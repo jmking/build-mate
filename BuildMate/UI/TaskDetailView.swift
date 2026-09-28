@@ -12,7 +12,7 @@ struct TaskDetailView: View {
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || project?.paused == true }
     private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
-    private var responding: Bool { task.state == .building && activeTurn && !isPaused && pendingPlans.isEmpty }
+    private var responding: Bool { model.isWorking(task) && activeTurn }
     private var acceptsFeedback: Bool { task.state == .humanReview || task.state == .inPR }
     private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || acceptsFeedback) ? "Send message" : "Save message" }
     private var session: Session? { model.snapshot.sessions.first { $0.ownerId == task.id && $0.ownerType == "task" } }
@@ -98,9 +98,12 @@ struct TaskDetailView: View {
                     if let proof { ReviewEvidence(task: task, proof: proof) }
                     if task.state == .humanReview {
                         PreviewControls(task: task)
-                        if project?.host == .local {
-                            Text("Changes are committed in the worktree. Pull requests aren’t available for local projects.")
-                                .font(.caption).foregroundStyle(.secondary)
+                        if let reason = project?.publicationBlockReason {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(reason).font(.caption).foregroundStyle(.secondary)
+                                Button("Open in Terminal", systemImage: "terminal") { model.openLocation(task: task, appID: "com.apple.Terminal") }
+                                    .help("Open the reviewed worktree to publish the branch")
+                            }
                         }
                     }
                     if let pr = task.pr, let url = URL(string: pr.url) {
@@ -111,7 +114,7 @@ struct TaskDetailView: View {
                     }
                     DisclosureGroup("Task details") {
                         VStack(alignment: .leading, spacing: 16) {
-                            LabeledContent("Proof", value: task.proofRequirement.title)
+                            LabeledContent("QA approach", value: task.proofRequirement.title)
                             if task.state.terminal { ModelPicker(ownerID: task.id).id(task.id) }
                             if let path = task.worktreePath {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -127,7 +130,7 @@ struct TaskDetailView: View {
                                 }
                             }
                         }.padding(.top, 10)
-                    }.help("Show proof preferences and worktree details")
+                    }.help("Show QA preferences and worktree details")
                     let events = messages.filter { $0.kind == "event" }
                     if !events.isEmpty {
                         DisclosureGroup("History") {
@@ -142,6 +145,7 @@ struct TaskDetailView: View {
                         }.help("Show this task’s state changes")
                     }
                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(OverlayScrollbars())
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if task.state == .humanReview && project?.host == .github {
@@ -170,6 +174,7 @@ struct TaskDetailView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
                     stateLabel
+                    if model.isWorking(task) { WorkingIndicator() }
                     pauseButton
                     Spacer(minLength: 8)
                     reviewButton
@@ -182,6 +187,7 @@ struct TaskDetailView: View {
                         Spacer(minLength: 8)
                         taskMenu
                     }
+                    if model.isWorking(task) { WorkingIndicator() }
                     reviewButton
                 }
             }
@@ -250,7 +256,7 @@ struct TaskDetailView: View {
                     .disabled(sending || openQuestion?.allowsFreeText == false || (message.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty))
                     .keyboardShortcut(.return, modifiers: .command).accessibilityIdentifier("send-task-message")
             }
-            ModelPicker(ownerID: task.id).id(task.id).padding(.leading, 80)
+            ModelPicker(ownerID: task.id).id(task.id).frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 4)
         }.padding(12).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
             .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16)
             .frame(maxWidth: 776).frame(maxWidth: .infinity)

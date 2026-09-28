@@ -19,7 +19,7 @@ extension TaskState {
     }
 }
 
-/// Only exceptions belong on a card or row; the section already names its state.
+/// Activity and exceptions supplement the durable state named by the section.
 struct TaskNotices: View {
     @Environment(AppModel.self) private var model
     let task: WorkTask
@@ -38,7 +38,9 @@ struct TaskNotices: View {
         return nil
     }
     var body: some View {
-        if !task.state.terminal && (task.paused || retrying || (task.state == .todo && model.usageHeld) || dependencyNotice != nil) {
+        if model.isWorking(task) {
+            WorkingIndicator()
+        } else if !task.state.terminal && (task.paused || retrying || (task.state == .todo && model.usageHeld) || dependencyNotice != nil) {
             VStack(alignment: .leading, spacing: 4) {
                 if model.retryNeedsAttention(task) {
                     Label("Needs attention", systemImage: "exclamationmark.triangle")
@@ -57,12 +59,26 @@ struct TaskNotices: View {
     }
 }
 
+struct WorkingIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "circle.fill").font(.system(size: 6))
+                .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
+                .accessibilityHidden(true)
+            Text("Working")
+        }.font(.caption).foregroundStyle(Color.accentColor)
+            .accessibilityElement(children: .ignore).accessibilityLabel("Agent is working")
+            .help("The agent is actively working on this task")
+    }
+}
+
 struct TaskContextActions: View {
     @Environment(AppModel.self) private var model
     let task: WorkTask
     var body: some View {
         Button("Open") { model.destination = .task(task.id) }.help("Open this task")
-        Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief and proof requirements")
+        Button("Edit Task…") { model.editingTask = task }.help("Edit this task’s title, brief, model and QA approach")
         if task.state == .todo {
             Button("Refine with Agent") { model.refineInChat(task) }.help("Refine this task’s description in project chat")
         }

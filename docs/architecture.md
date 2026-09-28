@@ -34,19 +34,19 @@ The protocol was manually exercised with Codex CLI 0.157.1. If changing it, insp
 
 ## Processes and recovery
 
-`ProcessRunner` uses process groups so cancellation/timeouts also stop descendants. The scheduler persists intent before external mutations where necessary and reconciles after restart. PR publication and feedback handling recover from interrupted responses without duplicating actions. Human waits release execution capacity; internal proof/preview capacity is separate from the user’s agent-count setting.
+`ProcessRunner` uses process groups so cancellation/timeouts also stop descendants. The scheduler persists intent before external mutations where necessary and reconciles after restart. PR publication and feedback handling recover from interrupted responses without duplicating actions. Project status exposes bounded, redacted wait reasons, session state, last run errors and background issues to the project agent. Messages saved while execution is blocked receive an immediate explanation. Human waits release execution capacity; internal proof/preview capacity is separate from the user’s agent-count setting.
 
 PR monitoring requires Build Mate to remain running. An already-enqueued GitHub auto-merge can complete without it. The app cannot promise desktop-identical quality, speed, tool availability or token usage merely because model and effort match.
 
 ## UI and assets
 
-`AppModel` presents database snapshots and routes UI commands into the core. Shared chat components handle streaming, typing motion, reactions, attachments and scrolling. Native sheets and menus expose less frequent settings. Keep routine screens concise and surface details on demand.
+`AppModel` presents database snapshots and routes UI commands into the core. Shared chat components handle streaming, typing motion, reactions, attachments and scrolling. Native sheets and menus expose less frequent settings. Keep routine screens concise and surface details on demand. Chat follows content-size changes, including delayed typing bubbles, until the reader scrolls away. Native overlay scrollbars avoid permanent gutters. The working indicator reflects active sessions, not merely a Building state. Task edits save model/effort choices with the edit; the composer picker still applies immediately to the next turn. “QA approach” describes validation and optional recordings while retaining the existing proof storage format.
 
 `BuildMate/BuildMate.icon` is the original app icon source, editable in Apple’s Icon Composer. Xcode generates the installed icon assets; old design mockups and exported icon previews are not build inputs.
 
 ## Current limits
 
-- GitHub is the supported PR provider; Bitbucket discovery is present but execution is disabled pending authenticated verification.
+- GitHub is the automated PR provider. Bitbucket tasks run through build, QA and human review using Git, then explain the manual publication handoff. Missing PR automation never blocks coding. Existing project/task pauses remain explicit; resume them to start queued work.
 - Local repositories build through human review; local-only merge/publication is not implemented.
 - Claude, mobile/remote access, issue-tracker adapters, auto-updates and combined multi-task PRs are not implemented.
 - Manual validation of a workflow is not evidence that every third-party tool, account, permission configuration or native UI automation setup behaves identically.

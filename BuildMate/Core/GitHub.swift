@@ -6,7 +6,7 @@ struct GitHub: Sendable {
     let root: URL
 
     func open(task: WorkTask, project: Project, summary: String, base: String, commitSHA: String) async throws -> PullRequest {
-        guard project.host == .github else { throw CoreError.invalid("Set up twg; Bitbucket provider awaits its authenticated spike") }
+        guard project.host == .github else { throw CoreError.invalid(project.publicationBlockReason ?? "GitHub repository required.") }
         guard let branch = task.branchName, let cwd = task.worktreePath else { throw CoreError.invalid("Missing branch") }
         var existingPR: PullRequest?
         if task.pr != nil {

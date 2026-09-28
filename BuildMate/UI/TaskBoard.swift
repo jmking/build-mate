@@ -41,15 +41,16 @@ struct TaskBoard: View {
                                                         .transition(.opacity)
                                                 }
                                             }
-                                        }.padding(1)
+                                        }.padding(1).background(OverlayScrollbars())
                                     }
                                 }
                                 .padding(8).frame(width: max(240, (geometry.size.width - 100) / 6))
                                 .background(AppSurface.recessed, in: RoundedRectangle(cornerRadius: 20))
                             }
                         }.frame(height: max(0, geometry.size.height - 40)).padding(20)
+                            .background(OverlayScrollbars())
                             .animation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0), value: columns.map { state in tasks.filter { $0.state == state }.map(\.id) })
-                    }.scrollIndicators(.visible)
+                    }
                 }
             }
         }

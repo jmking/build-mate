@@ -198,7 +198,7 @@ actor Orchestrator {
             }
             for task in ordered {
                 guard occupied < settings.agentsAtOnce else { break }
-                guard try !usageBlocksDispatch(provider: configuredProvider(for: task.id)), workers[task.id] == nil, !scopeIsBusy(task), !editingTasks.contains(task.id), let project = try? store.project(for: task), !project.paused, !task.paused, project.runBlockReason == nil,
+                guard try !usageBlocksDispatch(provider: configuredProvider(for: task.id)), workers[task.id] == nil, !scopeIsBusy(task), !editingTasks.contains(task.id), let project = try? store.project(for: task), !project.paused, !task.paused,
                       [.todo, .building].contains(task.state), (task.retry?.dueAt ?? .distantPast) <= now,
                       (try? dependenciesReady(task)) == true, !(try pendingPlan(task.id)), !(try openQuestions(task.id)) else { continue }
                 do { try project.settings.validate(); clearBackgroundIssue("project-\(project.id)") }
@@ -212,6 +212,26 @@ actor Orchestrator {
             clearBackgroundIssue("scheduler")
         } catch { reportBackgroundIssue(error.localizedDescription, id: "scheduler") }
     }
+    /// Bounded, redacted scheduler diagnostics shared with project chat and saved-message receipts.
+    func waitingReason(_ task: WorkTask) throws -> String? {
+        let settings = try store.settings(), project = try store.project(for: task)
+        if task.state.terminal { return "This task is finished. Create a follow-up task for new work." }
+        if task.paused { return "Task is paused. Resume it to continue." }
+        if settings.paused { return "All work is paused. Resume agents to continue." }
+        if project.paused { return "Project is paused. Resume it to start queued work." }
+        if try openQuestions(task.id) { return "Waiting for your answer to the task’s question." }
+        if try pendingPlan(task.id) { return "Waiting for your approval of the plan." }
+        if task.state == .humanReview { return project.publicationBlockReason ?? "Waiting for human review." }
+        if task.state == .inPR { return "Waiting for pull request review and CI." }
+        if let retry = task.retry, retry.dueAt > Date() { return "Retry scheduled: " + runner.redacted(retry.error) }
+        if try !dependenciesReady(task) { return "Waiting for prerequisite tasks to finish." }
+        if workers[task.id] != nil { return nil }
+        if editingTasks.contains(task.id) { return "Waiting for the task edit to finish." }
+        if scopeIsBusy(task) { return "Another agent is changing overlapping files." }
+        if try usageBlocksDispatch(provider: configuredProvider(for: task.id)) { return "Account usage is holding new work. Check usage in the agent menu." }
+        return "Queued for the next available agent."
+    }
+
     func scopeIsBusy(_ task: WorkTask) -> Bool {
         guard !task.affectedPaths.isEmpty else { return false }
         return workers.keys.contains { id in
@@ -276,7 +296,7 @@ actor Orchestrator {
             worker.cancel(); await clients[id]?.stop(); await worker.value
         }
     }
-    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement, automaticallyResume: Bool = false, forceRevision: Bool = false) async throws {
+    func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement, automaticallyResume: Bool = false, forceRevision: Bool = false, configuration: AgentConfiguration? = nil) async throws {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw CoreError.invalid("A task title cannot be empty.") }
         guard editingTasks.insert(id).inserted else { throw CoreError.invalid("This task is already being edited.") }
@@ -284,9 +304,15 @@ actor Orchestrator {
         while polling.contains(id) { try await Task.sleep(for: .milliseconds(50)) }
         titleJobs[id]?.cancel()
         var task = try store.get(WorkTask.self, id)
+        let selectedConfiguration: AgentConfiguration?
+        if let configuration {
+            let provider = try configuredProvider(for: id)
+            let choice = try AgentModel.resolve(modelCatalogues[provider] ?? [], model: configuration.model, effort: configuration.effort)
+            selectedConfiguration = AgentConfiguration(id: id, model: choice.model, effort: choice.effort, provider: provider)
+        } else { selectedConfiguration = nil }
         let explicitlyPaused = task.paused
         let scopeChanged = forceRevision || task.description != description || task.proofRequirement != proofRequirement
-        guard scopeChanged || task.title != title else { return }
+        guard scopeChanged || task.title != title || selectedConfiguration != nil else { return }
         if scopeChanged {
             guard !task.state.terminal, (task.state != .inPR || automaticallyResume), !openingPRs.contains(id) else {
                 throw CoreError.invalid("Only the title can be edited after a pull request is opening or the task is finished.")
@@ -316,6 +342,7 @@ actor Orchestrator {
         task.title = title; task.description = description; task.proofRequirement = proofRequirement; task.updatedAt = Date()
         let edited = task
         try await store.db.write { db in
+            if let selectedConfiguration { try selectedConfiguration.save(db) }
             if scopeChanged {
                 try edited.save(db)
                 try db.execute(sql: "UPDATE proof SET complete = 0 WHERE taskId = ?", arguments: [id])
@@ -326,7 +353,7 @@ actor Orchestrator {
                 try db.execute(sql: "UPDATE task SET title = ?, updatedAt = ? WHERE id = ?", arguments: [edited.title, edited.updatedAt, id])
             }
             if let session = try Session.filter(Column("ownerType") == "task" && Column("ownerId") == id).fetchOne(db) {
-                let body = scopeChanged ? "Task brief or proof updated. Previous proof and plans are superseded." : "Task title updated."
+                let body = scopeChanged ? "Task brief or proof updated. Previous proof and plans are superseded." : (selectedConfiguration == nil ? "Task title updated." : "Task settings updated.")
                 try Message(sessionId: session.id, role: "system", kind: "event", body: body).insert(db)
             }
         }
@@ -417,6 +444,12 @@ actor Orchestrator {
             try store.acknowledgeInput(session: session, ids: [message.id] + attachments.map(\.id))
             return .sent
         }
+        await tick()
+        let current = try store.get(WorkTask.self, id)
+        if workers[id] != nil { return .queued }
+        if let reason = try waitingReason(current) {
+            try store.save(Message(sessionId: session.id, role: "system", body: "Message saved. " + reason))
+        }
         return .saved
     }
     func openPullRequest(_ id: UUID) async throws {
@@ -432,7 +465,7 @@ actor Orchestrator {
         let clean = try await runner.run("git", ["status", "--porcelain"], cwd: cwd).output.isEmpty
         guard clean, proof.commitSHA == head, proof.requirementsRevision == task.requirementsRevision else { throw CoreError.invalid("The worktree or requirements changed since proof was recorded. Ask the agent in chat for fresh proof before opening a pull request.") }
         let project = try store.project(for: task)
-        guard project.host != .local else { throw CoreError.invalid("This project is local. Publishing and pull requests require a hosting service.") }
+        if let reason = project.publicationBlockReason { throw CoreError.invalid(reason) }
         var base = project.defaultBranch
         if let parentId = task.stackOn {
             let parent = try store.get(WorkTask.self, parentId)
@@ -698,7 +731,7 @@ actor Orchestrator {
 
     private func requireRunnable(_ task: WorkTask) throws {
         let project = try store.project(for: task)
-        guard !shuttingDown, !Task.isCancelled, project.runBlockReason == nil, !task.paused, !project.paused, !(try store.settings()).paused,
+        guard !shuttingDown, !Task.isCancelled, !task.paused, !project.paused, !(try store.settings()).paused,
               !task.state.terminal, try dependenciesReady(task) else { throw CancellationError() }
     }
 

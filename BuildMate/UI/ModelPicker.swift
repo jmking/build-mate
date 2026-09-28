@@ -4,6 +4,7 @@ struct ModelPicker: View {
     @Environment(AppModel.self) private var app
     let ownerID: UUID
     var projectChat = false
+    var draftSelection: Binding<AgentConfiguration?>? = nil
     @State private var expanded = false
     @State private var models: [AgentModel] = []
     @State private var loading = false
@@ -11,7 +12,7 @@ struct ModelPicker: View {
     @State private var error: String?
     private var project: Project? { app.snapshot.projects.first { $0.id == (projectChat ? ownerID : task?.projectId) } }
     private var task: WorkTask? { app.snapshot.tasks.first { $0.id == ownerID } }
-    private var configuration: AgentConfiguration? { app.snapshot.agentConfigurations.first { $0.id == ownerID } }
+    private var configuration: AgentConfiguration? { draftSelection?.wrappedValue ?? app.snapshot.agentConfigurations.first { $0.id == ownerID } }
     private var effectiveConfiguration: AgentConfiguration? {
         configuration?.recommended == true && !projectChat && project?.settings.model != nil ? nil : configuration
     }
@@ -87,6 +88,10 @@ struct ModelPicker: View {
         save(model: id, effort: effort)
     }
     private func save(model: String, effort: String?) {
+        if let draftSelection {
+            draftSelection.wrappedValue = AgentConfiguration(id: ownerID, model: model, effort: effort, provider: configuration?.provider ?? .codex)
+            return
+        }
         saving = true; error = nil
         Task {
             defer { saving = false }

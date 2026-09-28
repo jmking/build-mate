@@ -33,7 +33,10 @@ extension Orchestrator {
         try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Self-review completed. Ready for review."))
         try transition(taskID, to: .humanReview)
         let project = try store.project(for: task)
-        if ((hosted.repairing && hosted.requirementsRevision == task.requirementsRevision) || !project.settings.askBeforeOpenPR) && project.host != .local {
+        if let reason = project.publicationBlockReason {
+            try store.save(Message(sessionId: session.id, role: "system", body: "QA is complete and the changes are ready for your review. " + reason))
+        }
+        if ((hosted.repairing && hosted.requirementsRevision == task.requirementsRevision) || !project.settings.askBeforeOpenPR) && project.host == .github {
             do { try await openPullRequest(taskID) }
             catch is CancellationError { throw CancellationError() }
             catch { reportBackgroundIssue(runner.redacted(error.localizedDescription), id: "pr-\(taskID)", taskID: taskID) }

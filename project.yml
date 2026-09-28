@@ -34,8 +34,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.buildmate.app
         PRODUCT_NAME: Build Mate
         EXECUTABLE_NAME: BuildMate
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.1
+        CURRENT_PROJECT_VERSION: 2
         ASSETCATALOG_COMPILER_APPICON_NAME: BuildMate
       # Debug builds are a separate app so they never share preferences, data or
       # Launch Services identity with an installed release.
