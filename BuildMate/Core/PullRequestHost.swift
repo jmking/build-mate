@@ -55,3 +55,17 @@ extension ReviewFeedback {
     /// Human review input that needs a recorded response; CI failures and conflicts are repaired instead.
     var needsReply: Bool { ["comment", "thread", "review", "task"].contains(id.split(separator: ":").first.map(String.init) ?? "") }
 }
+
+extension ProcessRunner {
+    /// Publishes exactly the reviewed object. A rejected push means the remote branch holds commits this task
+    /// didn't make (for example, a branch left by another clone); explain it rather than retrying blindly.
+    func pushReviewed(_ commitSHA: String, branch: String, cwd: String) async throws {
+        let result = try await run("git", ["push", "origin", "\(commitSHA):refs/heads/\(branch)"], cwd: cwd, timeout: 120, allowFailure: true, captureErrors: true)
+        guard result.status != 0 else { return }
+        if ["[rejected]", "non-fast-forward", "fetch first"].contains(where: result.output.contains) {
+            throw CoreError.invalid("The remote branch \(branch) already has commits this task didn’t make. Delete or rename that remote branch, then publish again.")
+        }
+        let detail = redacted(result.output).split(whereSeparator: \.isNewline).suffix(3).joined(separator: " ")
+        throw CoreError.invalid("Couldn’t push \(branch): " + (detail.isEmpty ? "git exited with status \(result.status)." : detail))
+    }
+}

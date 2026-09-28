@@ -22,7 +22,7 @@ struct GitHub: PullRequestHost {
         }
         let body = try Self.changeDescription(summary)
         // Publish exactly the reviewed object, even if an editor moves the branch during publication.
-        _ = try await runner.run("git", ["push", "origin", "\(commitSHA):refs/heads/\(branch)"], cwd: cwd)
+        try await runner.pushReviewed(commitSHA, branch: branch, cwd: cwd)
         let file = root.appending(path: "projects/\(project.id)/pr-\(task.id).md")
         try body.write(to: file, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: file) }

@@ -37,7 +37,7 @@ actor Orchestrator {
         dismissedIssues[id] = backgroundIssues[id]?.message
         backgroundIssues[id] = nil
     }
-    private func clearBackgroundIssue(_ id: String) {
+    func clearBackgroundIssue(_ id: String) {
         backgroundIssues[id] = nil; dismissedIssues[id] = nil
     }
     func reportBackgroundIssue(_ message: String, id: String, taskID: UUID? = nil, projectID: UUID? = nil) {

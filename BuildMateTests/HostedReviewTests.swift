@@ -66,6 +66,27 @@ struct HostedReviewTests {
         await resumed.shutdown(); try f.cleanup()
     }
 
+    @Test func publicationExplainsARemoteBranchHoldingCommitsTheTaskDidNotMake() async throws {
+        let f = try await CoreTests.Fixture()
+        let task = try f.store.createTask(projectId: f.project.id, title: "Colliding branch")
+        let core = Orchestrator(store: f.store, runner: f.runner)
+        await core.tick()
+        try await f.wait("initial clarification") { try !f.store.all(Question.self).isEmpty }
+        try await core.answer(try #require(f.store.all(Question.self).first).id, text: "Plain")
+        try await f.wait("initial QA") { try f.store.get(WorkTask.self, task.id).state == .humanReview && f.store.session(for: task.id).status == "idle" }
+        // Another clone already published different work under this branch name.
+        let branch = try #require(f.store.get(WorkTask.self, task.id).branchName)
+        try "foreign\n".write(to: f.repo.appending(path: "foreign.txt"), atomically: true, encoding: .utf8)
+        _ = try await f.runner.run("git", ["add", "foreign.txt"], cwd: f.repo.path)
+        _ = try await f.runner.run("git", ["-c", "user.name=Other", "-c", "user.email=other@example.invalid", "commit", "-m", "Foreign"], cwd: f.repo.path)
+        _ = try await f.runner.run("git", ["push", "origin", "HEAD:refs/heads/" + branch], cwd: f.repo.path)
+        do { try await core.openPullRequest(task.id); Issue.record("Published over a foreign remote branch") }
+        catch { #expect(error.localizedDescription.contains("already has commits this task didn’t make")) }
+        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "pr-created").path))
+        #expect(try f.store.get(WorkTask.self, task.id).state == .humanReview)
+        await core.shutdown(); try f.cleanup()
+    }
+
     @Test func bitbucketPublishesRepairsFeedbackResolvesTasksAndMergesWithTheRepositoryDefault() async throws {
         var f = try await CoreTests.Fixture()
         f.project.host = .bitbucket; try f.store.save(f.project)
@@ -114,6 +135,13 @@ struct HostedReviewTests {
         #expect(blocked.reviewDecision == "CHANGES_REQUESTED" && blocked.feedback.contains { $0.id.hasPrefix("review:") })
         #expect(blocked.head.count == 40)
         try FileManager.default.removeItem(at: f.control.appending(path: "bb-changes-requested"))
+
+        // An open PR task withholds the merge even though Bitbucket would allow it.
+        try FileManager.default.removeItem(at: f.control.appending(path: "task-resolved"))
+        await core.pollPR(task.id)
+        #expect(!FileManager.default.fileExists(atPath: f.control.appending(path: "merge-requested").path))
+        #expect(await core.backgroundIssues.values.contains { $0.message.contains("open pull request task") })
+        try f.marker("task-resolved")
 
         // A project override the repository forbids withholds the merge; the repository default is used otherwise.
         f.project.settings.mergeStrategy = .rebase; try f.marker("no-fast-forward"); try f.store.save(f.project)

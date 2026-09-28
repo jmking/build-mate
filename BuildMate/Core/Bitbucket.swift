@@ -49,7 +49,7 @@ struct Bitbucket: PullRequestHost {
         }
         let body = try GitHub.changeDescription(summary)
         // Publish exactly the reviewed object, even if an editor moves the branch during publication.
-        _ = try await runner.run("git", ["push", "origin", "\(commitSHA):refs/heads/\(branch)"], cwd: cwd)
+        try await runner.pushReviewed(commitSHA, branch: branch, cwd: cwd)
         let file = root.appending(path: "projects/\(project.id)/pr-\(task.id).md")
         try body.write(to: file, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: file) }
@@ -94,7 +94,7 @@ struct Bitbucket: PullRequestHost {
         let byID = Dictionary(comments.compactMap { comment in comment["id"].int.map { ($0, comment) } }, uniquingKeysWith: { first, _ in first })
         for comment in comments {
             guard let id = comment["id"].int, comment["deleted"].bool != true, comment["pending"].bool != true,
-                  let body = comment["content"]["raw"].string, !body.isEmpty, !body.contains(Self.receiptPrefix) else { continue }
+                  let body = comment["content"]["raw"].string, !body.isEmpty, !Self.isOwnReply(body) else { continue }
             var root = comment
             for _ in 0..<100 { guard let parent = root["parent"]["id"].int, let next = byID[parent] else { break }; root = next }
             guard let rootID = root["id"].int else { continue }
@@ -113,8 +113,9 @@ struct Bitbucket: PullRequestHost {
         guard tasks.count < Self.readLimit else { throw CoreError.invalid("This pull request has more tasks than Build Mate can inspect. Review it manually before merging.") }
         for item in tasks where item["state"].string == "UNRESOLVED" {
             guard let id = item["id"].int, let body = item["content"]["raw"].string else { continue }
-            feedback.append(ReviewFeedback(id: "task:\(id):" + GitHub.fingerprint(body), body: "Open pull request task: " + body, threadID: "task:\(id)"))
+            feedback.append(ReviewFeedback(id: "task:\(id):" + GitHub.fingerprint(body), body: "Open pull request task (reply, and set resolve=true once it is fully done): " + body, threadID: "task:\(id)"))
         }
+        let openTasks = tasks.filter { $0["state"].string == "UNRESOLVED" }.count
         let participants = value["participants"].array
         for participant in participants where participant["state"].string == "changes_requested" {
             let who = participant["user"]["account_id"].string ?? participant["user"]["display_name"].string ?? "reviewer"
@@ -136,7 +137,7 @@ struct Bitbucket: PullRequestHost {
             return .object(fields)
         }
         return HostedStatus(state: state, head: head, branch: branch, base: value["destination"]["branch"]["name"].string ?? "",
-                            mergeState: conflicts.isEmpty ? "CLEAN" : "DIRTY", reviewDecision: reviewDecision, draft: value["draft"].bool ?? true, feedback: feedback, checks: checks)
+                            mergeState: conflicts.isEmpty ? "CLEAN" : "DIRTY", reviewDecision: reviewDecision, draft: value["draft"].bool ?? true, feedback: feedback, checks: checks, openTasks: openTasks)
     }
 
     /// The build number of a Bitbucket Pipelines result link for this repository, for example `…/pipelines/results/12`.
@@ -167,6 +168,8 @@ struct Bitbucket: PullRequestHost {
     }
 
     func receipt(_ token: String) -> String { Self.receiptPrefix + token + ")" }
+    /// Build Mate's own replies end with an unquoted receipt line; a reviewer quoting one is still feedback.
+    static func isOwnReply(_ body: String) -> Bool { body.split(whereSeparator: \.isNewline).contains { $0.hasPrefix(receiptPrefix) } }
     func existingReply(task: WorkTask, project: Project, feedback: ReviewFeedback, receipt: String) async throws -> String? {
         guard let pr = task.pr else { return nil }
         let comments = try await twg(["pull-requests", "comment", "query", String(pr.number), "--limit", String(Self.readLimit)], project: project, cwd: task.worktreePath).array
