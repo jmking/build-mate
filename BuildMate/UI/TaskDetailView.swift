@@ -12,7 +12,7 @@ struct TaskDetailView: View {
     private var project: Project? { model.project(for: task) }
     private var openQuestion: Question? { questions.first { $0.answer == nil } }
     private var isPaused: Bool { task.paused || model.settings.paused || project?.paused == true }
-    private var activeTurn: Bool { session?.status == "running" && session?.currentTurn != nil }
+    private var activeTurn: Bool { ["running", "approval"].contains(session?.status ?? "") && session?.currentTurn != nil }
     private var responding: Bool { model.isWorking(task) && activeTurn }
     private var acceptsFeedback: Bool { task.state == .humanReview || task.state == .inPR }
     private var actionTitle: String { openQuestion != nil ? "Send answer" : (activeTurn || acceptsFeedback) ? "Send message" : "Save message" }
@@ -258,7 +258,11 @@ struct TaskDetailView: View {
                     .disabled(sending || openQuestion?.allowsFreeText == false || (message.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty))
                     .keyboardShortcut(.return, modifiers: .command).accessibilityIdentifier("send-task-message")
             }
-            ModelPicker(ownerID: task.id).id(task.id).frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 4)
+            HStack(spacing: 14) {
+                Spacer(minLength: 0)
+                TaskApprovalPicker(task: task)
+                ModelPicker(ownerID: task.id).id(task.id)
+            }.padding(.trailing, 4)
         }.padding(12).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
             .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 16)
             .frame(maxWidth: 776).frame(maxWidth: .infinity)

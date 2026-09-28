@@ -40,6 +40,8 @@ struct TaskNotices: View {
     var body: some View {
         if model.isWorking(task) {
             WorkingIndicator()
+        } else if !model.agentApprovals(for: task.id).isEmpty {
+            Label("Approval needed", systemImage: "lock.shield").font(.caption).foregroundStyle(.purple)
         } else if !task.state.terminal && (task.paused || retrying || (task.state == .todo && model.usageHeld) || dependencyNotice != nil) {
             VStack(alignment: .leading, spacing: 4) {
                 if model.retryNeedsAttention(task) {

@@ -41,6 +41,7 @@ extension Orchestrator {
         // Do not carry an ambiguous explicit model override into combined work.
         let choices = try sources.compactMap { source in try store.all(AgentConfiguration.self).first { $0.id == source.id && !$0.recommended } }
         guard Set(choices.map { $0.model + ":" + ($0.effort ?? "") }).count <= 1 else { throw CoreError.invalid("These tasks have different explicit model choices. Ask the user which to preserve before combining them.") }
+        guard Set(sources.map { $0.approvalMode?.rawValue ?? "project" }).count <= 1 else { throw CoreError.invalid("These tasks have different approval levels. Ask the user to align them before combining work.") }
         for source in sources { editingTasks.insert(source.id) }
         defer { for source in sources { editingTasks.remove(source.id) } }
         for source in sources { await stopForReshape(source.id) }

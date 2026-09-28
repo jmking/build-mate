@@ -4,6 +4,21 @@ extension Orchestrator {
     /// Shared transcript persistence for task and project conversations. Transport parsing stays in the runner.
     func consumeAgentEvent(_ event: AgentEvent, session: Session, client: any AgentRunner,
                            streaming: inout [String: UUID], includeCommands: Bool) async throws -> (handled: Bool, progress: Bool) {
+        if case .permission(let request) = event.kind {
+            try await receiveAgentApproval(request, event: event, session: session)
+            return (true, false)
+        }
+        if case .permissionResolved(let requestID) = event.kind {
+            for (id, approval) in agentApprovals where approval.sessionID == session.id && approval.threadID == event.sessionID && approval.request.id == requestID {
+                try finishAgentApproval(id, status: "resolved")
+            }
+            return (true, false)
+        }
+        if case .turnCompleted = event.kind {
+            for (id, approval) in agentApprovals where approval.sessionID == session.id && approval.threadID == event.sessionID && approval.turnID == event.turnID {
+                try finishAgentApproval(id)
+            }
+        }
         if try await routeSubagentEvent(event, session: session, client: client) {
             if case .activity(let kind, _, _) = event.kind {
                 let knownChild = try subagents(session.id).contains { $0.threadId == event.sessionID }

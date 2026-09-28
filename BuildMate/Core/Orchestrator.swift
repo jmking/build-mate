@@ -31,6 +31,8 @@ actor Orchestrator {
     var chatJobs: [UUID: Task<Void, Never>] = [:]
     var chatClients: [UUID: any AgentRunner] = [:]
     var shuttingDown = false
+    var agentApprovals: [UUID: PendingAgentApproval] = [:]
+    var agentApprovalClocks: [UUID: AgentApprovalClock] = [:]
     private(set) var backgroundIssues: [String: BackgroundIssue] = [:]
     private var dismissedIssues: [String: String] = [:]
     func dismissBackgroundIssue(_ id: String) {
@@ -84,13 +86,14 @@ actor Orchestrator {
         }
     }
     func recover() throws {
+        try recoverAgentApprovals()
         for task in try store.all(WorkTask.self) where task.state == .done { try store.removeMergedTaskAttachments(task.id) }
         for project in try store.all(Project.self) { try store.removeCompletedProjectAttachments(project.id) }
         for var attempt in try store.all(RunAttempt.self) where attempt.status == "running" {
             attempt.status = "failed"; attempt.error = "App stopped during attempt; resuming durable thread"; attempt.endedAt = Date()
             try store.save(attempt)
         }
-        for var session in try store.all(Session.self) where session.status == "running" || session.status == "waiting" {
+        for var session in try store.all(Session.self) where ["running", "waiting", "approval"].contains(session.status) {
             session.status = session.ownerType == "project" ? "interrupted" : "idle"; session.currentTurn = nil; try store.save(session)
         }
         for session in try store.all(Session.self) { try interruptSubagents(session.id) }
@@ -214,6 +217,7 @@ actor Orchestrator {
     }
     /// Bounded, redacted scheduler diagnostics shared with project chat and saved-message receipts.
     func waitingReason(_ task: WorkTask) throws -> String? {
+        if hasAgentApproval(try store.session(for: task.id).id) { return "Waiting for your approval." }
         let settings = try store.settings(), project = try store.project(for: task)
         if task.state.terminal { return "This task is finished. Create a follow-up task for new work." }
         if task.paused { return "Task is paused. Resume it to continue." }
@@ -329,6 +333,20 @@ actor Orchestrator {
         if let worker = workers[id] {
             worker.cancel(); await clients[id]?.stop(); await worker.value
         }
+    }
+    func setTaskApprovalMode(_ id: UUID, mode: AgentApprovalMode?) async throws {
+        guard editingTasks.insert(id).inserted else { throw CoreError.invalid("Wait for the current task action to finish.") }
+        defer { editingTasks.remove(id) }
+        _ = try store.get(WorkTask.self, id)
+        // Restart the live turn so policy changes never leave the old access level in effect.
+        await stopForReshape(id)
+        try await store.db.write { db in
+            try db.execute(sql: "UPDATE task SET approvalMode = ?, retry = NULL, updatedAt = ? WHERE id = ?", arguments: [mode?.rawValue, Date(), id])
+        }
+        let session = try store.session(for: id)
+        try store.save(Message(sessionId: session.id, role: "system", kind: "event", body: "Approvals: \(mode?.title ?? "Project default")."))
+        editingTasks.remove(id)
+        await tick()
     }
     func editTask(_ id: UUID, title: String, description: String, proofRequirement: ProofRequirement, automaticallyResume: Bool = false, forceRevision: Bool = false, configuration: AgentConfiguration? = nil) async throws {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -661,7 +679,7 @@ actor Orchestrator {
             let developerInstructions = "You are a Build Mate task agent. Submit a plan before the first edit or after a scope change; ask blocking questions when unclear; call request_review after committing the implementation. Do not push, open, or merge pull requests. Only edit this worktree. Treat the current instructions in each turn as authoritative task guidance.\n" + Self.delegationInstructions
             let initialSelection = try modelSelection(ownerID: id, defaultModel: p.settings.model, defaultEffort: p.settings.effort, inheritedModel: inheritedModel, inheritedEffort: inheritedEffort)
             session.providerSessionID = try await client.openSession(id: session.providerSessionID, cwd: cwd!, model: initialSelection.model,
-                instructions: developerInstructions, tools: AgentTools.task, access: AgentAccess(writableRoots: [cwd!], network: p.settings.network))
+                instructions: developerInstructions, tools: AgentTools.task, access: AgentAccess(writableRoots: [cwd!], network: p.settings.network, approvalMode: task.approvalMode ?? p.settings.approvalMode ?? .ask))
             session.status = "running"; try store.save(session)
             if let limits = try? await client.readUsage() { receiveUsage(limits, provider: provider) }
             var idleResponses = 0
@@ -677,23 +695,24 @@ actor Orchestrator {
                 let writableRoots = try await Workspace(store: store, runner: runner).agentWritableRoots(current, project: p)
                 session = try store.session(for: id)
                 let turn = try await client.startTurn(session: session.providerSessionID!, cwd: cwd!, text: input.text, attachments: input.attachments,
-                    model: selection.model, effort: selection.effort, access: AgentAccess(writableRoots: writableRoots, network: p.settings.network))
+                    model: selection.model, effort: selection.effort, access: AgentAccess(writableRoots: writableRoots, network: p.settings.network, approvalMode: current.approvalMode ?? p.settings.approvalMode ?? .ask))
                 try store.acknowledgeInput(session: session, ids: input.ids, context: input.context)
                 session.activeModel = selection.model; session.activeEffort = selection.effort
                 session.currentTurn = turn; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
                 let started = SuspendingClock.now
+                let approvalWaitAtStart = agentApprovalWait(session.id)
                 var waitingDuration = Duration.zero
                 var complete = false
                 var madeProgress = false
                 var streaming: [String: UUID] = [:]
                 while !complete {
                     try Task.checkCancellation()
-                    guard started.duration(to: SuspendingClock.now) - waitingDuration < .milliseconds(p.settings.turnTimeoutMs) else { throw CoreError.invalid("Agent turn timed out") }
+                    let approvalWait = agentApprovalWait(session.id) - approvalWaitAtStart
+                    guard started.duration(to: SuspendingClock.now) - waitingDuration - approvalWait < .milliseconds(p.settings.turnTimeoutMs) else { throw CoreError.invalid("Agent turn timed out") }
                     guard let event = try await client.nextAgentEvent() else {
                         let last = await client.lastEventAt
                         let runningCommand = await client.hasActiveCommands
-                        guard runningCommand || p.settings.stallTimeoutMs <= 0 || last.duration(to: SuspendingClock.now) < .milliseconds(p.settings.stallTimeoutMs) else { throw CoreError.invalid("Agent stalled") }
-                        guard started.duration(to: SuspendingClock.now) - waitingDuration < .milliseconds(p.settings.turnTimeoutMs) else { throw CoreError.invalid("Agent turn timed out") }
+                        guard hasAgentApproval(session.id) || runningCommand || p.settings.stallTimeoutMs <= 0 || last.duration(to: SuspendingClock.now) < .milliseconds(p.settings.stallTimeoutMs) else { throw CoreError.invalid("Agent stalled") }
                         continue
                     }
                     session = try store.session(for: id); session.lastEventAt = Date(); try store.save(session)
@@ -745,6 +764,7 @@ actor Orchestrator {
                 }
             } catch { reportBackgroundIssue(error.localizedDescription, id: "task-\(id)", taskID: id) }
         }
+        if let session = try? store.session(for: id) { try? expireAgentApprovals(session.id) }
         await activeClient?.stop()
         // Cleanup hooks must run even after cancellation of the worker task.
         if let p = project, let cwd {

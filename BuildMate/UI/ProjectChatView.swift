@@ -11,7 +11,7 @@ struct ProjectChatView: View {
     private var session: Session? { model.snapshot.sessions.first { $0.ownerType == "project" && $0.ownerId == projectID } }
     private var messages: [Message] { model.snapshot.messages.filter { $0.sessionId == session?.id } }
     private var conversation: [Message] { messages.filter { $0.kind != "activity" && $0.kind != "event" } }
-    private var busy: Bool { ["queued", "running", "waiting"].contains(session?.status ?? "") }
+    private var busy: Bool { ["queued", "running", "waiting", "approval"].contains(session?.status ?? "") }
     private var responding: Bool { session?.status == "running" && project?.paused != true && !model.settings.paused }
     private var question: Message? { messages.last { $0.kind == "question" && $0.payload["answer"] == .null } }
     private var fromChat: [WorkTask] {

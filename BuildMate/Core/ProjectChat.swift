@@ -151,14 +151,15 @@ extension Orchestrator {
             session.activeModel = selection.model; session.activeEffort = selection.effort
             session.currentTurn = turn; session.turnCount += 1; session.lastEventAt = Date(); try store.save(session)
             var deadline = SuspendingClock.now.advanced(by: .milliseconds(project.settings.turnTimeoutMs))
+            let approvalWaitAtStart = agentApprovalWait(session.id)
             var streaming: [String: UUID] = [:]
             while true {
                 try Task.checkCancellation()
-                guard SuspendingClock.now < deadline else { throw CoreError.invalid("Project chat timed out. Retry to continue the same conversation.") }
+                guard SuspendingClock.now < deadline.advanced(by: agentApprovalWait(session.id) - approvalWaitAtStart) else { throw CoreError.invalid("Project chat timed out. Retry to continue the same conversation.") }
                 guard let event = try await client.nextAgentEvent() else {
                     let last = await client.lastEventAt
                     let runningCommand = await client.hasActiveCommands
-                    guard runningCommand || project.settings.stallTimeoutMs <= 0 || last.duration(to: SuspendingClock.now) < .milliseconds(project.settings.stallTimeoutMs) else { throw CoreError.invalid("Project chat stalled. Retry to continue the same conversation.") }
+                    guard hasAgentApproval(session.id) || runningCommand || project.settings.stallTimeoutMs <= 0 || last.duration(to: SuspendingClock.now) < .milliseconds(project.settings.stallTimeoutMs) else { throw CoreError.invalid("Project chat stalled. Retry to continue the same conversation.") }
                     continue
                 }
                 let consumed = try await consumeAgentEvent(event, session: session, client: client, streaming: &streaming, includeCommands: true)
@@ -180,6 +181,7 @@ extension Orchestrator {
                 try? store.save(Message(sessionId: session.id, role: "system", kind: "error", body: runner.redacted(error.localizedDescription)))
             }
         }
+        if let session = try? store.session(for: projectID, ownerType: "project") { try? expireAgentApprovals(session.id) }
         await activeClient?.stop()
         if var session = try? store.session(for: projectID, ownerType: "project") {
             try? interruptSubagents(session.id)
@@ -312,6 +314,7 @@ extension Orchestrator {
                     task.dependsOn = Array(Set(task.dependsOn))
                     task.affectedPaths = try WorkTask.validatedPaths(item.affectedPaths ?? replacing.flatMap(\.affectedPaths))
                     task.relatedTaskIds = related + replacing.map(\.id)
+                    task.approvalMode = replacing.first?.approvalMode
                     task.deliveryGroupIds = Array(Set([id] + replacing.flatMap(\.deliveryGroupIds)))
                     try task.insert(db); created[index] = task
                     if let model = item.model {

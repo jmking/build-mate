@@ -144,6 +144,9 @@ final class Store: Sendable {
                 UPDATE task SET repositoryID = projectId;
                 """)
         }
+        migrator.registerMigration("v19-task-approval-mode") { db in
+            try db.execute(sql: "ALTER TABLE task ADD COLUMN approvalMode TEXT")
+        }
         try migrator.migrate(db)
         let logs = root.appending(path: "logs")
         try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)

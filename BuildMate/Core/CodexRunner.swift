@@ -7,11 +7,13 @@ extension CodexClient: AgentRunner {
         let configuration: JSON = .object(["agents.enabled": .bool(true)])
         if let id {
             _ = try await request("thread/resume", ["threadId": .string(id), "cwd": .string(cwd), "config": configuration,
+                "approvalPolicy": .string(access.approvalMode == .fullAccess ? "never" : "on-request"), "approvalsReviewer": .string(access.approvalMode == .autoReview ? "auto_review" : "user"),
                 "developerInstructions": .string(instructions), "excludeTurns": .bool(true)], timeout: sessionStartTimeout)
             return id
         }
         let response = try await request("thread/start", ["cwd": .string(cwd), "model": .string(model),
-            "sandbox": .string(access.isReadOnly ? "read-only" : "workspace-write"), "approvalPolicy": .string("never"),
+            "sandbox": .string(access.approvalMode == .fullAccess ? "danger-full-access" : access.isReadOnly ? "read-only" : "workspace-write"),
+            "approvalPolicy": .string(access.approvalMode == .fullAccess ? "never" : "on-request"), "approvalsReviewer": .string(access.approvalMode == .autoReview ? "auto_review" : "user"),
             "developerInstructions": .string(instructions), "dynamicTools": tools, "config": configuration], timeout: sessionStartTimeout)
         guard let id = response["thread"]["id"].string else { throw CoreError.invalid("Missing Codex thread ID") }
         return id
@@ -23,7 +25,9 @@ extension CodexClient: AgentRunner {
             policy["writableRoots"] = .array(access.writableRoots.map(JSON.string))
             policy["excludeTmpdirEnvVar"] = .bool(true); policy["excludeSlashTmp"] = .bool(true)
         }
+        if access.approvalMode == .fullAccess { policy = ["type": .string("dangerFullAccess")] }
         let response = try await request("turn/start", ["threadId": .string(session), "cwd": .string(cwd),
+            "approvalPolicy": .string(access.approvalMode == .fullAccess ? "never" : "on-request"), "approvalsReviewer": .string(access.approvalMode == .autoReview ? "auto_review" : "user"),
             "input": .codexInput(text, attachments: attachments), "model": .string(model),
             "effort": effort.map(JSON.string) ?? .null, "sandboxPolicy": .object(policy)])
         guard let turn = response["turn"]["id"].string else { throw CoreError.invalid("Missing Codex turn ID") }
@@ -73,10 +77,13 @@ extension CodexClient: AgentRunner {
                     try await self.respondUserInput(id, answers: answers.mapValues { .object(["answers": .array([.string($0)])]) })
                 }
             })
+        } else if let approval = permissionRequest(event) {
+            kind = .permission(approval)
         } else if event["id"] != .null {
             kind = try await rejectRequest(event).map(AgentEvent.Kind.diagnostic) ?? .ignored
         } else {
             switch method {
+            case "serverRequest/resolved": kind = .permissionResolved(params["requestId"].text)
             case "item/agentMessage/delta": kind = .message(id: params["itemId"].string, text: params["delta"].string, complete: false)
             case "item/started", "item/completed":
                 if item["type"].string == "subAgentActivity", let id = item["agentThreadId"].string {

@@ -32,6 +32,7 @@ enum ProofRequirement: String, Codable, CaseIterable, Sendable {
 }
 
 struct ProjectSettings: Codable, Sendable {
+    var approvalMode: AgentApprovalMode?
     var retryBackoffMaxMs = 300_000
     var turnTimeoutMs = 3_600_000
     var stallTimeoutMs = 300_000
@@ -123,6 +124,7 @@ struct WorkTask: Record {
     static let databaseTableName = "task"
     var id = UUID()
     var projectId: UUID
+    var approvalMode: AgentApprovalMode?
     var number: Int
     var title: String
     var description = ""

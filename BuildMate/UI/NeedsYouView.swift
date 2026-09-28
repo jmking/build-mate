@@ -14,6 +14,7 @@ struct NeedsYouView: View {
             return matches(question.body + " " + (owner.map(model.projectName) ?? ""))
         }
     }
+    private var agentApprovals: [Message] { model.agentApprovals.filter { matches($0.body + " " + ($0.payload["reason"].string ?? "")) } }
     var body: some View {
         if model.snapshot.projects.isEmpty {
             ContentUnavailableView {
@@ -24,7 +25,7 @@ struct NeedsYouView: View {
                 Button("Add Project…") { model.showAddProject = true }.buttonStyle(.borderedProminent)
                     .help("Add an existing repository or create a new project (⇧⌘N)")
             }
-        } else if waiting.isEmpty && projectQuestions.isEmpty {
+        } else if waiting.isEmpty && projectQuestions.isEmpty && agentApprovals.isEmpty {
             if !query.isEmpty {
                 ContentUnavailableView {
                     Label("No matches", systemImage: "magnifyingglass")
@@ -39,6 +40,27 @@ struct NeedsYouView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
+                    if !agentApprovals.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Actions to approve").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
+                            ForEach(agentApprovals) { message in
+                                if let session = model.snapshot.sessions.first(where: { $0.id == message.sessionId }) {
+                                    Button { model.destination = session.ownerType == "task" ? .task(session.ownerId) : .project(session.ownerId, .chat) } label: {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: "lock.shield").foregroundStyle(.purple).frame(width: 20).accessibilityHidden(true)
+                                            VStack(alignment: .leading, spacing: 6) {
+                                                Text(model.snapshot.tasks.first { $0.id == session.ownerId }?.title ?? model.projectName(session.ownerId)).fontWeight(.medium)
+                                                Text(message.body).foregroundStyle(.secondary)
+                                            }
+                                            Spacer()
+                                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+                                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                                            .background(AppSurface.raised, in: RoundedRectangle(cornerRadius: 12))
+                                    }.buttonStyle(.plain).help("Open the conversation to review this request")
+                                }
+                            }
+                        }
+                    }
                     if !projectQuestions.isEmpty {
                         Text("Project questions").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
                         ForEach(projectQuestions) { question in

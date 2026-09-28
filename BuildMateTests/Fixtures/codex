@@ -153,10 +153,10 @@ for line in sys.stdin:
    assert p['sandbox']=='read-only' and p['approvalPolicy']=='never' and not p.get('dynamicTools')
    assert pathlib.Path(cwd).parent.name=='title-drafts'
   elif project_mode:
-   assert p['sandbox']=='read-only' and p['approvalPolicy']=='never'
+   assert p['sandbox']=='read-only' and p['approvalPolicy']=='on-request'
    assert pathlib.Path(cwd).name=='project-chat'
    assert 'request_review' not in [t['name'] for t in p['dynamicTools']]
-  else:assert p['dynamicTools'] and p['sandbox']=='workspace-write' and p['approvalPolicy']=='never'
+  else:assert p['dynamicTools'] and p['sandbox'] in ['workspace-write','danger-full-access'] and p['approvalPolicy']==('never' if p['sandbox']=='danger-full-access' else 'on-request')
   save(cwd=cwd,project_mode=project_mode);reply(req,{'thread':{'id':thread}})
  elif method=='thread/resume':
   assert p.get('config',{}).get('agents.enabled') is True
@@ -178,6 +178,29 @@ for line in sys.stdin:
    text='not JSON' if (root/'title-failure').exists() else json.dumps({'title':'Keep command output compact'})
    event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':'title','type':'agentMessage','text':text}})
    complete();continue
+  if (root/'native-approvals').exists() or (root/'approval-modes').exists():
+   assert p['approvalPolicy'] in ['on-request','never']
+   assert p['approvalsReviewer'] in ['user','auto_review']
+   reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
+   (root/'active-approval-turn.json').write_text(json.dumps({'thread':thread,'turn':turn,'params':p}))
+   if (root/'native-approvals').exists():
+    file_item={'id':'edit','type':'fileChange','status':'inProgress','changes':[{'path':cwd+'/qa.txt','kind':{'type':'add'},'diff':'+QA preview'}]}
+    event('item/started',{'threadId':thread,'turnId':turn,'item':file_item})
+    cases=[
+     ('command','item/commandExecution/requestApproval',{'itemId':'cmd','command':'open -a ExampleQA.app','cwd':cwd,'reason':'Run the app for visual QA'}),
+     ('files','item/fileChange/requestApproval',{'itemId':'edit','reason':'Prepare the QA fixture'}),
+     ('permissions','item/permissions/requestApproval',{'itemId':'access','cwd':cwd,'reason':'Use the QA cache','permissions':{'fileSystem':{'write':[str(root/'qa-cache')]},'network':{'enabled':True}}}),
+     ('connector','mcpServer/elicitation/request',{'serverName':'browser-fixture','mode':'form','message':'Allow the preview?','requestedSchema':{'type':'object','properties':{}}}),
+     ('foreign','item/commandExecution/requestApproval',{'itemId':'foreign','command':'do-not-run','threadId':'foreign-thread'}),
+     ('stale','item/commandExecution/requestApproval',{'itemId':'stale','command':'do-not-run','turnId':'old-turn'}),
+     ('missing-turn','item/commandExecution/requestApproval',{'itemId':'missing','command':'do-not-run','turnId':None}),
+     ('resolved','item/commandExecution/requestApproval',{'itemId':'resolved','command':'already-canceled'})]
+    for tag,method_name,args in cases:
+     key=turn+'-approval-'+tag;pending[key]='approval-'+tag
+     emit({'id':key,'method':method_name,'params':dict({'threadId':thread,'turnId':turn},**args)})
+    event('serverRequest/resolved',{'threadId':thread,'requestId':turn+'-approval-resolved'})
+    pending.pop(turn+'-approval-resolved')
+   continue
   if (root/'empty-responses').exists():
    reply(req,{'turn':{'id':turn,'status':'inProgress','items':[]}})
    event('item/completed',{'threadId':thread,'turnId':turn,'item':{'id':turn+'-idle','type':'agentMessage','text':'I will continue.'}})
@@ -288,6 +311,11 @@ for line in sys.stdin:
    reply(req,{});event('turn/completed',{'threadId':target,'turn':{'id':target_turn,'status':'interrupted','items':[]}})
  elif 'id' in req and req['id'] in pending:
   tool=pending.pop(req['id'])
+  if tool.startswith('approval-'):
+   result=req['result']
+   with (root/'approval-results.jsonl').open('a') as f:f.write(json.dumps({'id':req['id'],'kind':tool,'result':result})+'\n')
+   event('serverRequest/resolved',{'threadId':thread,'requestId':req['id']})
+   continue
   if tool.startswith('native-'):
    result=req['result']
    if tool=='native-secret':assert 'Secret input is not supported' in result['answers']['secret']['answers'][0]

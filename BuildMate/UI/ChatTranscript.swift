@@ -135,7 +135,9 @@ struct ChatTranscript<Content: View>: View {
                         .frame(maxWidth: .infinity).padding(.top, index == 0 ? 0 : 16).padding(.bottom, 12)
                 }
                 Group {
-                    if row.message == nil || row.message.map(isSpeech) == true {
+                    if let message = row.message, message.kind == "agentApproval" {
+                        AgentApprovalCard(message: message)
+                    } else if row.message == nil || row.message.map(isSpeech) == true {
                         AgentResponseBubble(message: row.message)
                     } else if let message = row.message {
                         content(message)

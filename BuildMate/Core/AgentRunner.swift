@@ -6,7 +6,22 @@ enum AgentProvider: String, Codable, CaseIterable, Sendable { case codex }
 struct AgentAccess: Sendable {
     var writableRoots: [String] = []
     var network = false
+    var approvalMode: AgentApprovalMode = .ask
     var isReadOnly: Bool { writableRoots.isEmpty }
+}
+
+enum AgentApprovalMode: String, Codable, CaseIterable, Sendable {
+    case ask, autoReview, fullAccess
+    var title: String {
+        switch self { case .ask: "Ask for approval"; case .autoReview: "Approve for me"; case .fullAccess: "Full Access" }
+    }
+    var explanation: String {
+        switch self {
+        case .ask: "Uses the sandbox and asks you before an action needs additional access."
+        case .autoReview: "Uses the sandbox. Codex reviews approval requests automatically and may deny unsafe actions or ask you."
+        case .fullAccess: "Commands can access files and the network outside the worktree without asking."
+        }
+    }
 }
 
 struct AgentQuestion: Sendable {
@@ -16,6 +31,18 @@ struct AgentQuestion: Sendable {
     var allowsFreeText: Bool
     var blocking: Bool
     var secret: Bool
+}
+
+/// A native approval is tied to a live server callback, never to a reusable app-level grant.
+struct AgentPermissionRequest: Sendable {
+    var id: String
+    var title: String
+    var reason: String
+    var details: String
+    var allowLabel = "Allow once"
+    var url: String? = nil
+    var allowsMissingTurn = false
+    var reply: @Sendable (Bool) async throws -> Void
 }
 
 enum AgentReply: Sendable {
@@ -54,6 +81,8 @@ struct AgentEvent: Sendable {
     var kind: Kind
     enum Kind: Sendable {
         case request(AgentRequest)
+        case permission(AgentPermissionRequest)
+        case permissionResolved(String)
         case message(id: String?, text: String?, complete: Bool)
         case activity(kind: AgentActivity, command: String?, output: String?)
         case image(id: String?, path: String?, complete: Bool)

@@ -33,13 +33,17 @@ struct SettingsView: View {
                             }.help("Default editor for this project")
                             Toggle("Ask me before starting to build", isOn: projectSetting(\.askBeforeBuild, fallback: false))
                                 .help("Require plan approval unless a task overrides this preference")
+                            Picker("Default task approvals", selection: Binding(get: { project.settings.approvalMode ?? .ask }, set: { projectSetting(\.approvalMode, fallback: nil).wrappedValue = $0 })) {
+                                ForEach(AgentApprovalMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                            }.help("Default for task agents; each task can override it. Project chat keeps its read-only sandbox")
+                            Text((project.settings.approvalMode ?? .ask).explanation).font(.caption).foregroundStyle(.secondary)
                             Picker("Merge pull requests with", selection: projectSetting(\.mergeStrategy, fallback: nil)) {
                                 Text("Repository default").tag(Optional<MergeStrategy>.none)
                                 ForEach(MergeStrategy.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
                             }.help("Use the repository’s default merge method, or choose one for this project. The repository must allow it")
                             DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
                                 TextField("Branch prefix", text: projectSetting(\.branchPrefix, fallback: "")).help("Prefix for newly created task branches")
-                                Toggle("Allow agent network access", isOn: projectSetting(\.network, fallback: true)).help("Allow network access from task agents; project chat remains read-only without network access")
+                                Toggle("Allow agent network access", isOn: projectSetting(\.network, fallback: true)).disabled(project.settings.approvalMode == .fullAccess).help("Allow sandboxed task agents network access without prompting. Full Access always includes network access; project chat remains read-only")
                                 DisclosureGroup("Diagnostics", isExpanded: $diagnosticsExpanded) {
                                     duration("Turn timeout", \.turnTimeoutMs, fallback: 3_600_000, unit: "minutes", scale: 60_000)
                                     duration("Stall timeout", \.stallTimeoutMs, fallback: 300_000, unit: "minutes", scale: 60_000, allowsZero: true)

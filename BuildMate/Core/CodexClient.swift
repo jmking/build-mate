@@ -21,6 +21,7 @@ actor CodexClient {
     private var activeTurns: [String: String] = [:]
     private var startedSubagentActivities: Set<String> = []
     private var stopping: Task<Void, Never>?
+    var approvalItems: [String: JSON] = [:]
 
     func start(runner: ProcessRunner, cwd: String, timeout: Double) async throws {
         self.timeout = timeout
@@ -77,6 +78,9 @@ actor CodexClient {
             if value["method"].string == "turn/completed", activeTurns[thread] == turn { activeTurns[thread] = nil }
         }
         if let itemId = value["params"]["item"]["id"].string {
+            let key = (value["params"]["threadId"].string ?? "") + ":" + itemId
+            if value["method"].string == "item/started", ["commandExecution", "fileChange"].contains(item["type"].string ?? "") { approvalItems[key] = item }
+            if value["method"].string == "item/completed" { approvalItems[key] = nil }
             if value["method"].string == "item/started", value["params"]["item"]["type"].string == "commandExecution" { activeCommands.insert(itemId) }
             if value["method"].string == "item/completed" { activeCommands.remove(itemId) }
         }
@@ -120,7 +124,11 @@ actor CodexClient {
     func reject(_ id: JSON) async throws {
         try await child.write(.object(["id": id, "error": .object(["code": .number(-32601), "message": .string("Unsupported server request")])]))
     }
-    /// Decline supported native request shapes without expanding this chat's permissions.
+    func respondApproval(_ id: JSON, result: JSON) async throws {
+        lastEventAt = SuspendingClock.now
+        try await child.write(.object(["id": id, "result": result]))
+    }
+    /// Fail closed when the server uses a request shape we cannot safely display.
     /// Diagnostics are fixed text: request arguments can contain secrets or private URLs.
     func rejectRequest(_ event: JSON) async throws -> String? {
         let id = event["id"]
@@ -130,18 +138,18 @@ actor CodexClient {
         switch event["method"].string {
         case "item/commandExecution/requestApproval":
             result = .object(["decision": .string("decline")])
-            diagnostic = "A command required approval that Build Mate cannot request yet, so it was declined."
+            diagnostic = "Codex requested command approval without a supported action preview. It was declined; ask the agent to retry with the command details."
         case "item/fileChange/requestApproval":
             result = .object(["decision": .string("decline")])
-            diagnostic = "A file change required approval that Build Mate cannot request yet, so it was declined."
+            diagnostic = "Codex requested file-change approval without the proposed changes. It was declined; ask the agent to retry with the diff."
         case "item/permissions/requestApproval":
             result = .object(["permissions": .object([:]), "scope": .string("turn")])
-            diagnostic = "Additional file or network access was declined. Build Mate cannot request broader permissions yet."
+            diagnostic = "Codex requested access in an unsupported format. It was declined; ask the agent to retry with specific file or network permissions."
         case "mcpServer/elicitation/request":
             result = .object(["action": .string("decline"), "content": .null])
-            diagnostic = "A connected tool needed input or confirmation that Build Mate cannot request yet, so it was declined."
+            diagnostic = "A connected tool requested a structured input form that Build Mate does not support yet. Complete that setup in the tool, then ask the agent to retry."
         case "execCommandApproval", "applyPatchApproval":
-            diagnostic = "An action required approval that Build Mate cannot request yet, so it was declined."
+            diagnostic = "The agent used a legacy approval format. Update Codex CLI and retry the action."
             result = .object(["decision": .object(["denied": .object(["rejection": .string(diagnostic)])])])
         default:
             try await reject(id)

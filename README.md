@@ -6,6 +6,7 @@ Discuss work in project chat, let the agent clarify and organise it into tasks, 
 
 - Group multiple repositories into a project.
 - Run tasks in parallel, with dependencies and model/effort choices.
+- Review agent access requests in chat, with project defaults and per-task approval levels.
 - Share screenshots and files in chat; inspect checks, screenshots and recordings before approving work.
 - Address PR feedback and failed CI, then merge when the repository’s requirements are met.
 

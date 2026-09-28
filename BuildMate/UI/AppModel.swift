@@ -182,6 +182,13 @@ final class AppModel {
     }
     var attentionItems: [AttentionItem] {
         var result: [AttentionItem] = []
+        for message in agentApprovals {
+            guard let session = snapshot.sessions.first(where: { $0.id == message.sessionId }) else { continue }
+            let task = snapshot.tasks.first { $0.id == session.ownerId }
+            let projectID = task?.projectId ?? session.ownerId
+            result.append(AttentionItem(id: "agent-approval-\(message.id)", ownerID: session.ownerId, ownerType: session.ownerType,
+                                        projectID: projectID, title: task?.title ?? projectName(projectID), detail: message.body))
+        }
         for task in snapshot.tasks where !task.state.terminal {
             for question in snapshot.questions where question.taskId == task.id && question.answer == nil {
                 result.append(AttentionItem(id: "question-\(question.id)", ownerID: task.id, projectID: task.projectId, title: task.title, detail: "Answer a question"))
@@ -246,7 +253,12 @@ final class AppModel {
     }
     func needsYou(_ task: WorkTask) -> Bool {
         !task.state.terminal && (task.state == .humanReview || snapshot.questions.contains { $0.taskId == task.id && $0.answer == nil }
-            || snapshot.approvals.contains { $0.taskId == task.id && $0.status == "pending" } || retryNeedsAttention(task))
+            || snapshot.approvals.contains { $0.taskId == task.id && $0.status == "pending" } || !agentApprovals(for: task.id).isEmpty || retryNeedsAttention(task))
+    }
+    var agentApprovals: [Message] { snapshot.messages.filter(\.isPendingAgentApproval) }
+    func agentApprovals(for ownerID: UUID) -> [Message] {
+        let sessionID = snapshot.sessions.first { $0.ownerId == ownerID }?.id
+        return agentApprovals.filter { $0.sessionId == sessionID }
     }
     var projectQuestions: [Message] {
         let sessions = Set(snapshot.sessions.filter { $0.ownerType == "project" }.map(\.id))
@@ -256,16 +268,17 @@ final class AppModel {
         let sessionID = snapshot.sessions.first { $0.ownerType == "project" && $0.ownerId == projectID }?.id
         return projectQuestions.filter { $0.sessionId == sessionID }.count
     }
-    var needsCount: Int { snapshot.tasks.filter(needsYou).count + projectQuestions.count }
-    var workers: Int { snapshot.sessions.filter { ["running", "waiting"].contains($0.status) }.count }
+    var needsCount: Int { snapshot.tasks.filter(needsYou).count + projectQuestions.count + snapshot.projects.reduce(0) { $0 + agentApprovals(for: $1.id).count } }
+    var workers: Int { snapshot.sessions.filter { ["running", "waiting", "approval"].contains($0.status) }.count }
     func projectName(_ id: UUID) -> String { snapshot.projects.first { $0.id == id }?.name ?? "Project" }
     func projectChatWaitingReason(_ projectID: UUID) -> String? {
         guard let project = snapshot.projects.first(where: { $0.id == projectID }),
               let session = snapshot.sessions.first(where: { $0.ownerType == "project" && $0.ownerId == projectID }),
-              ["queued", "running", "waiting"].contains(session.status) else { return nil }
+              ["queued", "running", "waiting", "approval"].contains(session.status) else { return nil }
         if settings.paused { return "All work is paused" }
         if project.paused { return "Project is paused" }
         if session.status == "waiting" { return "Waiting for your answer" }
+        if session.status == "approval" { return "Waiting for your approval" }
         if session.status == "running" { return nil }
         if usageHeld { return "Waiting for usage to reset" }
         if usage.refreshing && usage.updatedAt == nil { return "Checking account usage…" }
@@ -273,6 +286,7 @@ final class AppModel {
     }
     func waitingReason(for task: WorkTask) -> String? {
         guard !task.state.terminal else { return nil }
+        if !agentApprovals(for: task.id).isEmpty { return "Waiting for your approval" }
         if task.paused { return retryNeedsAttention(task) ? "Review the issue before resuming" : "Paused" }
         if settings.paused { return "All work is paused" }
         if let project = project(for: task) {
