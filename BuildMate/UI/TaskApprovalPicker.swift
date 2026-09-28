@@ -11,6 +11,7 @@ struct TaskApprovalPicker: View {
                 Text("Project default (\(inherited.title))").tag(Optional<AgentApprovalMode>.none)
                 ForEach(AgentApprovalMode.allCases, id: \.self) { mode in Text(mode.title).tag(Optional(mode)) }
             }
+            .pickerStyle(.inline)
         } label: {
             Label((task.approvalMode ?? inherited).title, systemImage: task.approvalMode == .fullAccess || task.approvalMode == nil && inherited == .fullAccess ? "lock.open" : "lock.shield")
                 .font(.caption).foregroundStyle(.secondary)
